@@ -29,7 +29,7 @@ def _extract_live_routing(base: dict[str, Any], rows: list[dict[str, str]]) -> d
     routing = dict(base)
     categories = dict(base.get("categories", {}))
     category_defaults = dict(base.get("category_defaults", {}))
-    merged_keywords = {k: dict(v) for k, v in (base.get("sub_specialism_keywords", {}) or {}).items()}
+    merged_keywords = {k: {label: list(patterns) for label, patterns in v.items()} for k, v in (base.get("sub_specialism_keywords", {}) or {}).items()}
     allowed_countries = list(base.get("allowed_countries", []))
     seen_countries = set(allowed_countries)
 
@@ -45,27 +45,24 @@ def _extract_live_routing(base: dict[str, Any], rows: list[dict[str, str]]) -> d
             exact_categories.add(category)
             merged_keywords.setdefault(category, {})
             if sub_spec:
-                merged_keywords[category][sub_spec] = [sub_spec.lower()]
+                existing_patterns = merged_keywords[category].get(sub_spec, [])
+                exact_pattern = sub_spec.lower()
+                if exact_pattern not in existing_patterns:
+                    merged_keywords[category][sub_spec] = [*existing_patterns, exact_pattern]
                 category_defaults.setdefault(category, sub_spec)
 
         if country and country not in seen_countries:
             allowed_countries.append(country)
             seen_countries.add(country)
 
-    # keep internal taxonomy keys stable, but only trust exact workbook labels
     label_to_key = {label: key for key, label in categories.items()}
     refreshed_categories: dict[str, str] = {}
     for label in sorted(exact_categories):
         key = label_to_key.get(label)
         if key is not None:
             refreshed_categories[key] = label
-    if refreshed_categories:
-        routing["categories"] = refreshed_categories
-    else:
-        routing["categories"] = categories
-
-    if merged_keywords:
-        routing["sub_specialism_keywords"] = merged_keywords
+    routing["categories"] = refreshed_categories or categories
+    routing["sub_specialism_keywords"] = merged_keywords
     routing["category_defaults"] = category_defaults
     routing["allowed_countries"] = allowed_countries
     return routing
