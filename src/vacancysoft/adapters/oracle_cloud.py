@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import time
 from datetime import datetime
 from typing import Any
@@ -17,6 +16,7 @@ from vacancysoft.adapters.base import (
     ExtractionMethod,
     SourceAdapter,
 )
+from vacancysoft.browser import browser_session
 from vacancysoft.source_registry.legacy_board_mappings import lookup_company
 
 DEFAULT_SEARCH_TERMS = ["risk", "quant", "quantitative", "compliance", "strats"]
@@ -78,6 +78,50 @@ def _extract_records_from_xhr(captured: list[dict[str, Any]], board: dict[str, A
     return records
 
 
+def _make_dom_record(title: str, href: str, board: dict[str, Any]) -> DiscoveredJobRecord:
+    company_name = lookup_company("oracle", board_url=board.get("url"), explicit_company=board.get("company"))
+    return DiscoveredJobRecord(
+        external_job_id=href or title,
+        title_raw=_clean(title),
+        location_raw=None,
+        posted_at_raw=None,
+        summary_raw=None,
+        discovered_url=href,
+        apply_url=href,
+        listing_payload=None,
+        completeness_score=0.5 if href else 0.25,
+        extraction_confidence=0.72,
+        provenance={
+            "adapter": "oracle",
+            "method": ExtractionMethod.BROWSER.value,
+            "company": company_name or "",
+            "platform": "Oracle Cloud",
+            "board_url": str(board.get("url") or ""),
+            "fallback": "dom",
+        },
+    )
+
+
+async def _dom_fallback(page: Any, board: dict[str, Any], diagnostics: AdapterDiagnostics) -> list[DiscoveredJobRecord]:
+    records: list[DiscoveredJobRecord] = []
+    host_prefix = f"https://{str(board.get('url') or '').split('/')[2]}"
+    try:
+        job_links = await page.query_selector_all("a[data-ph-at-id='job-title-link'], a.job-title, a[class*='job']")
+        diagnostics.counters["dom_candidates"] = len(job_links)
+        for link in job_links:
+            try:
+                title = _clean(await link.inner_text())
+                href = _clean(await link.get_attribute("href"))
+                if title and href:
+                    url = href if href.startswith("http") else f"{host_prefix}{href}"
+                    records.append(_make_dom_record(title, url, board))
+            except Exception:
+                diagnostics.counters["dom_parse_failures"] = diagnostics.counters.get("dom_parse_failures", 0) + 1
+    except Exception as exc:
+        diagnostics.errors.append(f"Oracle DOM fallback failed: {exc}")
+    return records
+
+
 class OracleCloudAdapter(SourceAdapter):
     adapter_name = "oracle"
     capabilities = AdapterCapabilities(
@@ -108,43 +152,45 @@ class OracleCloudAdapter(SourceAdapter):
         seen_urls: set[str] = set()
         try:
             async with async_playwright() as playwright:
-                browser = await playwright.chromium.launch(headless=True)
-                context = await browser.new_context()
-                page = await context.new_page()
-                try:
-                    for term in search_terms:
-                        captured: list[dict[str, Any]] = []
-                        async def on_response(response: Any) -> None:
-                            url = response.url
-                            if response.status != 200:
-                                return
-                            if not any(key in url for key in ("recruitingCEJobRequisitions", "searchJobRequisitions", "recruitingJobRequisitions")):
-                                return
+                async with browser_session(playwright) as (_browser, context):
+                    page = await context.new_page()
+                    try:
+                        for term in search_terms:
+                            captured: list[dict[str, Any]] = []
+
+                            async def on_response(response: Any) -> None:
+                                url = response.url
+                                if response.status != 200:
+                                    return
+                                if not any(key in url for key in ("recruitingCEJobRequisitions", "searchJobRequisitions", "recruitingJobRequisitions")):
+                                    return
+                                try:
+                                    data = await response.json()
+                                    if isinstance(data, dict):
+                                        captured.append(data)
+                                except Exception:
+                                    diagnostics.counters["json_intercept_failures"] = diagnostics.counters.get("json_intercept_failures", 0) + 1
+
+                            page.on("response", on_response)
+                            search_url = f"{board_url}?keyword={term}&sortBy=POSTING_DATES_DESC"
                             try:
-                                data = await response.json()
-                                if isinstance(data, dict):
-                                    captured.append(data)
+                                await page.goto(search_url, wait_until="networkidle", timeout=int(source_config.get("page_timeout_ms", PAGE_TIMEOUT_MS)))
                             except Exception:
-                                diagnostics.counters["json_intercept_failures"] = diagnostics.counters.get("json_intercept_failures", 0) + 1
-                        page.on("response", on_response)
-                        search_url = f"{board_url}?keyword={term}&sortBy=POSTING_DATES_DESC"
-                        try:
-                            await page.goto(search_url, wait_until="networkidle", timeout=int(source_config.get("page_timeout_ms", PAGE_TIMEOUT_MS)))
-                        except Exception:
-                            await page.goto(search_url, wait_until="domcontentloaded", timeout=int(source_config.get("page_timeout_ms", PAGE_TIMEOUT_MS)))
-                            await page.wait_for_timeout(int(source_config.get("search_settle_ms", 5000)))
-                        parsed = _extract_records_from_xhr(captured, board)
-                        for record in parsed:
-                            url = record.discovered_url or record.external_job_id
-                            if not url or url in seen_urls:
-                                continue
-                            seen_urls.add(url)
-                            all_records.append(record)
-                        page.remove_listener("response", on_response)
-                finally:
-                    await page.close()
-                    await context.close()
-                    await browser.close()
+                                await page.goto(search_url, wait_until="domcontentloaded", timeout=int(source_config.get("page_timeout_ms", PAGE_TIMEOUT_MS)))
+                                await page.wait_for_timeout(int(source_config.get("search_settle_ms", 5000)))
+                            parsed = _extract_records_from_xhr(captured, board)
+                            if not parsed:
+                                parsed = await _dom_fallback(page, board, diagnostics)
+                            for record in parsed:
+                                url = record.discovered_url or record.external_job_id
+                                if not url or url in seen_urls:
+                                    continue
+                                seen_urls.add(url)
+                                all_records.append(record)
+                            page.remove_listener("response", on_response)
+                            await page.wait_for_timeout(int(source_config.get("between_searches_ms", 1500)))
+                    finally:
+                        await page.close()
         except PlaywrightTimeoutError as exc:
             diagnostics.errors.append(f"Oracle Cloud page timeout: {exc}")
             raise
