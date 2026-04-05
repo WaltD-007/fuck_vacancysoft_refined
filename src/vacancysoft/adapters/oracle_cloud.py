@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime
 from typing import Any
@@ -50,7 +51,16 @@ _REJECT_TITLE_TOKENS = {
     "candidate home",
     "privacy policy",
 }
-_REJECT_URL_TOKENS = ("privacy", "linkedin", "facebook", "twitter", "mailto:", "javascript:")
+_REJECT_TITLE_PREFIXES = (
+    "all jobs",
+    "new jobs",
+    "software engineering",
+    "advisors",
+    "associate bankers",
+    "product management",
+    "originations",
+)
+_REJECT_URL_TOKENS = ("privacy", "linkedin", "facebook", "twitter", "mailto:", "javascript:", "selectedpostingdatesfacet", "selectedcategoriesfacet")
 
 
 def _clean(value: Any) -> str | None:
@@ -75,6 +85,10 @@ def _looks_like_job_title(title: str | None) -> bool:
     lowered = title.strip().lower()
     if lowered in _REJECT_TITLE_TOKENS:
         return False
+    if any(lowered.startswith(prefix) for prefix in _REJECT_TITLE_PREFIXES):
+        return False
+    if re.fullmatch(r"[a-z &/-]+ \(\d+\)", lowered):
+        return False
     return len(lowered) >= 4
 
 
@@ -89,15 +103,16 @@ def _looks_like_job_url(url: str | None) -> bool:
 
 def _parse_requisition(req: dict[str, Any], board: dict[str, Any]) -> DiscoveredJobRecord | None:
     title = _clean(req.get("Title") or req.get("title") or req.get("RequisitionTitle"))
-    if not title:
+    if not _looks_like_job_title(title):
         return None
     location = req.get("PrimaryLocation") or req.get("primaryLocation") or req.get("WorkLocation") or req.get("LocationCity")
     if isinstance(location, dict):
         location = location.get("descriptor")
     location = _clean(location)
     req_id = _clean(req.get("Id") or req.get("RequisitionNumber") or req.get("id"))
+    direct_url = _absolute_url(req.get("ExternalUrl") or req.get("jobUrl") or req.get("url"), str(board.get("url") or ""))
     board_url = str(board.get("url") or "").rstrip("/")
-    job_url = f"{board_url}/job/{req_id}" if req_id else board_url
+    job_url = direct_url or (f"{board_url}/job/{req_id}" if req_id else None) or board_url
     posted = _clean(req.get("PostedDate") or req.get("postedDate"))
     company_name = lookup_company("oracle", board_url=board.get("url"), explicit_company=board.get("company"))
     completeness_fields = [title, location, job_url, posted]
@@ -126,14 +141,31 @@ def _parse_requisition(req: dict[str, Any], board: dict[str, Any]) -> Discovered
 
 def _extract_records_from_xhr(captured: list[dict[str, Any]], board: dict[str, Any]) -> list[DiscoveredJobRecord]:
     records: list[DiscoveredJobRecord] = []
-    for data in captured:
-        items = data.get("items") or data.get("requisitionList") or data.get("RequisitionList") or data.get("value") or []
-        for item in items:
-            if isinstance(item, dict):
-                record = _parse_requisition(item, board)
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            if any(key in node for key in ("Title", "title", "RequisitionTitle")):
+                record = _parse_requisition(node, board)
                 if record:
                     records.append(record)
-    return records
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    for data in captured:
+        walk(data)
+
+    deduped: list[DiscoveredJobRecord] = []
+    seen_urls: set[str] = set()
+    for record in records:
+        url = record.discovered_url or record.external_job_id
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        deduped.append(record)
+    return deduped
 
 
 def _make_dom_record(title: str, href: str, board: dict[str, Any], *, source: str) -> DiscoveredJobRecord:
@@ -385,6 +417,8 @@ class OracleCloudAdapter(SourceAdapter):
                             await _diagnose_page(page, diagnostics, board_url, f"term_{term}")
                             diagnostics.metadata[f"term_{term}_network_urls"] = captured_urls[:12]
                             diagnostics.counters[f"term_{term}_network_payloads"] = len(captured)
+                            if captured:
+                                diagnostics.metadata[f"term_{term}_network_payload_keys"] = [sorted(list(payload.keys()))[:20] for payload in captured[:3]]
 
                             parsed = _extract_records_from_xhr(captured, board)
                             if parsed:
