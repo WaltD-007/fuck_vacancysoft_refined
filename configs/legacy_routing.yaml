@@ -1,0 +1,126 @@
+categories:
+  risk: Risk
+  quant: Quant
+  compliance: Compliance
+  audit: Audit
+  cyber: Cyber
+  legal: Legal
+  front_office: Front Office
+
+category_defaults:
+  Risk: Risk Management
+  Quant: Quantitative (General)
+  Compliance: Regulatory Compliance
+  Audit: Audit (General)
+  Cyber: Cyber Security
+  Legal: Legal (General)
+  Front Office: Trading (General)
+  Other: Other
+
+sub_specialism_keywords:
+  Risk:
+    Credit Risk: [credit risk]
+    Market Risk: [market risk]
+    Operational Risk: [operational risk]
+    Model Risk: [model risk]
+    Model Validation: [model validation]
+    Liquidity Risk: [liquidity risk]
+    Enterprise Risk: [enterprise risk]
+    Insurance Risk: [insurance risk]
+    Treasury: [treasury]
+    Stress Testing: [stress testing]
+    Resilience: [resilience, operational resilience]
+    Financial Crime: [financial crime]
+    Risk Management: [risk manager, risk management]
+  Quant:
+    Quantitative Research: [quantitative research]
+    Quantitative Development: [quantitative developer, quantitative development]
+    Quantitative Trading: [quantitative trading]
+    Strats: [strats]
+    Data Science: [data science, data scientist]
+    Model Validation: [model validation]
+    Model Risk: [model risk]
+    Actuarial: [actuarial, actuary]
+    Pricing: [pricing]
+    Structuring: [structuring]
+    Derivatives: [derivatives]
+    Quantitative (General): [quant, quantitative]
+  Compliance:
+    Financial Crime: [financial crime, aml, kyc]
+    Governance: [governance]
+    Regulatory Compliance: [compliance, regulatory compliance, surveillance]
+  Audit:
+    Internal Audit: [internal audit]
+    External Audit: [external audit]
+    IT Audit: [it audit, technology audit]
+    Audit (General): [audit]
+  Cyber:
+    Security Engineering: [security engineering]
+    Security Architecture: [security architecture]
+    Threat Detection: [threat detection]
+    Offensive Security: [offensive security, red team, penetration testing]
+    Cyber GRC: [cyber grc, grc]
+    Cyber Security: [cyber, cyber security, information security]
+  Legal:
+    Contracts: [contracts, contract]
+    Legal Counsel: [legal counsel, counsel]
+    Solicitor: [solicitor]
+    Paralegal: [paralegal]
+    Legal (General): [legal]
+  Front Office:
+    Fixed Income Trading: [fixed income trading]
+    Equities Trading: [equities trading, equity trading]
+    FX Trading: [fx trading, foreign exchange trading]
+    Commodities Trading: [commodities trading]
+    Credit Trading: [credit trading]
+    Rates Trading: [rates trading]
+    Market Making: [market making]
+    Electronic Trading: [electronic trading]
+    Sales Trading: [sales trading]
+    Portfolio Management: [portfolio manager, portfolio management]
+    Trading (General): [trader, trading]
+
+allowed_countries:
+  - Australia
+  - Austria
+  - Belgium
+  - Bermuda
+  - Canada
+  - China
+  - Denmark
+  - Egypt
+  - France
+  - Germany
+  - Hong Kong
+  - Hungary
+  - India
+  - Ireland
+  - Israel
+  - Italy
+  - Luxembourg
+  - Netherlands
+  - Norway
+  - Poland
+  - Portugal
+  - Sauda Arabia
+  - Singapore
+  - South Africa
+  - Spain
+  - Sweden
+  - Switzerland
+  - UAE
+  - Ukraine
+  - USA
+  - N/A
+
+country_aliases:
+  us: USA
+  usa: USA
+  united states: USA
+  united states of america: USA
+  uae: UAE
+  united arab emirates: UAE
+  saudi arabia: Sauda Arabia
+  n/a: N/A
+  na: N/A
+  unknown: N/A

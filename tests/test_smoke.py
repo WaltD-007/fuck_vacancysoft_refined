@@ -2,6 +2,7 @@ from vacancysoft import __version__
 from vacancysoft.classifiers.taxonomy import classify_against_legacy_taxonomy
 from vacancysoft.enrichers.date_parser import parse_posted_date
 from vacancysoft.enrichers.location_normaliser import normalise_location
+from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_category, map_sub_specialism, normalise_country
 from vacancysoft.exporters.serialisers import build_legacy_webhook_payload, row_to_legacy_lead
 from vacancysoft.exporters.views import load_exporter_config
 from vacancysoft.pipelines.classification import build_classification_payload
@@ -73,7 +74,17 @@ def test_legacy_webhook_payload_shape() -> None:
     legacy = row_to_legacy_lead(row)
     assert legacy["Company"] == "Example Capital"
     assert legacy["Job Title"] == "Senior Risk Manager at Example Capital"
+    assert legacy["Category"] == "Risk"
+    assert legacy["Sub Specialism"] == "Risk Management"
+    assert legacy["Country"] == "N/A"
     payload = build_legacy_webhook_payload([row])
     assert "body" in payload
     assert isinstance(payload["body"], list)
     assert payload["body"][0]["Job URL"] == "https://example.com/job"
+
+
+def test_legacy_routing_loads_and_maps() -> None:
+    routing = load_legacy_routing()
+    assert map_category("compliance", routing) == "Compliance"
+    assert map_sub_specialism("Senior Quantitative Developer", "Quant", routing) == "Quantitative Development"
+    assert normalise_country("usa", routing) == "USA"

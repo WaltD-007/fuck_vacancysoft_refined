@@ -4,6 +4,8 @@ from datetime import datetime
 from hashlib import sha1
 from typing import Any
 
+from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_category, map_sub_specialism, normalise_country
+
 LEGACY_EXPORT_COLUMNS = [
     "Job URL",
     "Job Title",
@@ -48,30 +50,32 @@ def _build_job_ref(company: str, title: str, location: str, country: str, job_ur
 
 
 def row_to_legacy_lead(row: Any) -> dict[str, str]:
+    routing = load_legacy_routing()
     mapping = row._mapping if hasattr(row, "_mapping") else dict(row)
 
     title = _safe_str(mapping.get("title"))
     location_text = _safe_str(mapping.get("location_text"))
-    location_country = _safe_str(mapping.get("location_country"))
-    taxonomy = _safe_str(mapping.get("primary_taxonomy_key"))
-    secondary_taxonomies = _safe_str(mapping.get("secondary_taxonomy_keys"))
+    raw_country = _safe_str(mapping.get("location_country"))
     company = _safe_str(mapping.get("employer_name"))
     job_url = _safe_str(mapping.get("discovered_url"))
     apply_url = _safe_str(mapping.get("apply_url"))
     source_key = _safe_str(mapping.get("source_key"))
     date_posted = _safe_str(mapping.get("posted_at"))
     date_scraped = datetime.now().date().isoformat()
-    category = taxonomy.replace("_", " ").title() if taxonomy else ""
-    sub_specialism = secondary_taxonomies or taxonomy
     platform = source_key
     job_board_url = apply_url or job_url
     salary = ""
     contract_type = ""
+
+    category = map_category(_safe_str(mapping.get("primary_taxonomy_key")) or None, routing)
+    sub_specialism = map_sub_specialism(title=title, category=category, routing=routing)
+    country = normalise_country(raw_country, routing)
+
     job_ref = _build_job_ref(
         company=company,
         title=title,
         location=location_text,
-        country=location_country,
+        country=country,
         job_url=job_url,
         date_posted=date_posted,
         platform=platform,
@@ -85,7 +89,7 @@ def row_to_legacy_lead(row: Any) -> dict[str, str]:
         "Sub Specialism": sub_specialism,
         "Company": company,
         "Location": location_text,
-        "Country": location_country,
+        "Country": country,
         "Salary": salary,
         "Contract Type": contract_type,
         "Date Posted": date_posted,
