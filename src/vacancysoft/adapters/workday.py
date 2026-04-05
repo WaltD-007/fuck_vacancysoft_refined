@@ -19,6 +19,7 @@ from vacancysoft.adapters.base import (
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
+_GENERIC_COMPANY_VALUES = {"jobs", "careers", "workday", "candidateexperience", "hcmui"}
 
 
 def derive_workday_candidate_endpoints(job_board_url: str) -> list[str]:
@@ -63,6 +64,50 @@ def _coalesce(*values: Any) -> Any:
         if value not in (None, "", [], {}):
             return value
     return None
+
+
+def _slug_to_company(slug: str | None) -> str | None:
+    cleaned = _clean_text(slug)
+    if not cleaned:
+        return None
+    return cleaned.replace("-", " ").replace("_", " ").strip().title()
+
+
+def _derive_company(source_config: dict[str, Any]) -> str | None:
+    explicit = _clean_text(source_config.get("company"))
+    if explicit and explicit.lower() not in _GENERIC_COMPANY_VALUES:
+        return explicit
+
+    job_board_url = _clean_text(source_config.get("job_board_url"))
+    if job_board_url:
+        parsed = urlparse(job_board_url)
+        parts = [part for part in parsed.path.split("/") if part]
+        for candidate in reversed(parts):
+            lowered = candidate.lower()
+            if lowered in {"en-us", "en-gb", "candidateexperience", "sites"}:
+                continue
+            if lowered in _GENERIC_COMPANY_VALUES:
+                continue
+            if lowered.startswith("cx_"):
+                continue
+            derived = _slug_to_company(candidate)
+            if derived:
+                return derived
+        host_root = parsed.netloc.split(".")[0].lower()
+        if host_root and host_root not in _GENERIC_COMPANY_VALUES:
+            return _slug_to_company(host_root)
+
+    endpoint_url = _clean_text(source_config.get("endpoint_url"))
+    if endpoint_url:
+        parsed = urlparse(endpoint_url)
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) >= 4:
+            return _slug_to_company(parts[3]) or _slug_to_company(parts[2])
+        host_root = parsed.netloc.split(".")[0].lower()
+        if host_root and host_root not in _GENERIC_COMPANY_VALUES:
+            return _slug_to_company(host_root)
+
+    return explicit
 
 
 def _extract_location(job: dict[str, Any]) -> str | None:
@@ -142,6 +187,7 @@ def _job_to_record(job: dict[str, Any], source_config: dict[str, Any]) -> Discov
     summary = _extract_summary(job)
     discovered_url = _extract_discovered_url(job, source_config)
     apply_url = _extract_apply_url(job, source_config)
+    company_name = _derive_company(source_config)
 
     completeness_fields = [title, location, posted_at, discovered_url]
     completeness_score = sum(1 for value in completeness_fields if value) / len(completeness_fields)
@@ -160,6 +206,10 @@ def _job_to_record(job: dict[str, Any], source_config: dict[str, Any]) -> Discov
         provenance={
             "adapter": "workday",
             "method": ExtractionMethod.API.value,
+            "company": company_name or "",
+            "platform": "Workday",
+            "board_url": _clean_text(source_config.get("job_board_url")) or "",
+            "endpoint_url": _clean_text(source_config.get("endpoint_url")) or "",
         },
     )
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -15,6 +16,32 @@ from vacancysoft.adapters.base import (
 )
 
 WIDGET_BASE = "https://apply.workable.com/api/v1/widget/accounts"
+_GENERIC_COMPANY_VALUES = {"apply", "workable", "jobs", "careers"}
+
+
+def _clean_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _slug_to_company(slug: str | None) -> str | None:
+    cleaned = _clean_text(slug)
+    if not cleaned:
+        return None
+    return cleaned.replace("-", " ").replace("_", " ").strip().title()
+
+
+def _normalise_company_name(company: Any, slug: str | None, board_url: str | None) -> str | None:
+    candidate = _clean_text(company)
+    if candidate:
+        lowered = candidate.lower()
+        parsed = urlparse(board_url or "") if board_url else None
+        host_root = parsed.netloc.split(".")[0].replace("-", " ").replace("_", " ").strip().lower() if parsed else ""
+        if lowered not in _GENERIC_COMPANY_VALUES and lowered != host_root:
+            return candidate
+    return _slug_to_company(slug) or candidate
 
 
 def _job_location(job: dict[str, Any]) -> str:
@@ -41,6 +68,7 @@ def _parse_job(job: dict[str, Any], board: dict[str, Any]) -> DiscoveredJobRecor
     slug = str(board.get("slug") or "").strip()
     location = _job_location(job)
     discovered_url = _job_url(slug, job.get("shortcode"))
+    company_name = _normalise_company_name(board.get("company"), slug, board.get("url"))
     completeness_score = sum(
         1 for value in [job.get("title"), location, discovered_url, job.get("published_on")] if value
     ) / 4
@@ -59,9 +87,10 @@ def _parse_job(job: dict[str, Any], board: dict[str, Any]) -> DiscoveredJobRecor
         provenance={
             "adapter": "workable",
             "method": ExtractionMethod.API.value,
-            "company": str(board.get("company") or slug),
+            "company": company_name or "",
             "platform": "Workable",
             "board_url": str(board.get("url") or f"https://apply.workable.com/{slug}"),
+            "board_slug": slug,
             "contract_type": str(job.get("employment_type") or "").strip(),
         },
     )

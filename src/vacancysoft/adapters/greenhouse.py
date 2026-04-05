@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -15,6 +16,7 @@ from vacancysoft.adapters.base import (
 )
 
 API_BASE = "https://api.greenhouse.io/v1/boards"
+_GENERIC_COMPANY_VALUES = {"job boards", "boards", "jobs", "greenhouse"}
 
 
 def _clean_text(value: Any) -> str | None:
@@ -22,6 +24,24 @@ def _clean_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _slug_to_company(slug: str | None) -> str | None:
+    cleaned = _clean_text(slug)
+    if not cleaned:
+        return None
+    return cleaned.replace("-", " ").replace("_", " ").strip().title()
+
+
+def _normalise_company_name(company: Any, slug: str | None, board_url: str | None) -> str | None:
+    candidate = _clean_text(company)
+    if candidate:
+        lowered = candidate.lower()
+        parsed = urlparse(board_url or "") if board_url else None
+        host_root = parsed.netloc.split(".")[0].replace("-", " ").replace("_", " ").strip().lower() if parsed else ""
+        if lowered not in _GENERIC_COMPANY_VALUES and lowered != host_root:
+            return candidate
+    return _slug_to_company(slug) or candidate
 
 
 def _job_location(job: dict[str, Any]) -> str | None:
@@ -69,6 +89,7 @@ def _parse_job(job: dict[str, Any], board: dict[str, Any]) -> DiscoveredJobRecor
     title = _clean_text(job.get("title"))
     summary = _job_summary(job)
     external_job_id = _clean_text(job.get("id")) or discovered_url or title
+    company_name = _normalise_company_name(board.get("company"), board.get("slug"), board.get("url"))
 
     completeness_fields = [title, location, discovered_url, posted_at]
     completeness_score = sum(1 for value in completeness_fields if value) / len(completeness_fields)
@@ -87,9 +108,10 @@ def _parse_job(job: dict[str, Any], board: dict[str, Any]) -> DiscoveredJobRecor
         provenance={
             "adapter": "greenhouse",
             "method": ExtractionMethod.API.value,
-            "company": str(board.get("company") or board.get("slug") or "").strip(),
+            "company": company_name or "",
             "platform": "Greenhouse",
             "board_url": str(board.get("url") or "").strip(),
+            "board_slug": str(board.get("slug") or "").strip(),
             "office_count": len(job.get("offices") or []),
             "has_content": bool(_clean_text(job.get("content"))),
         },
