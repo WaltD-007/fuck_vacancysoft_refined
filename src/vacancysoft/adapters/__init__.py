@@ -1,5 +1,6 @@
 from vacancysoft.adapters.adzuna import AdzunaAdapter
 from vacancysoft.adapters.eightfold import EightfoldAdapter
+from vacancysoft.adapters.generic_browser import GenericBrowserAdapter
 from vacancysoft.adapters.greenhouse import GreenhouseAdapter
 from vacancysoft.adapters.workable import WorkableAdapter
 from vacancysoft.adapters.workday import WorkdayAdapter, derive_workday_candidate_endpoints
@@ -7,6 +8,7 @@ from vacancysoft.adapters.workday import WorkdayAdapter, derive_workday_candidat
 __all__ = [
     "AdzunaAdapter",
     "EightfoldAdapter",
+    "GenericBrowserAdapter",
     "GreenhouseAdapter",
     "WorkableAdapter",
     "WorkdayAdapter",
