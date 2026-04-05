@@ -9,9 +9,16 @@ from vacancysoft.pipelines.classification import build_classification_payload
 
 def persist_classification_for_enriched_job(session: Session, enriched_job: EnrichedJob) -> ClassificationResult:
     payload = build_classification_payload(enriched_job_id=enriched_job.id, title=enriched_job.title)
-    existing = session.execute(
-        select(ClassificationResult).where(ClassificationResult.enriched_job_id == enriched_job.id)
-    ).scalar_one_or_none()
+    existing_results = list(
+        session.execute(
+            select(ClassificationResult)
+            .where(ClassificationResult.enriched_job_id == enriched_job.id)
+            .order_by(ClassificationResult.created_at.desc())
+        ).scalars()
+    )
+
+    existing = existing_results[0] if existing_results else None
+    duplicates = existing_results[1:] if len(existing_results) > 1 else []
 
     values = {
         "enriched_job_id": enriched_job.id,
@@ -37,6 +44,10 @@ def persist_classification_for_enriched_job(session: Session, enriched_job: Enri
 
     for key, value in values.items():
         setattr(existing, key, value)
+
+    for duplicate in duplicates:
+        session.delete(duplicate)
+
     session.flush()
     return existing
 
