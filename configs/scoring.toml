@@ -1,0 +1,15 @@
+[weights]
+title_relevance = 0.30
+location_confidence = 0.15
+freshness_confidence = 0.15
+source_reliability = 0.10
+completeness = 0.10
+classification_confidence = 0.20
+
+[thresholds]
+accepted = 0.75
+review = 0.45
+
+[hard_blockers]
+require_any_url = true
+reject_if_non_job_page = true
