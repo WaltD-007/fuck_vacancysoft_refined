@@ -10,6 +10,7 @@ from vacancysoft.db.models import ClassificationResult, EnrichedJob, RawJob, Sco
 from vacancysoft.db.session import SessionLocal
 from vacancysoft.pipelines.classification_persistence import classify_enriched_jobs
 from vacancysoft.pipelines.enrichment_persistence import enrich_raw_jobs
+from vacancysoft.pipelines.maintenance import cleanup_orphaned_classification_results
 from vacancysoft.pipelines.persistence import persist_discovery_batch
 from vacancysoft.pipelines.scoring_persistence import score_enriched_jobs
 from vacancysoft.source_registry.seed_loader import seed_sources_from_yaml
@@ -49,6 +50,13 @@ def db_stats() -> None:
     typer.echo(
         f"sources={source_count} source_runs={run_count} raw_jobs={raw_job_count} enriched_jobs={enriched_job_count} classification_results={classification_count} score_results={score_count}"
     )
+
+
+@db_app.command("cleanup-classifications")
+def cleanup_classifications() -> None:
+    with SessionLocal() as session:
+        removed = cleanup_orphaned_classification_results(session)
+    typer.echo(f"Removed orphaned classification results: {removed}")
 
 
 @pipeline_app.command("discover")
