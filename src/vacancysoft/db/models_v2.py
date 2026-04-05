@@ -168,6 +168,25 @@ class ClassificationResult(BaseV2):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class ScoreResult(BaseV2):
+    __tablename__ = "score_results"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    enriched_job_id: Mapped[str] = mapped_column(ForeignKey("enriched_jobs.id"), unique=True, index=True)
+    scoring_version: Mapped[str] = mapped_column(String(64), index=True)
+    title_relevance_score: Mapped[float] = mapped_column(Float, default=0.0)
+    location_confidence_score: Mapped[float] = mapped_column(Float, default=0.0)
+    freshness_confidence_score: Mapped[float] = mapped_column(Float, default=0.0)
+    source_reliability_score: Mapped[float] = mapped_column(Float, default=0.0)
+    completeness_score: Mapped[float] = mapped_column(Float, default=0.0)
+    classification_confidence_score: Mapped[float] = mapped_column(Float, default=0.0)
+    export_eligibility_score: Mapped[float] = mapped_column(Float, default=0.0, index=True)
+    export_decision: Mapped[str] = mapped_column(String(32), index=True)
+    reasons: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class SourceHealth(BaseV2):
     __tablename__ = "source_health"
 

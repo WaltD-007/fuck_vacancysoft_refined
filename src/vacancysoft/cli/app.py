@@ -6,11 +6,12 @@ from sqlalchemy import select
 from vacancysoft.adapters.base import DiscoveredJobRecord
 from vacancysoft.db.base import Base
 from vacancysoft.db.engine import build_engine
-from vacancysoft.db.models import ClassificationResult, EnrichedJob, RawJob, Source, SourceRun
+from vacancysoft.db.models import ClassificationResult, EnrichedJob, RawJob, ScoreResult, Source, SourceRun
 from vacancysoft.db.session import SessionLocal
-from vacancysoft.pipelines.classification_persistence import classify_raw_jobs
+from vacancysoft.pipelines.classification_persistence import classify_enriched_jobs
 from vacancysoft.pipelines.enrichment_persistence import enrich_raw_jobs
 from vacancysoft.pipelines.persistence import persist_discovery_batch
+from vacancysoft.pipelines.scoring_persistence import score_enriched_jobs
 from vacancysoft.source_registry.seed_loader import seed_sources_from_yaml
 
 app = typer.Typer(help="Coverage-first job scraping pipeline")
@@ -44,8 +45,9 @@ def db_stats() -> None:
         raw_job_count = len(list(session.execute(select(RawJob)).scalars()))
         enriched_job_count = len(list(session.execute(select(EnrichedJob)).scalars()))
         classification_count = len(list(session.execute(select(ClassificationResult)).scalars()))
+        score_count = len(list(session.execute(select(ScoreResult)).scalars()))
     typer.echo(
-        f"sources={source_count} source_runs={run_count} raw_jobs={raw_job_count} enriched_jobs={enriched_job_count} classification_results={classification_count}"
+        f"sources={source_count} source_runs={run_count} raw_jobs={raw_job_count} enriched_jobs={enriched_job_count} classification_results={classification_count} score_results={score_count}"
     )
 
 
@@ -106,8 +108,15 @@ def classify(pending: bool = typer.Option(True, "--pending/--all")) -> None:
 @pipeline_app.command("classify-demo")
 def classify_demo(limit: int = typer.Option(10, "--limit")) -> None:
     with SessionLocal() as session:
-        count = classify_raw_jobs(session, limit=limit)
+        count = classify_enriched_jobs(session, limit=limit)
     typer.echo(f"Demo classification persisted. classification_results={count}")
+
+
+@pipeline_app.command("score-demo")
+def score_demo(limit: int = typer.Option(10, "--limit")) -> None:
+    with SessionLocal() as session:
+        count = score_enriched_jobs(session, limit=limit)
+    typer.echo(f"Demo scoring persisted. score_results={count}")
 
 
 @pipeline_app.command("export")
@@ -121,11 +130,17 @@ def taxonomy_preview() -> None:
         rows = list(
             session.execute(
                 select(
-                    ClassificationResult.enriched_job_id,
+                    EnrichedJob.title,
                     ClassificationResult.primary_taxonomy_key,
                     ClassificationResult.taxonomy_version,
                     ClassificationResult.decision,
-                ).order_by(ClassificationResult.created_at.desc()).limit(10)
+                    ScoreResult.export_decision,
+                    ScoreResult.export_eligibility_score,
+                )
+                .join(ClassificationResult, ClassificationResult.enriched_job_id == EnrichedJob.id)
+                .join(ScoreResult, ScoreResult.enriched_job_id == EnrichedJob.id, isouter=True)
+                .order_by(ClassificationResult.created_at.desc())
+                .limit(10)
             )
         )
     if not rows:
@@ -133,7 +148,7 @@ def taxonomy_preview() -> None:
         return
     for row in rows:
         typer.echo(
-            f"job={row.enriched_job_id} taxonomy={row.primary_taxonomy_key} version={row.taxonomy_version} decision={row.decision}"
+            f"title={row.title} taxonomy={row.primary_taxonomy_key} version={row.taxonomy_version} classification={row.decision} export={row.export_decision} score={row.export_eligibility_score}"
         )
 
 

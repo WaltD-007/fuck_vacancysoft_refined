@@ -3,19 +3,19 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from vacancysoft.db.models import ClassificationResult, RawJob
+from vacancysoft.db.models import ClassificationResult, EnrichedJob
 from vacancysoft.pipelines.classification import build_classification_payload
 
 
-def persist_classification_for_raw_job(session: Session, raw_job: RawJob) -> ClassificationResult:
-    payload = build_classification_payload(enriched_job_id=raw_job.id, title=raw_job.title_raw)
+def persist_classification_for_enriched_job(session: Session, enriched_job: EnrichedJob) -> ClassificationResult:
+    payload = build_classification_payload(enriched_job_id=enriched_job.id, title=enriched_job.title)
     existing = session.execute(
-        select(ClassificationResult).where(ClassificationResult.enriched_job_id == raw_job.id)
+        select(ClassificationResult).where(ClassificationResult.enriched_job_id == enriched_job.id)
     ).scalar_one_or_none()
 
     values = {
-        "enriched_job_id": raw_job.id,
-        "classifier_version": "demo_classifier_v1",
+        "enriched_job_id": enriched_job.id,
+        "classifier_version": "demo_classifier_v2",
         "taxonomy_version": payload.taxonomy_version,
         "target_function": payload.primary_taxonomy_key,
         "target_domain": None,
@@ -23,7 +23,7 @@ def persist_classification_for_raw_job(session: Session, raw_job: RawJob) -> Cla
         "secondary_taxonomy_keys": payload.secondary_taxonomy_keys,
         "title_relevance_score": payload.title_relevance_score,
         "classification_confidence": payload.classification_confidence,
-        "matched_terms": {"title": raw_job.title_raw},
+        "matched_terms": {"title": enriched_job.title},
         "excluded_terms": {},
         "reasons": payload.reasons,
         "decision": payload.decision,
@@ -41,15 +41,15 @@ def persist_classification_for_raw_job(session: Session, raw_job: RawJob) -> Cla
     return existing
 
 
-def classify_raw_jobs(session: Session, limit: int | None = None) -> int:
-    stmt = select(RawJob).order_by(RawJob.created_at.desc())
+def classify_enriched_jobs(session: Session, limit: int | None = None) -> int:
+    stmt = select(EnrichedJob).order_by(EnrichedJob.created_at.desc())
     if limit is not None:
         stmt = stmt.limit(limit)
-    raw_jobs = list(session.execute(stmt).scalars())
+    jobs = list(session.execute(stmt).scalars())
 
     count = 0
-    for raw_job in raw_jobs:
-        persist_classification_for_raw_job(session, raw_job)
+    for enriched_job in jobs:
+        persist_classification_for_enriched_job(session, enriched_job)
         count += 1
 
     session.commit()
