@@ -1,0 +1,17 @@
+[app]
+name = "fuck_vacancysoft_refined"
+environment = "dev"
+database_url = "sqlite:///./.data/vacancysoft.db"
+log_level = "INFO"
+
+[discovery]
+default_concurrency = 8
+allow_browser_fallback = true
+raw_payload_dir = "./artifacts/raw"
+
+[enrichment]
+detail_fetch_concurrency = 4
+max_retries = 3
+
+[exports]
+default_profile = "accepted_only_excel"
