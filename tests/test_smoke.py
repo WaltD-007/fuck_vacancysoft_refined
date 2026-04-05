@@ -8,6 +8,7 @@ from vacancysoft.exporters.views import load_exporter_config
 from vacancysoft.pipelines.classification import build_classification_payload
 from vacancysoft.scoring.engine import compute_export_score
 from vacancysoft.source_registry.seed_loader import load_seed_config
+from vacancysoft.adapters.workday import _job_to_record
 
 
 class _FakeRow:
@@ -89,3 +90,18 @@ def test_legacy_routing_loads_and_maps() -> None:
     assert map_category("compliance", routing) == "Compliance"
     assert map_sub_specialism("Senior Quantitative Developer", "Quant", routing) == "Quantitative Development"
     assert normalise_country("usa", routing) == "USA"
+
+
+def test_workday_job_mapping() -> None:
+    job = {
+        "title": "Senior Credit Risk Analyst",
+        "locationsText": "London, UK",
+        "postedOn": "2026-04-05",
+        "bulletFields": ["JR-1234"],
+        "externalPath": "/job/London/Senior-Credit-Risk-Analyst_JR-1234",
+    }
+    record = _job_to_record(job, {"job_board_url": "https://example.wd5.myworkdayjobs.com/en-US/Careers"})
+    assert record.title_raw == "Senior Credit Risk Analyst"
+    assert record.location_raw == "London, UK"
+    assert record.posted_at_raw == "2026-04-05"
+    assert record.discovered_url == "https://example.wd5.myworkdayjobs.com/en-US/Careers/job/London/Senior-Credit-Risk-Analyst_JR-1234"

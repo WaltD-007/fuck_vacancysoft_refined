@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import typer
 from sqlalchemy import select
 
+from vacancysoft.adapters import WorkdayAdapter
 from vacancysoft.adapters.base import DiscoveredJobRecord
 from vacancysoft.db.base import Base
 from vacancysoft.db.engine import build_engine
@@ -105,6 +107,38 @@ def discover_demo(source_key: str | None = typer.Option(None, "--source-key")) -
         source_run, count = persist_discovery_batch(session=session, source=source, records=sample_jobs, trigger="manual")
         source_run_id = source_run.id
     typer.echo(f"Demo discovery persisted. source_run_id={source_run_id} raw_jobs={count}")
+
+
+@pipeline_app.command("discover-workday")
+def discover_workday(
+    endpoint_url: str = typer.Option(..., "--endpoint-url"),
+    job_board_url: str | None = typer.Option(None, "--job-board-url"),
+    limit: int = typer.Option(20, "--limit"),
+    persist: bool = typer.Option(False, "--persist"),
+    source_key: str | None = typer.Option(None, "--source-key"),
+) -> None:
+    adapter = WorkdayAdapter()
+    source_config = {
+        "endpoint_url": endpoint_url,
+        "job_board_url": job_board_url,
+        "limit": limit,
+    }
+    page = asyncio.run(adapter.discover(source_config=source_config))
+    typer.echo(f"Workday discovery returned jobs={len(page.jobs)} next_cursor={page.next_cursor}")
+    for record in page.jobs[:5]:
+        typer.echo(f"- {record.title_raw} | {record.location_raw} | {record.discovered_url}")
+
+    if not persist:
+        return
+    if not source_key:
+        raise typer.BadParameter("--source-key is required when using --persist")
+
+    with SessionLocal() as session:
+        source = session.execute(select(Source).where(Source.source_key == source_key)).scalar_one_or_none()
+        if source is None:
+            raise typer.BadParameter(f"No source found for source_key={source_key}")
+        source_run, count = persist_discovery_batch(session=session, source=source, records=page.jobs, trigger="manual")
+        typer.echo(f"Persisted Workday discovery. source_run_id={source_run.id} raw_jobs={count}")
 
 
 @pipeline_app.command("enrich")

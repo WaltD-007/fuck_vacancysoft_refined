@@ -1,1 +1,3 @@
-"""Adapter contracts and implementations."""
+from vacancysoft.adapters.workday import WorkdayAdapter
+
+__all__ = ["WorkdayAdapter"]
