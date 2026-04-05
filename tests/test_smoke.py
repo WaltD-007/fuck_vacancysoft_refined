@@ -45,3 +45,5 @@ def test_exporter_config_loads() -> None:
     config = load_exporter_config()
     assert "client_segments" in config
     assert "risk_only" in config["client_segments"]
+    assert "profiles" in config
+    assert "accepted_only" in config["profiles"]

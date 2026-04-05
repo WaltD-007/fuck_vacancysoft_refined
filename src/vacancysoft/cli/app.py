@@ -8,6 +8,8 @@ from vacancysoft.db.base import Base
 from vacancysoft.db.engine import build_engine
 from vacancysoft.db.models import ClassificationResult, EnrichedJob, RawJob, ScoreResult, Source, SourceRun
 from vacancysoft.db.session import SessionLocal
+from vacancysoft.exporters.excel_exporter import export_profile_to_excel, export_segment_to_excel
+from vacancysoft.exporters.json_exporter import export_profile_to_json, export_segment_to_json
 from vacancysoft.exporters.views import (
     accepted_only_query,
     accepted_plus_review_query,
@@ -136,7 +138,7 @@ def score_demo(limit: int = typer.Option(10, "--limit")) -> None:
 
 
 @pipeline_app.command("export")
-def export(profile: str = typer.Option("accepted_only_excel", "--profile")) -> None:
+def export(profile: str = typer.Option("accepted_only", "--profile")) -> None:
     typer.echo(f"Export stub for profile={profile}")
 
 
@@ -197,6 +199,34 @@ def preview_segment(segment_name: str = typer.Option(..., "--segment"), limit: i
         return
     for row in rows:
         typer.echo(str(row))
+
+
+@export_app.command("json-profile")
+def json_profile(profile_name: str = typer.Option(..., "--profile"), output_path: str = typer.Option(..., "--output"), limit: int = typer.Option(100, "--limit")) -> None:
+    with SessionLocal() as session:
+        output = export_profile_to_json(session, profile_name=profile_name, output_path=output_path, limit=limit)
+    typer.echo(f"Wrote JSON export: {output}")
+
+
+@export_app.command("json-segment")
+def json_segment(segment_name: str = typer.Option(..., "--segment"), output_path: str = typer.Option(..., "--output"), limit: int = typer.Option(100, "--limit")) -> None:
+    with SessionLocal() as session:
+        output = export_segment_to_json(session, segment_name=segment_name, output_path=output_path, limit=limit)
+    typer.echo(f"Wrote JSON export: {output}")
+
+
+@export_app.command("excel-profile")
+def excel_profile(profile_name: str = typer.Option(..., "--profile"), output_path: str = typer.Option(..., "--output"), limit: int = typer.Option(100, "--limit")) -> None:
+    with SessionLocal() as session:
+        output = export_profile_to_excel(session, profile_name=profile_name, output_path=output_path, limit=limit)
+    typer.echo(f"Wrote Excel export: {output}")
+
+
+@export_app.command("excel-segment")
+def excel_segment(segment_name: str = typer.Option(..., "--segment"), output_path: str = typer.Option(..., "--output"), limit: int = typer.Option(100, "--limit")) -> None:
+    with SessionLocal() as session:
+        output = export_segment_to_excel(session, segment_name=segment_name, output_path=output_path, limit=limit)
+    typer.echo(f"Wrote Excel export: {output}")
 
 
 if __name__ == "__main__":

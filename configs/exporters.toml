@@ -1,8 +1,14 @@
 [profiles.accepted_only]
+view = "accepted_only"
 include_export_decisions = ["accepted"]
+json_payload_mode = "jobs_envelope"
+excel_sheet_name = "Accepted Jobs"
 
 [profiles.accepted_plus_review]
+view = "accepted_plus_review"
 include_export_decisions = ["accepted", "review"]
+json_payload_mode = "jobs_envelope"
+excel_sheet_name = "Accepted And Review"
 
 [client_segments.risk_only]
 taxonomy_keys = ["risk"]
