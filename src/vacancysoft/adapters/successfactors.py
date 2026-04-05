@@ -16,6 +16,7 @@ from vacancysoft.adapters.base import (
     ExtractionMethod,
     SourceAdapter,
 )
+from vacancysoft.browser import browser_session
 from vacancysoft.source_registry.legacy_board_mappings import lookup_company
 
 DEFAULT_SEARCH_TERMS = ["risk", "quant", "quantitative", "compliance"]
@@ -82,47 +83,44 @@ class SuccessFactorsAdapter(SourceAdapter):
         seen_urls: set[str] = set()
         try:
             async with async_playwright() as playwright:
-                browser = await playwright.chromium.launch(headless=True)
-                context = await browser.new_context()
-                page = await context.new_page()
-                try:
-                    for term in search_terms:
-                        search_url = f"{board_url}&navBarLevel=JOB_SEARCH" if "?" in board_url else f"{board_url}?navBarLevel=JOB_SEARCH"
-                        try:
-                            await page.goto(search_url, wait_until="networkidle", timeout=int(source_config.get("page_timeout_ms", PAGE_TIMEOUT_MS)))
-                            await page.wait_for_timeout(2000)
-                        except Exception:
-                            await page.goto(search_url, wait_until="domcontentloaded", timeout=int(source_config.get("page_timeout_ms", PAGE_TIMEOUT_MS)))
-                            await page.wait_for_timeout(4000)
-                        try:
-                            search_input = await page.query_selector("input#keywordInput, input[name*='keyword' i], input[id*='keyword' i], input[placeholder*='search' i], input[placeholder*='title' i]")
-                            if search_input:
-                                await search_input.click()
-                                await search_input.fill(term)
-                                await search_input.press("Enter")
-                                await page.wait_for_timeout(3000)
-                        except Exception:
-                            diagnostics.counters["search_box_misses"] = diagnostics.counters.get("search_box_misses", 0) + 1
-                        job_elements = await page.query_selector_all(".jobResultItem, .JobResultItem, [class*='jobTitle'], a[href*='job_req_id'], .position-title")
-                        for el in job_elements:
+                async with browser_session(playwright) as (_browser, context):
+                    page = await context.new_page()
+                    try:
+                        for term in search_terms:
+                            search_url = f"{board_url}&navBarLevel=JOB_SEARCH" if "?" in board_url else f"{board_url}?navBarLevel=JOB_SEARCH"
                             try:
-                                title_el = await el.query_selector("a, span, h3, h4")
-                                title = _clean(await (title_el or el).inner_text())
-                                link = await el.query_selector("a")
-                                href = await link.get_attribute("href") if link else await el.get_attribute("href")
-                                href = _clean(href)
-                                if href and not href.startswith("http"):
-                                    base = "/".join(board_url.split("/")[:3])
-                                    href = f"{base}{href}"
-                                if title and href and href not in seen_urls:
-                                    seen_urls.add(href)
-                                    all_records.append(_make_record(title, href, board))
+                                await page.goto(search_url, wait_until="networkidle", timeout=int(source_config.get("page_timeout_ms", PAGE_TIMEOUT_MS)))
+                                await page.wait_for_timeout(2000)
                             except Exception:
-                                diagnostics.counters["element_parse_failures"] = diagnostics.counters.get("element_parse_failures", 0) + 1
-                finally:
-                    await page.close()
-                    await context.close()
-                    await browser.close()
+                                await page.goto(search_url, wait_until="domcontentloaded", timeout=int(source_config.get("page_timeout_ms", PAGE_TIMEOUT_MS)))
+                                await page.wait_for_timeout(4000)
+                            try:
+                                search_input = await page.query_selector("input#keywordInput, input[name*='keyword' i], input[id*='keyword' i], input[placeholder*='search' i], input[placeholder*='title' i]")
+                                if search_input:
+                                    await search_input.click()
+                                    await search_input.fill(term)
+                                    await search_input.press("Enter")
+                                    await page.wait_for_timeout(3000)
+                            except Exception:
+                                diagnostics.counters["search_box_misses"] = diagnostics.counters.get("search_box_misses", 0) + 1
+                            job_elements = await page.query_selector_all(".jobResultItem, .JobResultItem, [class*='jobTitle'], a[href*='job_req_id'], .position-title")
+                            for el in job_elements:
+                                try:
+                                    title_el = await el.query_selector("a, span, h3, h4")
+                                    title = _clean(await (title_el or el).inner_text())
+                                    link = await el.query_selector("a")
+                                    href = await link.get_attribute("href") if link else await el.get_attribute("href")
+                                    href = _clean(href)
+                                    if href and not href.startswith("http"):
+                                        base = "/".join(board_url.split("/")[:3])
+                                        href = f"{base}{href}"
+                                    if title and href and href not in seen_urls:
+                                        seen_urls.add(href)
+                                        all_records.append(_make_record(title, href, board))
+                                except Exception:
+                                    diagnostics.counters["element_parse_failures"] = diagnostics.counters.get("element_parse_failures", 0) + 1
+                    finally:
+                        await page.close()
         except PlaywrightTimeoutError as exc:
             diagnostics.errors.append(f"SuccessFactors page timeout: {exc}")
             raise
