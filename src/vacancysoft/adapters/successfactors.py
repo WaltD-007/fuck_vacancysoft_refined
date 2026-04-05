@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import time
 from datetime import datetime
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -23,14 +24,18 @@ from vacancysoft.source_registry.legacy_board_mappings import lookup_company
 DEFAULT_SEARCH_TERMS = ["risk", "quant", "quantitative", "compliance"]
 PAGE_TIMEOUT_MS = 60_000
 JOB_SELECTORS = [
+    "a[href*='/job/']",
+    "a[href*='/jobs/']",
+    "a[href*='job?']",
+    "[class*='job-result'] a",
+    "[class*='search-results'] a",
+    "[class*='opening'] a",
+    "[class*='vacancy'] a",
+    "[class*='jobTitle']",
     ".jobResultItem",
     ".JobResultItem",
-    "[class*='jobTitle']",
     "a[href*='job_req_id']",
     ".position-title",
-    "a[href*='career/job']",
-    "a[href*='job']",
-    "[role='listitem'] a[href*='job']",
     "table a[href*='job']",
 ]
 SEARCH_INPUT_SELECTOR = (
@@ -42,6 +47,28 @@ SEARCH_BUTTON_SELECTOR = (
     "button[id*='search' i], input[type='submit'], a[role='button']"
 )
 NETWORK_HINTS = ("job", "search", "career", "odata", "candidate", "posting", "requisition")
+_REJECT_TITLE_TOKENS = {
+    "find out more",
+    "search jobs",
+    "about us",
+    "our benefits",
+    "our business areas",
+    "our offices",
+    "early careers",
+    "candidate login",
+    "colleague login",
+    "cookie policy",
+}
+_REJECT_URL_TOKENS = (
+    "/content/",
+    "cookie",
+    "benefits",
+    "business-areas",
+    "offices-and-locations",
+    "early-careers",
+    "candidate-login",
+    "colleague-login",
+)
 
 
 def _clean(value: Any) -> str | None:
@@ -58,6 +85,26 @@ def _absolute_url(href: str | None, board_url: str) -> str | None:
     if href.startswith("http"):
         return href
     return urljoin(board_url, href)
+
+
+def _looks_like_job_url(url: str | None) -> bool:
+    if not url:
+        return False
+    lowered = url.lower()
+    if any(token in lowered for token in _REJECT_URL_TOKENS):
+        return False
+    return any(token in lowered for token in ("/job/", "/jobs/", "job?", "jobid", "job_req_id", "requisition"))
+
+
+def _looks_like_job_title(title: str | None) -> bool:
+    if not title:
+        return False
+    lowered = title.strip().lower()
+    if lowered in _REJECT_TITLE_TOKENS:
+        return False
+    if lowered.startswith("find out more"):
+        return False
+    return len(lowered) >= 4
 
 
 def _make_record(title: str, href: str, board: dict[str, Any], *, source: str | None = None) -> DiscoveredJobRecord:
@@ -189,6 +236,42 @@ async def _diagnose_page(page: Any, diagnostics: AdapterDiagnostics, board_url: 
     await _collect_control_samples(page, label, diagnostics)
 
 
+async def _extract_ld_json_records(page: Any, board_url: str, board: dict[str, Any]) -> list[DiscoveredJobRecord]:
+    records: list[DiscoveredJobRecord] = []
+    try:
+        scripts = await page.query_selector_all("script[type='application/ld+json']")
+    except Exception:
+        return records
+    for script in scripts:
+        try:
+            raw = await script.inner_text()
+            payload = json.loads(raw)
+        except Exception:
+            continue
+        stack = [payload]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, dict):
+                node_type = str(node.get("@type") or "")
+                if node_type.lower() == "jobposting":
+                    title = _clean(node.get("title"))
+                    href = _absolute_url(node.get("url"), board_url)
+                    if _looks_like_job_title(title) and _looks_like_job_url(href):
+                        records.append(_make_record(title or href or "", href or board_url, board, source="ld_json"))
+                stack.extend(node.values())
+            elif isinstance(node, list):
+                stack.extend(node)
+    deduped: list[DiscoveredJobRecord] = []
+    seen: set[str] = set()
+    for record in records:
+        url = record.discovered_url or record.external_job_id
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        deduped.append(record)
+    return deduped
+
+
 async def _extract_records_from_scope(
     scope: Any,
     board_url: str,
@@ -214,8 +297,9 @@ async def _extract_records_from_scope(
                 link = await el.query_selector("a")
                 href = await link.get_attribute("href") if link else await el.get_attribute("href")
                 href = _absolute_url(href, board_url)
-                if title and href:
-                    records.append(_make_record(title, href, board, source=source))
+                if not _looks_like_job_title(title) or not _looks_like_job_url(href):
+                    continue
+                records.append(_make_record(title, href, board, source=source))
             except Exception:
                 diagnostics.counters["element_parse_failures"] = diagnostics.counters.get("element_parse_failures", 0) + 1
         if records:
@@ -224,6 +308,10 @@ async def _extract_records_from_scope(
 
 
 async def _extract_records(page: Any, board_url: str, board: dict[str, Any], diagnostics: AdapterDiagnostics) -> list[DiscoveredJobRecord]:
+    parsed = await _extract_ld_json_records(page, board_url, board)
+    if parsed:
+        diagnostics.counters["ld_json_records_found"] = diagnostics.counters.get("ld_json_records_found", 0) + len(parsed)
+        return parsed
     parsed = await _extract_records_from_scope(page, board_url, board, diagnostics, source="page")
     if parsed:
         return parsed
@@ -244,6 +332,48 @@ async def _extract_records(page: Any, board_url: str, board: dict[str, Any], dia
         except Exception as exc:
             diagnostics.warnings.append(f"SuccessFactors frame inspection failed for {frame.url}: {exc}")
     return []
+
+
+async def _run_external_site_search(page: Any, term: str, diagnostics: AdapterDiagnostics) -> None:
+    current_url = page.url.lower()
+    if "jobs.royallondon.com" not in current_url:
+        return
+    try:
+        q_input = await page.query_selector("input[name='q'], input[placeholder*='keyword' i]")
+        if not q_input:
+            diagnostics.counters["external_site_search_box_misses"] = diagnostics.counters.get("external_site_search_box_misses", 0) + 1
+            return
+        await q_input.click()
+        try:
+            await q_input.press("Meta+A")
+        except Exception:
+            pass
+        await q_input.fill(term)
+        diagnostics.counters["external_site_terms_applied"] = diagnostics.counters.get("external_site_terms_applied", 0) + 1
+    except Exception:
+        diagnostics.counters["external_site_search_box_failures"] = diagnostics.counters.get("external_site_search_box_failures", 0) + 1
+        return
+
+    try:
+        buttons = await page.query_selector_all("button, input[type='submit']")
+        diagnostics.counters["external_site_button_count"] = len(buttons)
+        for button in buttons[:10]:
+            try:
+                text = (_clean(await button.inner_text()) or _clean(await button.get_attribute("value")) or "").lower()
+                if "search jobs" not in text and "search" not in text:
+                    continue
+                await button.click()
+                await page.wait_for_timeout(2500)
+                diagnostics.counters["external_site_search_button_clicks"] = diagnostics.counters.get("external_site_search_button_clicks", 0) + 1
+                break
+            except Exception:
+                diagnostics.counters["external_site_search_button_failures"] = diagnostics.counters.get("external_site_search_button_failures", 0) + 1
+        else:
+            await q_input.press("Enter")
+            await page.wait_for_timeout(2500)
+            diagnostics.counters["external_site_enter_submits"] = diagnostics.counters.get("external_site_enter_submits", 0) + 1
+    except Exception:
+        diagnostics.counters["external_site_submit_failures"] = diagnostics.counters.get("external_site_submit_failures", 0) + 1
 
 
 def _records_from_json_payload(payload: Any, board_url: str, board: dict[str, Any], source: str) -> list[DiscoveredJobRecord]:
@@ -268,8 +398,8 @@ def _records_from_json_payload(payload: Any, board_url: str, board: dict[str, An
                 or node.get("jobReqId"),
                 board_url,
             )
-            if title and href:
-                records.append(_make_record(title, href, board, source=source))
+            if _looks_like_job_title(title) and _looks_like_job_url(href):
+                records.append(_make_record(title or href or "", href or board_url, board, source=source))
             for value in node.values():
                 walk(value)
         elif isinstance(node, list):
@@ -355,7 +485,7 @@ class SuccessFactorsAdapter(SourceAdapter):
 
                             await _diagnose_page(page, diagnostics, board_url, f"term_{term}")
 
-                            no_keyword_records = await _extract_records(page, board_url, board, diagnostics)
+                            no_keyword_records = await _extract_records(page, page.url or board_url, board, diagnostics)
                             diagnostics.counters[f"term_{term}_no_keyword_records"] = len(no_keyword_records)
                             if no_keyword_records:
                                 for record in no_keyword_records:
@@ -409,13 +539,15 @@ class SuccessFactorsAdapter(SourceAdapter):
                                 diagnostics.counters["search_button_misses"] = diagnostics.counters.get("search_button_misses", 0) + 1
 
                             await _scroll_page(page, diagnostics)
-                            await _diagnose_page(page, diagnostics, board_url, f"term_{term}_post_search")
+                            await _run_external_site_search(page, term, diagnostics)
+                            await _scroll_page(page, diagnostics, rounds=2)
+                            await _diagnose_page(page, diagnostics, page.url or board_url, f"term_{term}_post_search")
                             diagnostics.metadata[f"term_{term}_network_urls"] = captured_urls[:12]
                             diagnostics.counters[f"term_{term}_network_payloads"] = len(captured_payloads)
 
                             parsed: list[DiscoveredJobRecord] = []
                             for index, payload in enumerate(captured_payloads):
-                                records = _records_from_json_payload(payload, board_url, board, source=f"network_{index}")
+                                records = _records_from_json_payload(payload, page.url or board_url, board, source=f"network_{index}")
                                 if records:
                                     parsed.extend(records)
                                     if len(parsed) >= 50:
@@ -424,7 +556,7 @@ class SuccessFactorsAdapter(SourceAdapter):
                             if parsed:
                                 diagnostics.counters["network_records_found"] = diagnostics.counters.get("network_records_found", 0) + len(parsed)
                             else:
-                                parsed = await _extract_records(page, board_url, board, diagnostics)
+                                parsed = await _extract_records(page, page.url or board_url, board, diagnostics)
 
                             for record in parsed:
                                 href = record.discovered_url
