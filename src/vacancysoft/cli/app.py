@@ -4,7 +4,7 @@ import asyncio
 import typer
 from sqlalchemy import select
 
-from vacancysoft.adapters import WorkdayAdapter, derive_workday_candidate_endpoints
+from vacancysoft.adapters import AdzunaAdapter, WorkdayAdapter, derive_workday_candidate_endpoints
 from vacancysoft.adapters.base import DiscoveredJobRecord
 from vacancysoft.db.base import Base
 from vacancysoft.db.engine import build_engine
@@ -153,6 +153,30 @@ def discover_workday(
             raise typer.BadParameter(f"No source found for source_key={source_key}")
         source_run, count = persist_discovery_batch(session=session, source=source, records=page.jobs, trigger="manual")
         typer.echo(f"Persisted Workday discovery. source_run_id={source_run.id} raw_jobs={count}")
+
+
+@pipeline_app.command("discover-adzuna")
+def discover_adzuna(
+    search_term: list[str] = typer.Option([], "--search-term"),
+    country: list[str] = typer.Option([], "--country"),
+    max_pages: int = typer.Option(5, "--max-pages"),
+    results_per_page: int = typer.Option(50, "--results-per-page"),
+) -> None:
+    adapter = AdzunaAdapter()
+    page = asyncio.run(
+        adapter.discover(
+            source_config={
+                "search_terms": search_term,
+                "countries": country,
+                "max_pages": max_pages,
+                "results_per_page": results_per_page,
+            }
+        )
+    )
+    typer.echo(f"Adzuna discovery returned jobs={len(page.jobs)}")
+    for record in page.jobs[:10]:
+        company = record.provenance.get("company", "")
+        typer.echo(f"- {record.title_raw} | {company} | {record.location_raw} | {record.discovered_url}")
 
 
 @pipeline_app.command("enrich")
