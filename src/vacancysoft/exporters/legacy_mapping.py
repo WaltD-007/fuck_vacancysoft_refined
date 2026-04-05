@@ -29,46 +29,45 @@ def _extract_live_routing(base: dict[str, Any], rows: list[dict[str, str]]) -> d
     routing = dict(base)
     categories = dict(base.get("categories", {}))
     category_defaults = dict(base.get("category_defaults", {}))
+    merged_keywords = {k: dict(v) for k, v in (base.get("sub_specialism_keywords", {}) or {}).items()}
     allowed_countries = list(base.get("allowed_countries", []))
+    seen_countries = set(allowed_countries)
 
-    seen_categories: set[str] = set()
-    sub_specialism_keywords: dict[str, dict[str, list[str]]] = {}
-    seen_countries: set[str] = set()
+    exact_categories: set[str] = set()
 
     for raw in rows:
         row = {_normalise_header(k): str(v or "").strip() for k, v in raw.items()}
-        category = row.get("category") or row.get("specialism") or row.get("group") or ""
-        sub_spec = row.get("sub specialism") or row.get("sub-specialism") or row.get("subspecialism") or ""
-        country = row.get("country") or ""
+        category = row.get("category", "")
+        sub_spec = row.get("sub specialism", "")
+        country = row.get("country", "")
 
         if category:
-            seen_categories.add(category)
-            if category not in category_defaults:
-                category_defaults[category] = sub_spec or category_defaults.get(category, "Other")
-            sub_specialism_keywords.setdefault(category, {})
+            exact_categories.add(category)
+            merged_keywords.setdefault(category, {})
             if sub_spec:
-                sub_specialism_keywords[category].setdefault(sub_spec, [sub_spec.lower()])
+                merged_keywords[category][sub_spec] = [sub_spec.lower()]
+                category_defaults.setdefault(category, sub_spec)
 
         if country and country not in seen_countries:
-            seen_countries.add(country)
             allowed_countries.append(country)
+            seen_countries.add(country)
 
-    if seen_categories:
-        # preserve existing internal taxonomy-key mapping but refresh any exact-name matches
-        refreshed_categories = {}
-        for internal_key, existing_label in categories.items():
-            if existing_label in seen_categories:
-                refreshed_categories[internal_key] = existing_label
-            else:
-                refreshed_categories[internal_key] = existing_label
-        categories = refreshed_categories
+    # keep internal taxonomy keys stable, but only trust exact workbook labels
+    label_to_key = {label: key for key, label in categories.items()}
+    refreshed_categories: dict[str, str] = {}
+    for label in sorted(exact_categories):
+        key = label_to_key.get(label)
+        if key is not None:
+            refreshed_categories[key] = label
+    if refreshed_categories:
+        routing["categories"] = refreshed_categories
+    else:
+        routing["categories"] = categories
 
-    if seen_categories:
-        routing["sub_specialism_keywords"] = sub_specialism_keywords | dict(base.get("sub_specialism_keywords", {}))
-        routing["category_defaults"] = category_defaults
-    if seen_countries:
-        routing["allowed_countries"] = allowed_countries
-    routing["categories"] = categories
+    if merged_keywords:
+        routing["sub_specialism_keywords"] = merged_keywords
+    routing["category_defaults"] = category_defaults
+    routing["allowed_countries"] = allowed_countries
     return routing
 
 
@@ -90,7 +89,9 @@ def load_legacy_routing(path: str | Path = "configs/legacy_routing.yaml") -> dic
         response.raise_for_status()
         reader = csv.DictReader(io.StringIO(response.text))
         rows = list(reader)
-        if not rows:
+        expected_headers = {"category", "sub specialism", "country"}
+        actual_headers = {_normalise_header(h) for h in (reader.fieldnames or []) if h}
+        if not rows or not expected_headers.issubset(actual_headers):
             return base
         return _extract_live_routing(base, rows)
     except Exception:
