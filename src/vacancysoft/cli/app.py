@@ -6,8 +6,9 @@ from sqlalchemy import select
 from vacancysoft.adapters.base import DiscoveredJobRecord
 from vacancysoft.db.base import Base
 from vacancysoft.db.engine import build_engine
-from vacancysoft.db.models import RawJob, Source, SourceRun
+from vacancysoft.db.models import ClassificationResult, RawJob, Source, SourceRun
 from vacancysoft.db.session import SessionLocal
+from vacancysoft.pipelines.classification_persistence import classify_raw_jobs
 from vacancysoft.pipelines.persistence import persist_discovery_batch
 from vacancysoft.source_registry.seed_loader import seed_sources_from_yaml
 
@@ -40,7 +41,10 @@ def db_stats() -> None:
         source_count = len(list(session.execute(select(Source)).scalars()))
         run_count = len(list(session.execute(select(SourceRun)).scalars()))
         raw_job_count = len(list(session.execute(select(RawJob)).scalars()))
-    typer.echo(f"sources={source_count} source_runs={run_count} raw_jobs={raw_job_count}")
+        classification_count = len(list(session.execute(select(ClassificationResult)).scalars()))
+    typer.echo(
+        f"sources={source_count} source_runs={run_count} raw_jobs={raw_job_count} classification_results={classification_count}"
+    )
 
 
 @pipeline_app.command("discover")
@@ -80,14 +84,21 @@ def discover_demo(source_key: str | None = typer.Option(None, "--source-key")) -
     typer.echo(f"Demo discovery persisted. source_run_id={source_run_id} raw_jobs={count}")
 
 
-@pipeline_app.command("enrich")
-def enrich(pending: bool = typer.Option(True, "--pending/--all")) -> None:
-    typer.echo(f"Enrichment stub. pending_only={pending}")
-
-
 @pipeline_app.command("classify")
 def classify(pending: bool = typer.Option(True, "--pending/--all")) -> None:
     typer.echo(f"Classification stub. pending_only={pending}")
+
+
+@pipeline_app.command("classify-demo")
+def classify_demo(limit: int = typer.Option(10, "--limit")) -> None:
+    with SessionLocal() as session:
+        count = classify_raw_jobs(session, limit=limit)
+    typer.echo(f"Demo classification persisted. classification_results={count}")
+
+
+@pipeline_app.command("enrich")
+def enrich(pending: bool = typer.Option(True, "--pending/--all")) -> None:
+    typer.echo(f"Enrichment stub. pending_only={pending}")
 
 
 @pipeline_app.command("export")
@@ -97,7 +108,24 @@ def export(profile: str = typer.Option("accepted_only_excel", "--profile")) -> N
 
 @export_app.command("taxonomy-preview")
 def taxonomy_preview() -> None:
-    typer.echo("Taxonomy-aware export preview stub")
+    with SessionLocal() as session:
+        rows = list(
+            session.execute(
+                select(
+                    ClassificationResult.enriched_job_id,
+                    ClassificationResult.primary_taxonomy_key,
+                    ClassificationResult.taxonomy_version,
+                    ClassificationResult.decision,
+                ).order_by(ClassificationResult.created_at.desc()).limit(10)
+            )
+        )
+    if not rows:
+        typer.echo("No classification results found")
+        return
+    for row in rows:
+        typer.echo(
+            f"job={row.enriched_job_id} taxonomy={row.primary_taxonomy_key} version={row.taxonomy_version} decision={row.decision}"
+        )
 
 
 if __name__ == "__main__":
