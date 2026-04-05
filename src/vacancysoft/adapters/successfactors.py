@@ -30,10 +30,16 @@ JOB_SELECTORS = [
     ".position-title",
     "a[href*='career/job']",
     "a[href*='job']",
+    "[role='listitem'] a[href*='job']",
+    "table a[href*='job']",
 ]
 SEARCH_INPUT_SELECTOR = (
     "input#keywordInput, input[name*='keyword' i], input[id*='keyword' i], "
     "input[placeholder*='search' i], input[placeholder*='title' i]"
+)
+SEARCH_BUTTON_SELECTOR = (
+    "button[type='submit'], button[aria-label*='search' i], button[title*='search' i], "
+    "button[id*='search' i], input[type='submit'], a[role='button']"
 )
 NETWORK_HINTS = ("job", "search", "career", "odata", "candidate", "posting", "requisition")
 
@@ -96,6 +102,55 @@ async def _collect_anchor_samples(scope: Any, board_url: str, limit: int = 8) ->
     return samples
 
 
+async def _collect_control_samples(page: Any, label: str, diagnostics: AdapterDiagnostics) -> None:
+    try:
+        inputs = await page.eval_on_selector_all(
+            "input, select, textarea",
+            """
+            els => els.slice(0, 20).map(el => ({
+                tag: el.tagName,
+                type: el.getAttribute('type') || '',
+                id: el.id || '',
+                name: el.getAttribute('name') || '',
+                placeholder: el.getAttribute('placeholder') || '',
+                value: el.value || ''
+            }))
+            """,
+        )
+        diagnostics.metadata[f"{label}_control_samples"] = inputs
+        diagnostics.counters[f"{label}_control_count"] = len(inputs)
+    except Exception:
+        pass
+    try:
+        buttons = await page.eval_on_selector_all(
+            "button, input[type='submit'], a[role='button']",
+            """
+            els => els.slice(0, 20).map(el => ({
+                tag: el.tagName,
+                type: el.getAttribute('type') || '',
+                id: el.id || '',
+                name: el.getAttribute('name') || '',
+                text: (el.innerText || el.value || '').trim().slice(0, 120)
+            }))
+            """,
+        )
+        diagnostics.metadata[f"{label}_button_samples"] = buttons
+        diagnostics.counters[f"{label}_button_count"] = len(buttons)
+    except Exception:
+        pass
+
+
+async def _scroll_page(page: Any, diagnostics: AdapterDiagnostics, *, rounds: int = 3, pause_ms: int = 1200) -> None:
+    for _ in range(rounds):
+        try:
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(pause_ms)
+            diagnostics.counters["scroll_rounds"] = diagnostics.counters.get("scroll_rounds", 0) + 1
+        except Exception:
+            diagnostics.counters["scroll_failures"] = diagnostics.counters.get("scroll_failures", 0) + 1
+            break
+
+
 async def _diagnose_page(page: Any, diagnostics: AdapterDiagnostics, board_url: str, label: str) -> None:
     try:
         diagnostics.metadata[f"{label}_page_url"] = page.url
@@ -127,9 +182,11 @@ async def _diagnose_page(page: Any, diagnostics: AdapterDiagnostics, board_url: 
             "contains_no_results": "no results" in lowered,
             "contains_search_results": "search results" in lowered,
             "contains_jobs_found": "jobs found" in lowered,
+            "contains_search_for_openings": "search for openings" in lowered,
         }
     except Exception:
         pass
+    await _collect_control_samples(page, label, diagnostics)
 
 
 async def _extract_records_from_scope(
@@ -164,6 +221,29 @@ async def _extract_records_from_scope(
         if records:
             return records
     return records
+
+
+async def _extract_records(page: Any, board_url: str, board: dict[str, Any], diagnostics: AdapterDiagnostics) -> list[DiscoveredJobRecord]:
+    parsed = await _extract_records_from_scope(page, board_url, board, diagnostics, source="page")
+    if parsed:
+        return parsed
+    for index, frame in enumerate(page.frames):
+        if frame == page.main_frame:
+            continue
+        try:
+            frame_records = await _extract_records_from_scope(
+                frame,
+                board_url,
+                board,
+                diagnostics,
+                source=f"frame_{index}",
+            )
+            if frame_records:
+                diagnostics.metadata["hit_frame_url"] = frame.url
+                return frame_records
+        except Exception as exc:
+            diagnostics.warnings.append(f"SuccessFactors frame inspection failed for {frame.url}: {exc}")
+    return []
 
 
 def _records_from_json_payload(payload: Any, board_url: str, board: dict[str, Any], source: str) -> list[DiscoveredJobRecord]:
@@ -254,7 +334,7 @@ class SuccessFactorsAdapter(SourceAdapter):
                                     if not any(hint in lowered_url for hint in NETWORK_HINTS):
                                         return
                                     diagnostics.counters["network_candidate_responses"] = diagnostics.counters.get("network_candidate_responses", 0) + 1
-                                    if len(captured_urls) < 12:
+                                    if len(captured_urls) < 20:
                                         captured_urls.append(url)
                                     content_type = (response.headers or {}).get("content-type", "")
                                     if "json" not in content_type.lower():
@@ -275,6 +355,17 @@ class SuccessFactorsAdapter(SourceAdapter):
 
                             await _diagnose_page(page, diagnostics, board_url, f"term_{term}")
 
+                            no_keyword_records = await _extract_records(page, board_url, board, diagnostics)
+                            diagnostics.counters[f"term_{term}_no_keyword_records"] = len(no_keyword_records)
+                            if no_keyword_records:
+                                for record in no_keyword_records:
+                                    href = record.discovered_url
+                                    if href and href not in seen_urls:
+                                        seen_urls.add(href)
+                                        all_records.append(record)
+                                page.remove_listener("response", on_response)
+                                continue
+
                             try:
                                 search_input = await page.query_selector(SEARCH_INPUT_SELECTOR)
                                 if search_input:
@@ -284,8 +375,16 @@ class SuccessFactorsAdapter(SourceAdapter):
                                     except Exception:
                                         pass
                                     await search_input.fill(term)
+                                    try:
+                                        form_handle = await search_input.evaluate_handle("el => el.form")
+                                        if form_handle:
+                                            await form_handle.evaluate("form => form && form.requestSubmit ? form.requestSubmit() : null")
+                                            await page.wait_for_timeout(2000)
+                                            diagnostics.counters["form_submit_attempts"] = diagnostics.counters.get("form_submit_attempts", 0) + 1
+                                    except Exception:
+                                        diagnostics.counters["form_submit_failures"] = diagnostics.counters.get("form_submit_failures", 0) + 1
                                     await search_input.press("Enter")
-                                    await page.wait_for_timeout(3000)
+                                    await page.wait_for_timeout(2500)
                                     diagnostics.counters["search_terms_applied"] = diagnostics.counters.get("search_terms_applied", 0) + 1
                                 else:
                                     diagnostics.counters["search_box_misses"] = diagnostics.counters.get("search_box_misses", 0) + 1
@@ -293,16 +392,25 @@ class SuccessFactorsAdapter(SourceAdapter):
                                 diagnostics.counters["search_box_misses"] = diagnostics.counters.get("search_box_misses", 0) + 1
 
                             try:
-                                search_button = await page.query_selector("button[type='submit'], button[aria-label*='search' i], button[title*='search' i]")
-                                if search_button:
-                                    await search_button.click()
-                                    await page.wait_for_timeout(2000)
-                                    diagnostics.counters["search_button_clicks"] = diagnostics.counters.get("search_button_clicks", 0) + 1
+                                buttons = await page.query_selector_all(SEARCH_BUTTON_SELECTOR)
+                                diagnostics.counters[f"term_{term}_candidate_buttons"] = len(buttons)
+                                for button in buttons[:6]:
+                                    try:
+                                        text = (_clean(await button.inner_text()) or _clean(await button.get_attribute("value")) or "").lower()
+                                        if text and not any(tok in text for tok in ("search", "find", "apply", "go", "submit")):
+                                            continue
+                                        await button.click()
+                                        await page.wait_for_timeout(2000)
+                                        diagnostics.counters["search_button_clicks"] = diagnostics.counters.get("search_button_clicks", 0) + 1
+                                        break
+                                    except Exception:
+                                        diagnostics.counters["search_button_failures"] = diagnostics.counters.get("search_button_failures", 0) + 1
                             except Exception:
                                 diagnostics.counters["search_button_misses"] = diagnostics.counters.get("search_button_misses", 0) + 1
 
+                            await _scroll_page(page, diagnostics)
                             await _diagnose_page(page, diagnostics, board_url, f"term_{term}_post_search")
-                            diagnostics.metadata[f"term_{term}_network_urls"] = captured_urls[:8]
+                            diagnostics.metadata[f"term_{term}_network_urls"] = captured_urls[:12]
                             diagnostics.counters[f"term_{term}_network_payloads"] = len(captured_payloads)
 
                             parsed: list[DiscoveredJobRecord] = []
@@ -316,25 +424,7 @@ class SuccessFactorsAdapter(SourceAdapter):
                             if parsed:
                                 diagnostics.counters["network_records_found"] = diagnostics.counters.get("network_records_found", 0) + len(parsed)
                             else:
-                                parsed = await _extract_records_from_scope(page, board_url, board, diagnostics, source="page")
-                                if not parsed:
-                                    for index, frame in enumerate(page.frames):
-                                        if frame == page.main_frame:
-                                            continue
-                                        try:
-                                            frame_records = await _extract_records_from_scope(
-                                                frame,
-                                                board_url,
-                                                board,
-                                                diagnostics,
-                                                source=f"frame_{index}",
-                                            )
-                                            if frame_records:
-                                                diagnostics.metadata["hit_frame_url"] = frame.url
-                                                parsed = frame_records
-                                                break
-                                        except Exception as exc:
-                                            diagnostics.warnings.append(f"SuccessFactors frame inspection failed for {frame.url}: {exc}")
+                                parsed = await _extract_records(page, board_url, board, diagnostics)
 
                             for record in parsed:
                                 href = record.discovered_url
