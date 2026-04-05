@@ -18,6 +18,7 @@ from vacancysoft.exporters.views import (
     grouped_by_taxonomy_query,
     load_exporter_config,
 )
+from vacancysoft.exporters.webhook_sender import send_profile_to_webhook, send_segment_to_webhook
 from vacancysoft.pipelines.classification_persistence import classify_enriched_jobs
 from vacancysoft.pipelines.enrichment_persistence import enrich_raw_jobs
 from vacancysoft.pipelines.maintenance import cleanup_orphaned_classification_results
@@ -227,6 +228,42 @@ def excel_segment(segment_name: str = typer.Option(..., "--segment"), output_pat
     with SessionLocal() as session:
         output = export_segment_to_excel(session, segment_name=segment_name, output_path=output_path, limit=limit)
     typer.echo(f"Wrote Excel export: {output}")
+
+
+@export_app.command("webhook-profile")
+def webhook_profile(
+    profile_name: str = typer.Option(..., "--profile"),
+    limit: int = typer.Option(100, "--limit"),
+    webhook_url: str | None = typer.Option(None, "--url"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    with SessionLocal() as session:
+        result = send_profile_to_webhook(
+            session=session,
+            profile_name=profile_name,
+            limit=limit,
+            webhook_url=webhook_url,
+            dry_run=dry_run,
+        )
+    typer.echo(str(result))
+
+
+@export_app.command("webhook-segment")
+def webhook_segment(
+    segment_name: str = typer.Option(..., "--segment"),
+    limit: int = typer.Option(100, "--limit"),
+    webhook_url: str | None = typer.Option(None, "--url"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+) -> None:
+    with SessionLocal() as session:
+        result = send_segment_to_webhook(
+            session=session,
+            segment_name=segment_name,
+            limit=limit,
+            webhook_url=webhook_url,
+            dry_run=dry_run,
+        )
+    typer.echo(str(result))
 
 
 if __name__ == "__main__":

@@ -54,6 +54,7 @@ def test_exporter_config_loads() -> None:
     assert "risk_only" in config["client_segments"]
     assert "profiles" in config
     assert "accepted_only" in config["profiles"]
+    assert config["webhook"]["production_url"] == "https://antonyberou.app.n8n.cloud/webhook/fuck_vacancysoft"
 
 
 def test_legacy_webhook_payload_shape() -> None:

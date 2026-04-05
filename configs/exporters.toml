@@ -1,13 +1,13 @@
 [profiles.accepted_only]
 view = "accepted_only"
 include_export_decisions = ["accepted"]
-json_payload_mode = "jobs_envelope"
+json_payload_mode = "legacy_body_array"
 excel_sheet_name = "Accepted Jobs"
 
 [profiles.accepted_plus_review]
 view = "accepted_plus_review"
 include_export_decisions = ["accepted", "review"]
-json_payload_mode = "jobs_envelope"
+json_payload_mode = "legacy_body_array"
 excel_sheet_name = "Accepted And Review"
 
 [client_segments.risk_only]
@@ -21,3 +21,7 @@ include_export_decisions = ["accepted"]
 [client_segments.front_office]
 taxonomy_keys = ["front_office", "quant"]
 include_export_decisions = ["accepted", "review"]
+
+[webhook]
+production_url = "https://antonyberou.app.n8n.cloud/webhook/fuck_vacancysoft"
+timeout_seconds = 20
