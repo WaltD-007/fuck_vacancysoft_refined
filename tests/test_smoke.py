@@ -2,10 +2,16 @@ from vacancysoft import __version__
 from vacancysoft.classifiers.taxonomy import classify_against_legacy_taxonomy
 from vacancysoft.enrichers.date_parser import parse_posted_date
 from vacancysoft.enrichers.location_normaliser import normalise_location
+from vacancysoft.exporters.serialisers import build_legacy_webhook_payload, row_to_legacy_lead
 from vacancysoft.exporters.views import load_exporter_config
 from vacancysoft.pipelines.classification import build_classification_payload
 from vacancysoft.scoring.engine import compute_export_score
 from vacancysoft.source_registry.seed_loader import load_seed_config
+
+
+class _FakeRow:
+    def __init__(self, mapping):
+        self._mapping = mapping
 
 
 def test_version_exists() -> None:
@@ -47,3 +53,27 @@ def test_exporter_config_loads() -> None:
     assert "risk_only" in config["client_segments"]
     assert "profiles" in config
     assert "accepted_only" in config["profiles"]
+
+
+def test_legacy_webhook_payload_shape() -> None:
+    row = _FakeRow(
+        {
+            "title": "Senior Risk Manager at Example Capital",
+            "location_text": "London, UK",
+            "location_country": "UK",
+            "primary_taxonomy_key": "risk",
+            "secondary_taxonomy_keys": [],
+            "employer_name": "Example Capital",
+            "discovered_url": "https://example.com/job",
+            "apply_url": "https://example.com/apply",
+            "source_key": "greenhouse",
+            "posted_at": "2026-04-05",
+        }
+    )
+    legacy = row_to_legacy_lead(row)
+    assert legacy["Company"] == "Example Capital"
+    assert legacy["Job Title"] == "Senior Risk Manager at Example Capital"
+    payload = build_legacy_webhook_payload([row])
+    assert "body" in payload
+    assert isinstance(payload["body"], list)
+    assert payload["body"][0]["Job URL"] == "https://example.com/job"

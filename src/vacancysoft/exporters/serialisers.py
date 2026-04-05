@@ -1,74 +1,99 @@
 from __future__ import annotations
 
 from datetime import datetime
+from hashlib import sha1
 from typing import Any
 
-EXPORT_COLUMNS = [
-    "enriched_job_id",
-    "title",
-    "location_text",
-    "location_city",
-    "location_country",
-    "posted_at",
-    "primary_taxonomy_key",
-    "secondary_taxonomy_keys",
-    "taxonomy_version",
-    "classifier_version",
-    "classification_decision",
-    "export_decision",
-    "export_eligibility_score",
-    "scoring_version",
-    "employer_name",
-    "source_key",
-    "discovered_url",
-    "apply_url",
+LEGACY_EXPORT_COLUMNS = [
+    "Job URL",
+    "Job Title",
+    "Job Ref",
+    "Category",
+    "Sub Specialism",
+    "Company",
+    "Location",
+    "Country",
+    "Salary",
+    "Contract Type",
+    "Date Posted",
+    "Job Board URL",
+    "Platform",
+    "Date Scraped",
 ]
 
-N8N_FIELD_MAP = {
-    "enriched_job_id": "id",
-    "title": "job_title",
-    "location_text": "location",
-    "location_city": "location_city",
-    "location_country": "location_country",
-    "posted_at": "posted_at",
-    "primary_taxonomy_key": "taxonomy",
-    "secondary_taxonomy_keys": "secondary_taxonomies",
-    "taxonomy_version": "taxonomy_version",
-    "classifier_version": "classifier_version",
-    "classification_decision": "classification_decision",
-    "export_decision": "export_decision",
-    "export_eligibility_score": "export_score",
-    "scoring_version": "scoring_version",
-    "employer_name": "company",
-    "source_key": "source_key",
-    "discovered_url": "job_url",
-    "apply_url": "apply_url",
-}
+
+def _slug(value: str, max_len: int = 24) -> str:
+    cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in value.strip())
+    collapsed = "-".join(part for part in cleaned.split("-") if part)
+    return collapsed[:max_len] or "value"
 
 
-def row_to_dict(row: Any) -> dict[str, Any]:
+def _hash_string(value: str) -> str:
+    return sha1(value.encode("utf-8")).hexdigest()[:10]
+
+
+def _safe_str(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value if item is not None)
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    return str(value)
+
+
+def _build_job_ref(company: str, title: str, location: str, country: str, job_url: str, date_posted: str, platform: str) -> str:
+    fingerprint = "|".join([job_url, company, title, location, country, date_posted, platform])
+    return f"lead-{_slug(company or 'company')}-{_slug(title or 'role')}-{_hash_string(fingerprint)}"
+
+
+def row_to_legacy_lead(row: Any) -> dict[str, str]:
     mapping = row._mapping if hasattr(row, "_mapping") else dict(row)
-    result: dict[str, Any] = {}
-    for column in EXPORT_COLUMNS:
-        value = mapping.get(column)
-        if isinstance(value, datetime):
-            value = value.isoformat()
-        result[column] = value
-    return result
 
+    title = _safe_str(mapping.get("title"))
+    location_text = _safe_str(mapping.get("location_text"))
+    location_country = _safe_str(mapping.get("location_country"))
+    taxonomy = _safe_str(mapping.get("primary_taxonomy_key"))
+    secondary_taxonomies = _safe_str(mapping.get("secondary_taxonomy_keys"))
+    company = _safe_str(mapping.get("employer_name"))
+    job_url = _safe_str(mapping.get("discovered_url"))
+    apply_url = _safe_str(mapping.get("apply_url"))
+    source_key = _safe_str(mapping.get("source_key"))
+    date_posted = _safe_str(mapping.get("posted_at"))
+    date_scraped = datetime.now().date().isoformat()
+    category = taxonomy.replace("_", " ").title() if taxonomy else ""
+    sub_specialism = secondary_taxonomies or taxonomy
+    platform = source_key
+    job_board_url = apply_url or job_url
+    salary = ""
+    contract_type = ""
+    job_ref = _build_job_ref(
+        company=company,
+        title=title,
+        location=location_text,
+        country=location_country,
+        job_url=job_url,
+        date_posted=date_posted,
+        platform=platform,
+    )
 
-def row_to_n8n_job(row: Any) -> dict[str, Any]:
-    base = row_to_dict(row)
-    payload: dict[str, Any] = {}
-    for source_key, target_key in N8N_FIELD_MAP.items():
-        payload[target_key] = base.get(source_key)
-    return payload
-
-
-def build_jobs_envelope(rows: list[Any], profile_name: str) -> dict[str, Any]:
-    jobs = [row_to_n8n_job(row) for row in rows]
     return {
-        "profile": profile_name,
-        "job_count": len(jobs),
-        "jobs": jobs,
+        "Job URL": job_url,
+        "Job Title": title,
+        "Job Ref": job_ref,
+        "Category": category,
+        "Sub Specialism": sub_specialism,
+        "Company": company,
+        "Location": location_text,
+        "Country": location_country,
+        "Salary": salary,
+        "Contract Type": contract_type,
+        "Date Posted": date_posted,
+        "Job Board URL": job_board_url,
+        "Platform": platform,
+        "Date Scraped": date_scraped,
     }
+
+
+def build_legacy_webhook_payload(rows: list[Any]) -> dict[str, list[dict[str, str]]]:
+    return {"body": [row_to_legacy_lead(row) for row in rows]}
