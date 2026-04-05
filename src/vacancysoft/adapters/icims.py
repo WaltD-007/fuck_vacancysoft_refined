@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime
 from html.parser import HTMLParser
@@ -35,6 +36,24 @@ DOM_LINK_SELECTORS = [
     "[class*='opening'] a",
     "[class*='search-result'] a",
 ]
+_REJECT_TITLES = {
+    "search",
+    "apply",
+    "learn more",
+    "skip branding",
+    "skip to main content",
+    "welcome page",
+    "log back in!",
+    "application faqs",
+}
+_REJECT_URL_TOKENS = (
+    "#icims_content_iframe",
+    "/jobs/intro",
+    "/jobs/login",
+    "icims.help",
+    "platform_help",
+)
+_JOB_URL_RE = re.compile(r"/jobs/\d+/.+/job(?:\?|$)", re.IGNORECASE)
 
 
 def _clean(value: Any) -> str | None:
@@ -62,22 +81,34 @@ def _looks_like_job_title(title: str | None) -> bool:
     if not title:
         return False
     lowered = title.strip().lower()
-    if lowered in {"search", "apply", "learn more", "skip branding", "skip to main content"}:
+    if lowered in _REJECT_TITLES:
         return False
+    if lowered.startswith("job posting title"):
+        lowered = lowered.replace("job posting title", "", 1).strip()
     return len(lowered) >= 4
+
+
+def _normalise_title(title: str | None) -> str | None:
+    title = _clean(title)
+    if not title:
+        return None
+    lowered = title.lower()
+    if lowered.startswith("job posting title"):
+        title = title[len("Job Posting Title"):].strip()
+    return _clean(title)
 
 
 def _looks_like_job_url(url: str | None) -> bool:
     if not url:
         return False
     lowered = url.lower()
-    if "#icims_content_iframe" in lowered:
+    if any(token in lowered for token in _REJECT_URL_TOKENS):
         return False
-    return any(token in lowered for token in ("/jobs/", "jobdetail", "job?", "jobid"))
+    return bool(_JOB_URL_RE.search(lowered)) or "jobdetail" in lowered or "jobid=" in lowered
 
 
 def _record_from_icims_json(job: dict[str, Any], board: dict[str, Any]) -> DiscoveredJobRecord | None:
-    title = _clean(job.get("jobtitle") or job.get("title") or job.get("job_title") or job.get("displayTitle") or job.get("name"))
+    title = _normalise_title(job.get("jobtitle") or job.get("title") or job.get("job_title") or job.get("displayTitle") or job.get("name"))
     if not _looks_like_job_title(title):
         return None
     job_id = _clean(job.get("id") or job.get("jobId") or job.get("req_id") or job.get("jobid"))
@@ -156,7 +187,7 @@ class _IcimsDomParser(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         if self._in_title and tag == "a":
-            title = _clean(self._current_title)
+            title = _normalise_title(self._current_title)
             location = _clean(self._current_location)
             company_name = lookup_company("icims", board_url=self.board.get("url"), slug=self.board.get("slug"), explicit_company=self.board.get("company"))
             if _looks_like_job_title(title) and _looks_like_job_url(self._current_href):
@@ -292,7 +323,7 @@ async def _extract_records_from_scope(scope: Any, board: dict[str, Any], diagnos
             diagnostics.counters[f"{label}_dom_elements_seen"] = len(links)
             parsed: list[DiscoveredJobRecord] = []
             for link in links:
-                title = _clean(await link.inner_text())
+                title = _normalise_title(await link.inner_text())
                 href = _absolute_url(await link.get_attribute("href"), board["url"])
                 if _looks_like_job_title(title) and _looks_like_job_url(href):
                     company_name = lookup_company("icims", board_url=board.get("url"), slug=board.get("slug"), explicit_company=board.get("company"))
