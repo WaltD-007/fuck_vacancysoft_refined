@@ -26,6 +26,10 @@ def _load_env_file(env_path: Path) -> None:
             os.environ.setdefault(key, value)
 
 
+def _progress(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
 def _normalise_url(value: Any) -> str | None:
     if value is None:
         return None
@@ -44,6 +48,10 @@ KNOWN_SKIP_HOST_FRAGMENTS = {
     "jobs.google.com",
     "google.com",
 }
+
+
+API_ADAPTERS = {"greenhouse", "workable", "workday", "google_jobs"}
+BROWSER_ADAPTERS = {"eightfold", "generic_site"}
 
 
 def _looks_like_board(url: str) -> bool:
@@ -127,6 +135,18 @@ def serialise_record(record: Any) -> dict[str, Any]:
     }
 
 
+def _should_run(name: str, args: argparse.Namespace) -> bool:
+    if args.only:
+        return name in set(args.only)
+    if args.no_browser and name in BROWSER_ADAPTERS:
+        return False
+    if args.only_browser:
+        return name in BROWSER_ADAPTERS
+    if args.only_api:
+        return name in API_ADAPTERS
+    return True
+
+
 async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
     from vacancysoft.adapters import (
         EightfoldAdapter,
@@ -137,12 +157,16 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
         WorkdayAdapter,
     )
 
+    _progress(f"Loading workbook: {args.xlsx}")
     board_urls = load_board_urls(Path(args.xlsx))
+    _progress(f"Found source URLs: {board_urls}")
     results: dict[str, Any] = {"source_urls": board_urls, "runs": {}}
 
     async def capture(name: str, coro: Any) -> None:
+        _progress(f"Starting {name}...")
         try:
             page = await coro
+            _progress(f"Finished {name}: ok, jobs={len(page.jobs)}")
             results["runs"][name] = {
                 "ok": True,
                 "job_count": len(page.jobs),
@@ -155,10 +179,11 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
                 },
             }
         except Exception as exc:
+            _progress(f"Finished {name}: failed with {type(exc).__name__}: {exc}")
             results["runs"][name] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     greenhouse_url = board_urls.get("greenhouse")
-    if greenhouse_url:
+    if _should_run("greenhouse", args) and greenhouse_url:
         slug = _extract_greenhouse_slug(greenhouse_url)
         if slug:
             await capture(
@@ -174,9 +199,11 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
             )
         else:
             results["runs"]["greenhouse"] = {"ok": False, "error": f"Could not derive Greenhouse slug from {greenhouse_url}"}
+    elif _should_run("greenhouse", args):
+        results["runs"]["greenhouse"] = {"ok": False, "error": "No Greenhouse URL found in workbook"}
 
     workable_url = board_urls.get("workable")
-    if workable_url:
+    if _should_run("workable", args) and workable_url:
         slug = _extract_workable_slug(workable_url)
         if slug:
             await capture(
@@ -192,15 +219,19 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
             )
         else:
             results["runs"]["workable"] = {"ok": False, "error": f"Could not derive Workable slug from {workable_url}"}
+    elif _should_run("workable", args):
+        results["runs"]["workable"] = {"ok": False, "error": "No Workable URL found in workbook"}
 
     workday_url = board_urls.get("workday")
-    if workday_url:
+    if _should_run("workday", args) and workday_url:
         adapter = WorkdayAdapter()
+        _progress("Starting workday...")
         try:
             _endpoint, page = await adapter.discover_from_board_url(
                 job_board_url=workday_url,
                 limit=max(args.limit, 2),
             )
+            _progress(f"Finished workday: ok, jobs={len(page.jobs)}")
             results["runs"]["workday"] = {
                 "ok": True,
                 "job_count": len(page.jobs),
@@ -213,10 +244,13 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
                 },
             }
         except Exception as exc:
+            _progress(f"Finished workday: failed with {type(exc).__name__}: {exc}")
             results["runs"]["workday"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    elif _should_run("workday", args):
+        results["runs"]["workday"] = {"ok": False, "error": "No Workday URL found in workbook"}
 
     eightfold_url = board_urls.get("eightfold")
-    if eightfold_url:
+    if _should_run("eightfold", args) and eightfold_url:
         await capture(
             "eightfold",
             EightfoldAdapter().discover(
@@ -229,9 +263,11 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
                 }
             ),
         )
+    elif _should_run("eightfold", args):
+        results["runs"]["eightfold"] = {"ok": False, "error": "No Eightfold URL found in workbook"}
 
     generic_url = board_urls.get("generic_site")
-    if generic_url:
+    if _should_run("generic_site", args) and generic_url:
         await capture(
             "generic_site",
             GenericBrowserAdapter().discover(
@@ -244,17 +280,20 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
                 }
             ),
         )
+    elif _should_run("generic_site", args):
+        results["runs"]["generic_site"] = {"ok": False, "error": "No generic-site URL found in workbook"}
 
-    await capture(
-        "google_jobs",
-        GoogleJobsAdapter().discover(
-            {
-                "search_terms": args.google_queries,
-                "timeout_seconds": args.timeout_seconds,
-                "max_pages_per_query": 1,
-            }
-        ),
-    )
+    if _should_run("google_jobs", args):
+        await capture(
+            "google_jobs",
+            GoogleJobsAdapter().discover(
+                {
+                    "search_terms": args.google_queries,
+                    "timeout_seconds": args.timeout_seconds,
+                    "max_pages_per_query": 1,
+                }
+            ),
+        )
 
     return results
 
@@ -268,6 +307,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout-seconds", type=float, default=20.0, help="HTTP timeout for API adapters")
     parser.add_argument("--page-timeout-ms", type=int, default=30000, help="Browser timeout for Playwright adapters")
     parser.add_argument("--search-settle-ms", type=int, default=2000, help="Browser wait after search/navigation")
+    parser.add_argument("--no-browser", action="store_true", help="Skip browser-based adapters like Eightfold and generic-site")
+    parser.add_argument("--only-browser", action="store_true", help="Run only browser-based adapters")
+    parser.add_argument("--only-api", action="store_true", help="Run only API-based adapters")
+    parser.add_argument(
+        "--only",
+        action="append",
+        choices=["greenhouse", "workable", "workday", "eightfold", "generic_site", "google_jobs"],
+        help="Run only the named adapter. Repeat for multiple adapters.",
+    )
     parser.add_argument(
         "--search-term",
         dest="search_terms",
@@ -295,6 +343,7 @@ def main() -> None:
     if not env_path.is_absolute():
         env_path = repo_root / env_path
     _load_env_file(env_path)
+    _progress(f"Loaded env file: {env_path}")
 
     if args.search_terms is None:
         args.search_terms = ["risk", "quant"]
