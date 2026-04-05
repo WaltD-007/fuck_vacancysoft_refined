@@ -29,4 +29,10 @@ def build_engine():
     return create_engine(settings.database_url, future=True)
 
 
-SessionLocal = sessionmaker(bind=build_engine(), autoflush=False, autocommit=False, future=True)
+SessionLocal = sessionmaker(
+    bind=build_engine(),
+    autoflush=False,
+    autocommit=False,
+    future=True,
+    expire_on_commit=False,
+)

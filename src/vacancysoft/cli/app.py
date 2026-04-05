@@ -76,7 +76,8 @@ def discover_demo(source_key: str | None = typer.Option(None, "--source-key")) -
             )
         ]
         source_run, count = persist_discovery_batch(session=session, source=source, records=sample_jobs, trigger="manual")
-    typer.echo(f"Demo discovery persisted. source_run_id={source_run.id} raw_jobs={count}")
+        source_run_id = source_run.id
+    typer.echo(f"Demo discovery persisted. source_run_id={source_run_id} raw_jobs={count}")
 
 
 @pipeline_app.command("enrich")
