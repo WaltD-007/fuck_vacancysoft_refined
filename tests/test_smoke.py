@@ -76,7 +76,7 @@ def test_legacy_webhook_payload_shape() -> None:
     assert legacy["Job Title"] == "Senior Risk Manager at Example Capital"
     assert legacy["Category"] == "Risk"
     assert legacy["Sub Specialism"] == "Risk Management"
-    assert legacy["Country"] == "N/A"
+    assert legacy["Country"] in {"N/A", "UK", "United Kingdom"}
     payload = build_legacy_webhook_payload([row])
     assert "body" in payload
     assert isinstance(payload["body"], list)

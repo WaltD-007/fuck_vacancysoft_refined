@@ -1,3 +1,9 @@
+live_source:
+  enabled: true
+  spreadsheet_id: "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw"
+  sheet_name: "Taxonomy"
+  timeout_seconds: 10
+
 categories:
   risk: Risk
   quant: Quant
