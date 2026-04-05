@@ -35,6 +35,7 @@ SEARCH_INPUT_SELECTOR = (
     "input#keywordInput, input[name*='keyword' i], input[id*='keyword' i], "
     "input[placeholder*='search' i], input[placeholder*='title' i]"
 )
+NETWORK_HINTS = ("job", "search", "career", "odata", "candidate", "posting", "requisition")
 
 
 def _clean(value: Any) -> str | None:
@@ -116,6 +117,19 @@ async def _diagnose_page(page: Any, diagnostics: AdapterDiagnostics, board_url: 
         diagnostics.metadata[f"{label}_anchor_samples"] = await _collect_anchor_samples(page, board_url)
     except Exception:
         pass
+    try:
+        body_text = await page.locator("body").inner_text()
+        sample = body_text[:600].replace("\n", " ").strip()
+        diagnostics.metadata[f"{label}_body_text_sample"] = sample
+        lowered = sample.lower()
+        diagnostics.metadata[f"{label}_body_text_flags"] = {
+            "contains_sign_in": "sign in" in lowered,
+            "contains_no_results": "no results" in lowered,
+            "contains_search_results": "search results" in lowered,
+            "contains_jobs_found": "jobs found" in lowered,
+        }
+    except Exception:
+        pass
 
 
 async def _extract_records_from_scope(
@@ -152,6 +166,48 @@ async def _extract_records_from_scope(
     return records
 
 
+def _records_from_json_payload(payload: Any, board_url: str, board: dict[str, Any], source: str) -> list[DiscoveredJobRecord]:
+    records: list[DiscoveredJobRecord] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            title = _clean(
+                node.get("jobTitle")
+                or node.get("job_title")
+                or node.get("title")
+                or node.get("displayTitle")
+                or node.get("postingTitle")
+                or node.get("externalTitle")
+            )
+            href = _absolute_url(
+                node.get("jobUrl")
+                or node.get("url")
+                or node.get("applyUrl")
+                or node.get("jobReqIdUrl")
+                or node.get("job_req_id")
+                or node.get("jobReqId"),
+                board_url,
+            )
+            if title and href:
+                records.append(_make_record(title, href, board, source=source))
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(payload)
+    deduped: list[DiscoveredJobRecord] = []
+    seen_urls: set[str] = set()
+    for record in records:
+        url = record.discovered_url or record.external_job_id
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        deduped.append(record)
+    return deduped
+
+
 class SuccessFactorsAdapter(SourceAdapter):
     adapter_name = "successfactors"
     capabilities = AdapterCapabilities(
@@ -186,6 +242,29 @@ class SuccessFactorsAdapter(SourceAdapter):
                     page = await context.new_page()
                     try:
                         for term in search_terms:
+                            captured_payloads: list[Any] = []
+                            captured_urls: list[str] = []
+
+                            async def on_response(response: Any) -> None:
+                                try:
+                                    if response.status != 200:
+                                        return
+                                    url = response.url
+                                    lowered_url = url.lower()
+                                    if not any(hint in lowered_url for hint in NETWORK_HINTS):
+                                        return
+                                    diagnostics.counters["network_candidate_responses"] = diagnostics.counters.get("network_candidate_responses", 0) + 1
+                                    if len(captured_urls) < 12:
+                                        captured_urls.append(url)
+                                    content_type = (response.headers or {}).get("content-type", "")
+                                    if "json" not in content_type.lower():
+                                        return
+                                    payload = await response.json()
+                                    captured_payloads.append(payload)
+                                except Exception:
+                                    diagnostics.counters["network_capture_failures"] = diagnostics.counters.get("network_capture_failures", 0) + 1
+
+                            page.on("response", on_response)
                             search_url = f"{board_url}&navBarLevel=JOB_SEARCH" if "?" in board_url else f"{board_url}?navBarLevel=JOB_SEARCH"
                             try:
                                 await page.goto(search_url, wait_until="networkidle", timeout=int(source_config.get("page_timeout_ms", PAGE_TIMEOUT_MS)))
@@ -213,33 +292,59 @@ class SuccessFactorsAdapter(SourceAdapter):
                             except Exception:
                                 diagnostics.counters["search_box_misses"] = diagnostics.counters.get("search_box_misses", 0) + 1
 
-                            parsed = await _extract_records_from_scope(page, board_url, board, diagnostics, source="page")
-                            if not parsed:
-                                for index, frame in enumerate(page.frames):
-                                    if frame == page.main_frame:
-                                        continue
-                                    try:
-                                        frame_records = await _extract_records_from_scope(
-                                            frame,
-                                            board_url,
-                                            board,
-                                            diagnostics,
-                                            source=f"frame_{index}",
-                                        )
-                                        if frame_records:
-                                            diagnostics.metadata["hit_frame_url"] = frame.url
-                                            parsed = frame_records
-                                            break
-                                    except Exception as exc:
-                                        diagnostics.warnings.append(f"SuccessFactors frame inspection failed for {frame.url}: {exc}")
+                            try:
+                                search_button = await page.query_selector("button[type='submit'], button[aria-label*='search' i], button[title*='search' i]")
+                                if search_button:
+                                    await search_button.click()
+                                    await page.wait_for_timeout(2000)
+                                    diagnostics.counters["search_button_clicks"] = diagnostics.counters.get("search_button_clicks", 0) + 1
+                            except Exception:
+                                diagnostics.counters["search_button_misses"] = diagnostics.counters.get("search_button_misses", 0) + 1
+
+                            await _diagnose_page(page, diagnostics, board_url, f"term_{term}_post_search")
+                            diagnostics.metadata[f"term_{term}_network_urls"] = captured_urls[:8]
+                            diagnostics.counters[f"term_{term}_network_payloads"] = len(captured_payloads)
+
+                            parsed: list[DiscoveredJobRecord] = []
+                            for index, payload in enumerate(captured_payloads):
+                                records = _records_from_json_payload(payload, board_url, board, source=f"network_{index}")
+                                if records:
+                                    parsed.extend(records)
+                                    if len(parsed) >= 50:
+                                        break
+
+                            if parsed:
+                                diagnostics.counters["network_records_found"] = diagnostics.counters.get("network_records_found", 0) + len(parsed)
+                            else:
+                                parsed = await _extract_records_from_scope(page, board_url, board, diagnostics, source="page")
+                                if not parsed:
+                                    for index, frame in enumerate(page.frames):
+                                        if frame == page.main_frame:
+                                            continue
+                                        try:
+                                            frame_records = await _extract_records_from_scope(
+                                                frame,
+                                                board_url,
+                                                board,
+                                                diagnostics,
+                                                source=f"frame_{index}",
+                                            )
+                                            if frame_records:
+                                                diagnostics.metadata["hit_frame_url"] = frame.url
+                                                parsed = frame_records
+                                                break
+                                        except Exception as exc:
+                                            diagnostics.warnings.append(f"SuccessFactors frame inspection failed for {frame.url}: {exc}")
 
                             for record in parsed:
                                 href = record.discovered_url
-                                if title := record.title_raw:
+                                if record.title_raw:
                                     diagnostics.counters["titles_seen"] = diagnostics.counters.get("titles_seen", 0) + 1
                                 if href and href not in seen_urls:
                                     seen_urls.add(href)
                                     all_records.append(record)
+
+                            page.remove_listener("response", on_response)
                     finally:
                         await page.close()
         except PlaywrightTimeoutError as exc:
