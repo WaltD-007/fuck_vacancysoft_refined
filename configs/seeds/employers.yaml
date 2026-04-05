@@ -1,0 +1,8 @@
+employers:
+  - employer_name: "Example Capital"
+    canonical_company_key: "example_capital"
+    primary_domain: "examplecapital.com"
+    careers_url: "https://www.examplecapital.com/careers"
+    priority: 5
+    geography_hints: ["UK"]
+    known_sources: []
