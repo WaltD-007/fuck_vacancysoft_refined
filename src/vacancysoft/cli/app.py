@@ -4,7 +4,7 @@ import asyncio
 import typer
 from sqlalchemy import select
 
-from vacancysoft.adapters import AdzunaAdapter, WorkdayAdapter, derive_workday_candidate_endpoints
+from vacancysoft.adapters import AdzunaAdapter, WorkableAdapter, WorkdayAdapter, derive_workday_candidate_endpoints
 from vacancysoft.adapters.base import DiscoveredJobRecord
 from vacancysoft.db.base import Base
 from vacancysoft.db.engine import build_engine
@@ -177,6 +177,28 @@ def discover_adzuna(
     for record in page.jobs[:10]:
         company = record.provenance.get("company", "")
         typer.echo(f"- {record.title_raw} | {company} | {record.location_raw} | {record.discovered_url}")
+
+
+@pipeline_app.command("discover-workable")
+def discover_workable(
+    slug: str = typer.Option(..., "--slug"),
+    company: str | None = typer.Option(None, "--company"),
+    job_board_url: str | None = typer.Option(None, "--job-board-url"),
+) -> None:
+    adapter = WorkableAdapter()
+    page = asyncio.run(
+        adapter.discover(
+            source_config={
+                "slug": slug,
+                "company": company,
+                "job_board_url": job_board_url,
+            }
+        )
+    )
+    typer.echo(f"Workable discovery returned jobs={len(page.jobs)}")
+    for record in page.jobs[:10]:
+        company_name = record.provenance.get("company", "")
+        typer.echo(f"- {record.title_raw} | {company_name} | {record.location_raw} | {record.discovered_url}")
 
 
 @pipeline_app.command("enrich")

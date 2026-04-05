@@ -1,5 +1,6 @@
 from vacancysoft import __version__
-from vacancysoft.adapters.adzuna import _format_salary, _parse_job
+from vacancysoft.adapters.adzuna import _format_salary, _parse_job as parse_adzuna_job
+from vacancysoft.adapters.workable import _parse_job as parse_workable_job
 from vacancysoft.adapters.workday import _job_to_record, derive_workday_candidate_endpoints
 
 
@@ -47,9 +48,27 @@ def test_adzuna_job_mapping() -> None:
         "salary_currency": "GBP",
         "contract_time": "full_time",
     }
-    record = _parse_job(job, "https://www.adzuna.com/gb/search")
+    record = parse_adzuna_job(job, "https://www.adzuna.com/gb/search")
     assert record.title_raw == "Senior Compliance Officer"
     assert record.location_raw == "London"
     assert record.discovered_url == "https://www.adzuna.co.uk/jobs/details/123"
     assert record.provenance["company"] == "Example Bank"
     assert record.provenance["salary"] == "£80,000 - £95,000"
+
+
+def test_workable_job_mapping() -> None:
+    board = {"slug": "exampleco", "company": "Example Co", "url": "https://apply.workable.com/exampleco"}
+    job = {
+        "id": "abc123",
+        "shortcode": "XYZ123",
+        "title": "Compliance Manager",
+        "city": "London",
+        "country": "United Kingdom",
+        "employment_type": "full_time",
+        "published_on": "2026-04-05",
+    }
+    record = parse_workable_job(job, board)
+    assert record.title_raw == "Compliance Manager"
+    assert record.location_raw == "London, United Kingdom"
+    assert record.discovered_url == "https://apply.workable.com/exampleco/j/XYZ123"
+    assert record.provenance["company"] == "Example Co"
