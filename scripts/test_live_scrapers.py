@@ -40,9 +40,9 @@ def _normalise_url(value: Any) -> str | None:
 
 
 KNOWN_SKIP_HOST_FRAGMENTS = {"linkedin.com", "indeed.com", "glassdoor.", "jobs.google.com", "google.com"}
-API_ADAPTERS = {"greenhouse", "workable", "workday", "google_jobs", "ashby", "smartrecruiters", "lever"}
-BROWSER_ADAPTERS = {"eightfold", "generic_site", "icims"}
-ALL_ADAPTERS = ["greenhouse", "workable", "workday", "ashby", "smartrecruiters", "lever", "icims", "eightfold", "generic_site", "google_jobs"]
+API_ADAPTERS = {"greenhouse", "workable", "workday", "google_jobs", "ashby", "smartrecruiters", "lever", "reed"}
+BROWSER_ADAPTERS = {"eightfold", "generic_site", "icims", "oracle", "successfactors", "efinancialcareers"}
+ALL_ADAPTERS = ["greenhouse", "workable", "workday", "ashby", "smartrecruiters", "lever", "icims", "oracle", "successfactors", "eightfold", "generic_site", "reed", "efinancialcareers", "google_jobs"]
 
 
 def _looks_like_board(url: str) -> bool:
@@ -67,6 +67,12 @@ def _classify_url(url: str) -> str:
         return "lever"
     if ".icims.com" in host:
         return "icims"
+    if "oraclecloud.com" in host:
+        return "oracle"
+    if "successfactors" in host:
+        return "successfactors"
+    if "efinancialcareers." in host:
+        return "efinancialcareers"
     if "eightfold.ai" in lowered or "eightfold" in lowered:
         return "eightfold"
     return "generic_site"
@@ -141,13 +147,17 @@ def _should_run(name: str, args: argparse.Namespace) -> bool:
 async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
     from vacancysoft.adapters import (
         AshbyAdapter,
+        EFinancialCareersAdapter,
         EightfoldAdapter,
         GenericBrowserAdapter,
         GoogleJobsAdapter,
         GreenhouseAdapter,
         IcimsAdapter,
         LeverAdapter,
+        OracleCloudAdapter,
+        ReedAdapter,
         SmartRecruitersAdapter,
+        SuccessFactorsAdapter,
         WorkableAdapter,
         WorkdayAdapter,
     )
@@ -248,6 +258,20 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
         else:
             results["runs"]["icims"] = {"ok": False, "error": "No iCIMS URL found"}
 
+    oracle_url = board_urls.get("oracle")
+    if _should_run("oracle", args):
+        if oracle_url:
+            await capture("oracle", OracleCloudAdapter().discover({"job_board_url": oracle_url, "company": canonical_company("oracle", oracle_url), "page_timeout_ms": args.page_timeout_ms, "search_terms": args.search_terms}))
+        else:
+            results["runs"]["oracle"] = {"ok": False, "error": "No Oracle URL found"}
+
+    successfactors_url = board_urls.get("successfactors")
+    if _should_run("successfactors", args):
+        if successfactors_url:
+            await capture("successfactors", SuccessFactorsAdapter().discover({"job_board_url": successfactors_url, "company": canonical_company("successfactors", successfactors_url), "page_timeout_ms": args.page_timeout_ms, "search_terms": args.search_terms}))
+        else:
+            results["runs"]["successfactors"] = {"ok": False, "error": "No SuccessFactors URL found"}
+
     eightfold_url = board_urls.get("eightfold")
     if _should_run("eightfold", args):
         if eightfold_url:
@@ -261,6 +285,12 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
             await capture("generic_site", GenericBrowserAdapter().discover({"job_board_url": generic_url, "company": canonical_company("generic_site", generic_url), "search_terms": args.search_terms, "page_timeout_ms": args.page_timeout_ms, "wait_after_nav_ms": args.search_settle_ms}))
         else:
             results["runs"]["generic_site"] = {"ok": False, "error": "No generic-site URL found"}
+
+    if _should_run("reed", args):
+        await capture("reed", ReedAdapter().discover({"timeout_seconds": args.timeout_seconds, "search_terms": args.search_terms}))
+
+    if _should_run("efinancialcareers", args):
+        await capture("efinancialcareers", EFinancialCareersAdapter().discover({"page_timeout_ms": args.page_timeout_ms, "search_terms": args.search_terms}))
 
     if _should_run("google_jobs", args):
         await capture("google_jobs", GoogleJobsAdapter().discover({"search_terms": args.google_queries, "timeout_seconds": args.timeout_seconds, "max_pages_per_query": 1}))
@@ -281,7 +311,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--only-browser", action="store_true")
     parser.add_argument("--only-api", action="store_true")
     parser.add_argument("--only", action="append", choices=ALL_ADAPTERS)
-    parser.add_argument("--adapter", choices=[name for name in ALL_ADAPTERS if name != "google_jobs"])
+    parser.add_argument("--adapter", choices=[name for name in ALL_ADAPTERS if name not in {"google_jobs", "reed", "efinancialcareers"}])
     parser.add_argument("--board-url")
     parser.add_argument("--search-term", dest="search_terms", action="append", default=None)
     parser.add_argument("--google-query", dest="google_queries", action="append", default=None)
@@ -292,8 +322,8 @@ def main() -> None:
     args = build_parser().parse_args()
     if args.board_url and not args.adapter:
         args.adapter = _classify_url(args.board_url)
-    if args.adapter == "google_jobs" and args.board_url:
-        raise SystemExit("--board-url is not supported for google_jobs")
+    if args.adapter in {"google_jobs", "reed", "efinancialcareers"} and args.board_url:
+        raise SystemExit("--board-url is not supported for this adapter")
     repo_root = Path(args.repo_root).resolve()
     add_repo_to_path(repo_root)
     env_path = Path(args.env_file)
@@ -305,7 +335,7 @@ def main() -> None:
         args.search_terms = ["risk", "quant"]
     if args.google_queries is None:
         args.google_queries = ["risk manager finance", "quantitative analyst finance"]
-    if not args.board_url:
+    if not args.board_url and args.adapter not in {"reed", "efinancialcareers"}:
         xlsx_path = Path(args.xlsx)
         if not xlsx_path.is_absolute():
             xlsx_path = repo_root / xlsx_path

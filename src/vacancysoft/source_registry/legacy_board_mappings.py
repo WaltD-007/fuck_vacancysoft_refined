@@ -70,11 +70,48 @@ WORKDAY_BOARDS = [
     {"url": "https://statestreet.wd1.myworkdayjobs.com/en-US/Global", "company": "State Street"},
 ]
 
+ORACLE_BOARDS = [
+    {"url": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001", "company": "JPMorgan Chase"},
+    {"url": "https://dnn.fa.em2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/Nationwide", "company": "Nationwide"},
+    {"url": "https://eoff.fa.em1.ukg.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001", "company": "Bank of England"},
+    {"url": "https://hdpc.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/LateralHiring", "company": "HDFC"},
+    {"url": "https://eedu.fa.em3.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1003", "company": "Willis Towers Watson"},
+    {"url": "https://ebxr.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "company": "DTCC"},
+    {"url": "https://fa-euxc-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "company": "CITCO"},
+    {"url": "https://fa-enor-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX", "company": "Phoenix"},
+    {"url": "https://don.fa.em2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1003", "company": "Euroclear"},
+    {"url": "https://ebuu.fa.ap1.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX", "company": "Westpac Banking"},
+    {"url": "https://ejjl.fa.ap1.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1", "company": "AustralianSuper"},
+    {"url": "https://ejqi.fa.ocs.oraclecloud.eu/hcmUI/CandidateExperience/en/sites/CX_1001", "company": "Danske Bank"},
+    {"url": "https://ekbq.fa.em2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2", "company": "Schroders"},
+    {"url": "https://enlc.fa.ap1.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001", "company": "IFM Investors"},
+    {"url": "https://fa-emkq-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX", "company": "Ascot"},
+    {"url": "https://fa-eqai-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001", "company": "EFG"},
+    {"url": "https://fa-errt-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001", "company": "SCOR"},
+    {"url": "https://fa-evdq-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001", "company": "Computershare"},
+    {"url": "https://fa-evdq-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/computersharecareers", "company": "Computershare"},
+    {"url": "https://fa-ewgu-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_2001", "company": "Chubb"},
+    {"url": "https://fa-exdv-saasfaprod1.fa.ocs.oraclecloud.com/hcmUI/CandidateExperience/en/sites/Careers", "company": "Westfield Specialty"},
+    {"url": "https://hdfg.fa.em3.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX", "company": "Charles Stanley"},
+    {"url": "https://hdow.fa.us6.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1003", "company": "BGC"},
+    {"url": "https://hdpc.fa.us2.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CampusHiring", "company": "Goldman Sachs"},
+]
+
 EIGHTFOLD_BOARDS = [
     {"url": "https://aexp.eightfold.ai/careers", "company": "American Express"},
     {"url": "https://morganstanley.eightfold.ai/careers", "company": "Morgan Stanley"},
     {"url": "https://bnymellon.eightfold.ai/careers", "company": "BNY Mellon"},
     {"url": "https://mlp.eightfold.ai/careers", "company": "Millennium"},
+]
+
+SUCCESSFACTORS_BOARDS = [
+    {"url": "https://career2.successfactors.eu/career?company=royallondo", "company": "Royal London"},
+    {"url": "https://career2.successfactors.eu/career?company=standardch", "company": "Standard Chartered"},
+    {"url": "https://career8.successfactors.com/career?company=MoodysProd", "company": "Moody's"},
+    {"url": "https://career2.successfactors.eu/career?company=mizuhoba01", "company": "Mizuho Financial Group"},
+    {"url": "https://career2.successfactors.eu/career?company=tsbukprod", "company": "TSB Bank"},
+    {"url": "https://career4.successfactors.com/career?company=natgridProd", "company": "National Grid"},
+    {"url": "https://career5.successfactors.eu/career?company=banquepict", "company": "Pictet"},
 ]
 
 ASHBY_BOARDS = [
@@ -116,7 +153,9 @@ _PLATFORM_LISTS = {
     "greenhouse": GREENHOUSE_BOARDS,
     "workable": WORKABLE_BOARDS,
     "workday": WORKDAY_BOARDS,
+    "oracle": ORACLE_BOARDS,
     "eightfold": EIGHTFOLD_BOARDS,
+    "successfactors": SUCCESSFACTORS_BOARDS,
     "ashby": ASHBY_BOARDS,
     "smartrecruiters": SMARTRECRUITERS_BOARDS,
     "lever": LEVER_BOARDS,
@@ -182,15 +221,12 @@ def lookup_company(adapter_name: str, board_url: str | None = None, slug: str | 
     normalized_url = normalise_board_url(board_url)
     if normalized_url and normalized_url in COMPANY_BY_URL:
         return COMPANY_BY_URL[normalized_url]
-
     cleaned_slug = _clean(slug)
     if cleaned_slug:
         from_slug = COMPANY_BY_SLUG.get((adapter_name, cleaned_slug.lower()))
         if from_slug:
             return from_slug
-
     cleaned_company = _clean(explicit_company)
     if cleaned_company and not is_generic_company_name(cleaned_company):
         return cleaned_company
-
     return slug_to_company_label(cleaned_slug) or cleaned_company
