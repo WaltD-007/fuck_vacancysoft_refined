@@ -3,12 +3,27 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from openpyxl import load_workbook
+
+
+def _load_env_file(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
 
 
 def _normalise_url(value: Any) -> str | None:
@@ -248,6 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Smoke test live scraper adapters against live job boards")
     parser.add_argument("--repo-root", default=".", help="Path to repository root")
     parser.add_argument("--xlsx", default="Jobs_2026_03_31_clean.xlsx", help="Workbook with board URLs in column B")
+    parser.add_argument("--env-file", default=".env", help="Optional env file loaded before running adapters")
     parser.add_argument("--limit", type=int, default=2, help="Number of sample leads to print per adapter")
     parser.add_argument("--timeout-seconds", type=float, default=20.0, help="HTTP timeout for API adapters")
     parser.add_argument("--page-timeout-ms", type=int, default=30000, help="Browser timeout for Playwright adapters")
@@ -274,6 +290,11 @@ def main() -> None:
     args = parser.parse_args()
     repo_root = Path(args.repo_root).resolve()
     add_repo_to_path(repo_root)
+
+    env_path = Path(args.env_file)
+    if not env_path.is_absolute():
+        env_path = repo_root / env_path
+    _load_env_file(env_path)
 
     if args.search_terms is None:
         args.search_terms = ["risk", "quant"]
