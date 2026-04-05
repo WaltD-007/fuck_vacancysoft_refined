@@ -34,24 +34,14 @@ def _normalise_url(value: Any) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
-    if not text:
-        return None
-    if not text.startswith(("http://", "https://")):
+    if not text or not text.startswith(("http://", "https://")):
         return None
     return text
 
 
-KNOWN_SKIP_HOST_FRAGMENTS = {
-    "linkedin.com",
-    "indeed.com",
-    "glassdoor.",
-    "jobs.google.com",
-    "google.com",
-}
-
-
-API_ADAPTERS = {"greenhouse", "workable", "workday", "google_jobs"}
-BROWSER_ADAPTERS = {"eightfold", "generic_site"}
+KNOWN_SKIP_HOST_FRAGMENTS = {"linkedin.com", "indeed.com", "glassdoor.", "jobs.google.com", "google.com"}
+API_ADAPTERS = {"greenhouse", "workable", "workday", "google_jobs", "ashby", "smartrecruiters", "lever"}
+BROWSER_ADAPTERS = {"eightfold", "generic_site", "icims"}
 
 
 def _looks_like_board(url: str) -> bool:
@@ -68,14 +58,21 @@ def _classify_url(url: str) -> str:
         return "workable"
     if "myworkdayjobs.com" in host:
         return "workday"
+    if "ashbyhq.com" in host:
+        return "ashby"
+    if "smartrecruiters.com" in host:
+        return "smartrecruiters"
+    if "jobs.lever.co" in host:
+        return "lever"
+    if ".icims.com" in host:
+        return "icims"
     if "eightfold.ai" in lowered or "eightfold" in lowered:
         return "eightfold"
     return "generic_site"
 
 
 def _extract_greenhouse_slug(url: str) -> str | None:
-    parsed = urlparse(url)
-    parts = [part for part in parsed.path.split("/") if part]
+    parts = [part for part in urlparse(url).path.split("/") if part]
     if not parts:
         return None
     if parts[0] == "boards" and len(parts) >= 2:
@@ -85,19 +82,13 @@ def _extract_greenhouse_slug(url: str) -> str | None:
 
 def _extract_workable_slug(url: str) -> str | None:
     parsed = urlparse(url)
-    host = parsed.netloc.lower()
     parts = [part for part in parsed.path.split("/") if part]
-    if host == "apply.workable.com" and parts:
-        return parts[0]
-    return None
+    return parts[0] if parsed.netloc.lower() == "apply.workable.com" and parts else None
 
 
-def _company_name_from_url(url: str) -> str:
-    parsed = urlparse(url)
-    host = parsed.netloc.split(":")[0]
-    root = host.replace("www.", "").split(".")[0]
-    cleaned = root.replace("-", " ").replace("_", " ").strip()
-    return cleaned.title() if cleaned else url
+def _extract_tail_slug(url: str) -> str | None:
+    parts = [part for part in urlparse(url).path.split("/") if part]
+    return parts[-1] if parts else None
 
 
 def load_board_urls(xlsx_path: Path) -> dict[str, str]:
@@ -110,10 +101,7 @@ def load_board_urls(xlsx_path: Path) -> dict[str, str]:
         url = _normalise_url(row[1])
         if not url or not _looks_like_board(url):
             continue
-        adapter_name = _classify_url(url)
-        found.setdefault(adapter_name, url)
-        if all(name in found for name in ["greenhouse", "workable", "workday", "eightfold", "generic_site"]):
-            break
+        found.setdefault(_classify_url(url), url)
     return found
 
 
@@ -149,13 +137,18 @@ def _should_run(name: str, args: argparse.Namespace) -> bool:
 
 async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
     from vacancysoft.adapters import (
+        AshbyAdapter,
         EightfoldAdapter,
         GenericBrowserAdapter,
         GoogleJobsAdapter,
         GreenhouseAdapter,
+        IcimsAdapter,
+        LeverAdapter,
+        SmartRecruitersAdapter,
         WorkableAdapter,
         WorkdayAdapter,
     )
+    from vacancysoft.source_registry.legacy_board_mappings import lookup_company
 
     _progress(f"Loading workbook: {args.xlsx}")
     board_urls = load_board_urls(Path(args.xlsx))
@@ -182,184 +175,102 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
             _progress(f"Finished {name}: failed with {type(exc).__name__}: {exc}")
             results["runs"][name] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
+    def canonical_company(adapter_name: str, board_url: str | None, slug: str | None = None) -> str | None:
+        return lookup_company(adapter_name, board_url=board_url, slug=slug)
+
     greenhouse_url = board_urls.get("greenhouse")
     if _should_run("greenhouse", args) and greenhouse_url:
         slug = _extract_greenhouse_slug(greenhouse_url)
-        if slug:
-            await capture(
-                "greenhouse",
-                GreenhouseAdapter().discover(
-                    {
-                        "slug": slug,
-                        "company": _company_name_from_url(greenhouse_url),
-                        "job_board_url": greenhouse_url,
-                        "timeout_seconds": args.timeout_seconds,
-                    }
-                ),
-            )
-        else:
-            results["runs"]["greenhouse"] = {"ok": False, "error": f"Could not derive Greenhouse slug from {greenhouse_url}"}
-    elif _should_run("greenhouse", args):
-        results["runs"]["greenhouse"] = {"ok": False, "error": "No Greenhouse URL found in workbook"}
+        await capture("greenhouse", GreenhouseAdapter().discover({"slug": slug, "company": canonical_company("greenhouse", greenhouse_url, slug), "job_board_url": greenhouse_url, "timeout_seconds": args.timeout_seconds}))
 
     workable_url = board_urls.get("workable")
     if _should_run("workable", args) and workable_url:
         slug = _extract_workable_slug(workable_url)
-        if slug:
-            await capture(
-                "workable",
-                WorkableAdapter().discover(
-                    {
-                        "slug": slug,
-                        "company": _company_name_from_url(workable_url),
-                        "job_board_url": workable_url,
-                        "timeout_seconds": args.timeout_seconds,
-                    }
-                ),
-            )
-        else:
-            results["runs"]["workable"] = {"ok": False, "error": f"Could not derive Workable slug from {workable_url}"}
-    elif _should_run("workable", args):
-        results["runs"]["workable"] = {"ok": False, "error": "No Workable URL found in workbook"}
+        await capture("workable", WorkableAdapter().discover({"slug": slug, "company": canonical_company("workable", workable_url, slug), "job_board_url": workable_url, "timeout_seconds": args.timeout_seconds}))
 
     workday_url = board_urls.get("workday")
     if _should_run("workday", args) and workday_url:
         adapter = WorkdayAdapter()
         _progress("Starting workday...")
         try:
-            _endpoint, page = await adapter.discover_from_board_url(
-                job_board_url=workday_url,
-                limit=max(args.limit, 2),
-            )
+            _endpoint, page = await adapter.discover_from_board_url(job_board_url=workday_url, limit=max(args.limit, 2))
             _progress(f"Finished workday: ok, jobs={len(page.jobs)}")
-            results["runs"]["workday"] = {
-                "ok": True,
-                "job_count": len(page.jobs),
-                "sample": [serialise_record(job) for job in page.jobs[: args.limit]],
-                "diagnostics": {
-                    "counters": dict(getattr(page.diagnostics, "counters", {})),
-                    "warnings": list(getattr(page.diagnostics, "warnings", [])),
-                    "errors": list(getattr(page.diagnostics, "errors", [])),
-                    "metadata": dict(getattr(page.diagnostics, "metadata", {})),
-                },
-            }
+            results["runs"]["workday"] = {"ok": True, "job_count": len(page.jobs), "sample": [serialise_record(job) for job in page.jobs[: args.limit]], "diagnostics": {"counters": dict(getattr(page.diagnostics, "counters", {})), "warnings": list(getattr(page.diagnostics, "warnings", [])), "errors": list(getattr(page.diagnostics, "errors", [])), "metadata": dict(getattr(page.diagnostics, "metadata", {}))}}
         except Exception as exc:
             _progress(f"Finished workday: failed with {type(exc).__name__}: {exc}")
             results["runs"]["workday"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-    elif _should_run("workday", args):
-        results["runs"]["workday"] = {"ok": False, "error": "No Workday URL found in workbook"}
+
+    ashby_url = board_urls.get("ashby")
+    if _should_run("ashby", args) and ashby_url:
+        slug = _extract_tail_slug(ashby_url)
+        await capture("ashby", AshbyAdapter().discover({"slug": slug, "company": canonical_company("ashby", ashby_url, slug), "job_board_url": ashby_url, "timeout_seconds": args.timeout_seconds}))
+
+    smart_url = board_urls.get("smartrecruiters")
+    if _should_run("smartrecruiters", args) and smart_url:
+        slug = _extract_tail_slug(smart_url)
+        await capture("smartrecruiters", SmartRecruitersAdapter().discover({"slug": slug, "company": canonical_company("smartrecruiters", smart_url, slug), "job_board_url": smart_url, "timeout_seconds": args.timeout_seconds, "search_terms": args.search_terms}))
+
+    lever_url = board_urls.get("lever")
+    if _should_run("lever", args) and lever_url:
+        slug = _extract_tail_slug(lever_url)
+        await capture("lever", LeverAdapter().discover({"slug": slug, "company": canonical_company("lever", lever_url, slug), "job_board_url": lever_url, "timeout_seconds": args.timeout_seconds}))
+
+    icims_url = board_urls.get("icims")
+    if _should_run("icims", args) and icims_url:
+        await capture("icims", IcimsAdapter().discover({"job_board_url": icims_url, "company": canonical_company("icims", icims_url), "page_timeout_ms": args.page_timeout_ms, "search_terms": args.search_terms}))
 
     eightfold_url = board_urls.get("eightfold")
     if _should_run("eightfold", args) and eightfold_url:
-        await capture(
-            "eightfold",
-            EightfoldAdapter().discover(
-                {
-                    "job_board_url": eightfold_url,
-                    "company": _company_name_from_url(eightfold_url),
-                    "search_terms": args.search_terms,
-                    "page_timeout_ms": args.page_timeout_ms,
-                    "search_settle_ms": args.search_settle_ms,
-                }
-            ),
-        )
-    elif _should_run("eightfold", args):
-        results["runs"]["eightfold"] = {"ok": False, "error": "No Eightfold URL found in workbook"}
+        await capture("eightfold", EightfoldAdapter().discover({"job_board_url": eightfold_url, "company": canonical_company("eightfold", eightfold_url), "search_terms": args.search_terms, "page_timeout_ms": args.page_timeout_ms, "search_settle_ms": args.search_settle_ms}))
 
     generic_url = board_urls.get("generic_site")
     if _should_run("generic_site", args) and generic_url:
-        await capture(
-            "generic_site",
-            GenericBrowserAdapter().discover(
-                {
-                    "job_board_url": generic_url,
-                    "company": _company_name_from_url(generic_url),
-                    "search_terms": args.search_terms,
-                    "page_timeout_ms": args.page_timeout_ms,
-                    "wait_after_nav_ms": args.search_settle_ms,
-                }
-            ),
-        )
-    elif _should_run("generic_site", args):
-        results["runs"]["generic_site"] = {"ok": False, "error": "No generic-site URL found in workbook"}
+        await capture("generic_site", GenericBrowserAdapter().discover({"job_board_url": generic_url, "company": canonical_company("generic_site", generic_url), "search_terms": args.search_terms, "page_timeout_ms": args.page_timeout_ms, "wait_after_nav_ms": args.search_settle_ms}))
 
     if _should_run("google_jobs", args):
-        await capture(
-            "google_jobs",
-            GoogleJobsAdapter().discover(
-                {
-                    "search_terms": args.google_queries,
-                    "timeout_seconds": args.timeout_seconds,
-                    "max_pages_per_query": 1,
-                }
-            ),
-        )
+        await capture("google_jobs", GoogleJobsAdapter().discover({"search_terms": args.google_queries, "timeout_seconds": args.timeout_seconds, "max_pages_per_query": 1}))
 
     return results
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Smoke test live scraper adapters against live job boards")
-    parser.add_argument("--repo-root", default=".", help="Path to repository root")
-    parser.add_argument("--xlsx", default="Jobs_2026_03_31_clean.xlsx", help="Workbook with board URLs in column B")
-    parser.add_argument("--env-file", default=".env", help="Optional env file loaded before running adapters")
-    parser.add_argument("--limit", type=int, default=2, help="Number of sample leads to print per adapter")
-    parser.add_argument("--timeout-seconds", type=float, default=20.0, help="HTTP timeout for API adapters")
-    parser.add_argument("--page-timeout-ms", type=int, default=30000, help="Browser timeout for Playwright adapters")
-    parser.add_argument("--search-settle-ms", type=int, default=2000, help="Browser wait after search/navigation")
-    parser.add_argument("--no-browser", action="store_true", help="Skip browser-based adapters like Eightfold and generic-site")
-    parser.add_argument("--only-browser", action="store_true", help="Run only browser-based adapters")
-    parser.add_argument("--only-api", action="store_true", help="Run only API-based adapters")
-    parser.add_argument(
-        "--only",
-        action="append",
-        choices=["greenhouse", "workable", "workday", "eightfold", "generic_site", "google_jobs"],
-        help="Run only the named adapter. Repeat for multiple adapters.",
-    )
-    parser.add_argument(
-        "--search-term",
-        dest="search_terms",
-        action="append",
-        default=None,
-        help="Search term override for browser adapters. Repeat to pass multiple values.",
-    )
-    parser.add_argument(
-        "--google-query",
-        dest="google_queries",
-        action="append",
-        default=None,
-        help="Google Jobs query override. Repeat to pass multiple values.",
-    )
+    parser.add_argument("--repo-root", default=".")
+    parser.add_argument("--xlsx", default="Jobs_2026_03_31_clean.xlsx")
+    parser.add_argument("--env-file", default=".env")
+    parser.add_argument("--limit", type=int, default=2)
+    parser.add_argument("--timeout-seconds", type=float, default=20.0)
+    parser.add_argument("--page-timeout-ms", type=int, default=30000)
+    parser.add_argument("--search-settle-ms", type=int, default=2000)
+    parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument("--only-browser", action="store_true")
+    parser.add_argument("--only-api", action="store_true")
+    parser.add_argument("--only", action="append", choices=["greenhouse", "workable", "workday", "ashby", "smartrecruiters", "lever", "icims", "eightfold", "generic_site", "google_jobs"])
+    parser.add_argument("--search-term", dest="search_terms", action="append", default=None)
+    parser.add_argument("--google-query", dest="google_queries", action="append", default=None)
     return parser
 
 
 def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
+    args = build_parser().parse_args()
     repo_root = Path(args.repo_root).resolve()
     add_repo_to_path(repo_root)
-
     env_path = Path(args.env_file)
     if not env_path.is_absolute():
         env_path = repo_root / env_path
     _load_env_file(env_path)
     _progress(f"Loaded env file: {env_path}")
-
     if args.search_terms is None:
         args.search_terms = ["risk", "quant"]
     if args.google_queries is None:
         args.google_queries = ["risk manager finance", "quantitative analyst finance"]
-
     xlsx_path = Path(args.xlsx)
     if not xlsx_path.is_absolute():
         xlsx_path = repo_root / xlsx_path
     args.xlsx = str(xlsx_path)
-
     if not xlsx_path.exists():
         raise SystemExit(f"Workbook not found: {xlsx_path}")
-
-    results = asyncio.run(run_smoke_tests(args))
-    print(json.dumps(results, indent=2, ensure_ascii=False))
+    print(json.dumps(asyncio.run(run_smoke_tests(args)), indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":
