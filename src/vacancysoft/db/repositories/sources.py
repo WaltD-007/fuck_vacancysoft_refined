@@ -11,5 +11,5 @@ class SourceRepository:
         self.session = session
 
     def list_active(self) -> list[Source]:
-        stmt = select(Source).where(Source.active == 1)
+        stmt = select(Source).where(Source.active.is_(True))
         return list(self.session.execute(stmt).scalars())

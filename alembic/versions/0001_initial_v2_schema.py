@@ -1,24 +1,27 @@
-"""initial v2 schema placeholder
+"""initial v2 schema
 
 Revision ID: 0001_initial_v2_schema
 Revises:
 Create Date: 2026-04-05
 """
 
-revision = '0001_initial_v2_schema'
+from __future__ import annotations
+
+from alembic import op
+
+from vacancysoft.db.models import Base
+
+revision = "0001_initial_v2_schema"
 down_revision = None
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    """Create v2 schema from vacancysoft.db.models_v2.BaseV2 metadata.
-
-    This placeholder exists so the Alembic scaffold is checked in.
-    The next step is to replace this with the generated full migration.
-    """
-    pass
+    bind = op.get_bind()
+    Base.metadata.create_all(bind=bind)
 
 
 def downgrade() -> None:
-    pass
+    bind = op.get_bind()
+    Base.metadata.drop_all(bind=bind)

@@ -21,3 +21,4 @@ This repository is being rebuilt as a coverage-first scraping system.
 - degrade gracefully when sources break
 - isolate source failures per run
 - make exports terminal artefacts rather than system of record
+- preserve legacy taxonomy for downstream serving
