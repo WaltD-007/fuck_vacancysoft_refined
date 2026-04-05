@@ -1,0 +1,23 @@
+taxonomy_version: "legacy_v1"
+segments:
+  - key: "risk"
+    label: "Risk"
+    aliases: ["risk", "enterprise risk", "market risk", "credit risk"]
+  - key: "quant"
+    label: "Quant"
+    aliases: ["quant", "quantitative", "model validation", "strats"]
+  - key: "compliance"
+    label: "Compliance"
+    aliases: ["compliance", "financial crime", "surveillance", "aml", "kyc"]
+  - key: "audit"
+    label: "Audit"
+    aliases: ["audit", "internal audit", "assurance"]
+  - key: "cyber"
+    label: "Cyber"
+    aliases: ["cyber", "information security", "security engineering"]
+  - key: "legal"
+    label: "Legal"
+    aliases: ["legal", "counsel", "contract"]
+  - key: "front_office"
+    label: "Front Office"
+    aliases: ["sales", "trading", "portfolio manager", "investment analyst"]
