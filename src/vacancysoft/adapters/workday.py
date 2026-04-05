@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -20,9 +21,37 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
 
 
+def derive_workday_candidate_endpoints(job_board_url: str) -> list[str]:
+    parsed = urlparse(job_board_url)
+    host = parsed.netloc
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return []
+
+    locale = parts[0]
+    site = parts[1]
+
+    tenant_candidates: list[str] = []
+    subdomain = host.split(".")[0]
+    if subdomain and subdomain not in tenant_candidates:
+        tenant_candidates.append(subdomain)
+    for candidate in (site, site.replace("-", "_"), site.replace("-", ""), site.replace("_", "-")):
+        if candidate and candidate not in tenant_candidates:
+            tenant_candidates.append(candidate)
+
+    endpoints: list[str] = []
+    for tenant in tenant_candidates:
+        endpoint = f"{parsed.scheme}://{host}/wday/cxs/{tenant}/{site}/jobs"
+        if endpoint not in endpoints:
+            endpoints.append(endpoint)
+    return endpoints
+
+
 def _clean_text(value: Any) -> str | None:
     if value is None:
         return None
+    if isinstance(value, list):
+        value = " | ".join(str(item) for item in value)
     text = str(value)
     text = _TAG_RE.sub(" ", text)
     text = _WS_RE.sub(" ", text).strip()
@@ -79,11 +108,11 @@ def _extract_apply_url(job: dict[str, Any], source_config: dict[str, Any]) -> st
         return direct
 
     base_url = str(source_config.get("job_board_url") or source_config.get("base_url") or "").rstrip("/")
-    external_path = _coalesce(job.get("externalPath"), job.get("bulletFields"))
+    external_path = job.get("externalPath")
     if isinstance(external_path, str) and external_path.startswith("/") and base_url:
         return f"{base_url}{external_path}"
 
-    req_id = _coalesce(job.get("bulletFields"), job.get("externalPath"), job.get("reqId"), job.get("jobReqId"))
+    req_id = _coalesce(job.get("reqId"), job.get("jobReqId"), job.get("id"))
     if base_url and isinstance(req_id, str):
         return f"{base_url}/job/{req_id}"
     return None
@@ -94,14 +123,16 @@ def _extract_discovered_url(job: dict[str, Any], source_config: dict[str, Any]) 
 
 
 def _extract_external_job_id(job: dict[str, Any]) -> str | None:
-    return _coalesce(
-        job.get("bulletFields"),
-        job.get("externalPath"),
+    candidate = _coalesce(
         job.get("reqId"),
         job.get("jobReqId"),
         job.get("id"),
+        job.get("externalPath"),
         job.get("title"),
     )
+    if isinstance(candidate, list):
+        return _clean_text(candidate)
+    return candidate
 
 
 def _job_to_record(job: dict[str, Any], source_config: dict[str, Any]) -> DiscoveredJobRecord:
@@ -189,3 +220,35 @@ class WorkdayAdapter(SourceAdapter):
         records = [_job_to_record(job, source_config) for job in jobs]
         next_cursor = str(offset + limit) if len(jobs) >= limit else None
         return DiscoveryPage(jobs=records, next_cursor=next_cursor, diagnostics=diagnostics)
+
+    async def discover_from_board_url(
+        self,
+        job_board_url: str,
+        limit: int = 20,
+        since: datetime | None = None,
+    ) -> tuple[str, DiscoveryPage]:
+        candidates = derive_workday_candidate_endpoints(job_board_url)
+        if not candidates:
+            raise ValueError("Could not derive Workday endpoint candidates from job board URL")
+
+        last_error: Exception | None = None
+        for endpoint_url in candidates:
+            try:
+                page = await self.discover(
+                    source_config={
+                        "endpoint_url": endpoint_url,
+                        "job_board_url": job_board_url,
+                        "limit": limit,
+                    },
+                    since=since,
+                )
+                page.diagnostics.metadata["job_board_url"] = job_board_url
+                page.diagnostics.metadata["resolved_endpoint_url"] = endpoint_url
+                page.diagnostics.metadata["candidate_count"] = len(candidates)
+                return endpoint_url, page
+            except Exception as exc:
+                last_error = exc
+                continue
+        if last_error is not None:
+            raise last_error
+        raise RuntimeError("No Workday endpoint candidates succeeded")

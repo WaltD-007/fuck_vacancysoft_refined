@@ -4,7 +4,7 @@ import asyncio
 import typer
 from sqlalchemy import select
 
-from vacancysoft.adapters import WorkdayAdapter
+from vacancysoft.adapters import WorkdayAdapter, derive_workday_candidate_endpoints
 from vacancysoft.adapters.base import DiscoveredJobRecord
 from vacancysoft.db.base import Base
 from vacancysoft.db.engine import build_engine
@@ -111,20 +111,34 @@ def discover_demo(source_key: str | None = typer.Option(None, "--source-key")) -
 
 @pipeline_app.command("discover-workday")
 def discover_workday(
-    endpoint_url: str = typer.Option(..., "--endpoint-url"),
+    endpoint_url: str | None = typer.Option(None, "--endpoint-url"),
     job_board_url: str | None = typer.Option(None, "--job-board-url"),
     limit: int = typer.Option(20, "--limit"),
     persist: bool = typer.Option(False, "--persist"),
     source_key: str | None = typer.Option(None, "--source-key"),
 ) -> None:
     adapter = WorkdayAdapter()
-    source_config = {
-        "endpoint_url": endpoint_url,
-        "job_board_url": job_board_url,
-        "limit": limit,
-    }
-    page = asyncio.run(adapter.discover(source_config=source_config))
-    typer.echo(f"Workday discovery returned jobs={len(page.jobs)} next_cursor={page.next_cursor}")
+    if not endpoint_url and not job_board_url:
+        raise typer.BadParameter("Provide either --endpoint-url or --job-board-url")
+
+    if job_board_url and not endpoint_url:
+        candidates = derive_workday_candidate_endpoints(job_board_url)
+        typer.echo(f"Derived Workday endpoint candidates: {candidates}")
+        resolved_endpoint_url, page = asyncio.run(
+            adapter.discover_from_board_url(job_board_url=job_board_url, limit=limit)
+        )
+    else:
+        source_config = {
+            "endpoint_url": endpoint_url,
+            "job_board_url": job_board_url,
+            "limit": limit,
+        }
+        page = asyncio.run(adapter.discover(source_config=source_config))
+        resolved_endpoint_url = str(endpoint_url)
+
+    typer.echo(
+        f"Workday discovery returned jobs={len(page.jobs)} next_cursor={page.next_cursor} endpoint={resolved_endpoint_url}"
+    )
     for record in page.jobs[:5]:
         typer.echo(f"- {record.title_raw} | {record.location_raw} | {record.discovered_url}")
 
