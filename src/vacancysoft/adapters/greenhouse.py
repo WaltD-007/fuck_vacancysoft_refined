@@ -17,38 +17,81 @@ from vacancysoft.adapters.base import (
 API_BASE = "https://api.greenhouse.io/v1/boards"
 
 
-def _job_location(job: dict[str, Any]) -> str:
+def _clean_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _job_location(job: dict[str, Any]) -> str | None:
+    location = _clean_text(((job.get("location") or {}).get("name") if isinstance(job.get("location"), dict) else None))
+    if location:
+        return location
+
     offices = job.get("offices") or []
-    location = ((job.get("location") or {}).get("name") or "").strip()
-    if not location and offices:
-        first = offices[0] or {}
-        location = str(first.get("name") or "").strip()
-    return location
+    if isinstance(offices, list):
+        for office in offices:
+            if isinstance(office, dict):
+                name = _clean_text(office.get("name"))
+                if name:
+                    return name
+    return None
+
+
+def _job_summary(job: dict[str, Any]) -> str | None:
+    for key in ("content", "metadata", "internal_job_id"):
+        value = job.get(key)
+        if key == "metadata" and isinstance(value, list):
+            parts: list[str] = []
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                meta_name = _clean_text(item.get("name"))
+                meta_value = _clean_text(item.get("value"))
+                if meta_name and meta_value:
+                    parts.append(f"{meta_name}: {meta_value}")
+                elif meta_value:
+                    parts.append(meta_value)
+            if parts:
+                return " | ".join(parts)
+        else:
+            cleaned = _clean_text(value)
+            if cleaned:
+                return cleaned
+    return None
 
 
 def _parse_job(job: dict[str, Any], board: dict[str, Any]) -> DiscoveredJobRecord:
     location = _job_location(job)
-    discovered_url = str(job.get("absolute_url") or "").strip()
-    completeness_score = sum(
-        1 for value in [job.get("title"), location, discovered_url, job.get("updated_at")] if value
-    ) / 4
+    discovered_url = _clean_text(job.get("absolute_url"))
+    posted_at = _clean_text(job.get("updated_at"))
+    title = _clean_text(job.get("title"))
+    summary = _job_summary(job)
+    external_job_id = _clean_text(job.get("id")) or discovered_url or title
+
+    completeness_fields = [title, location, discovered_url, posted_at]
+    completeness_score = sum(1 for value in completeness_fields if value) / len(completeness_fields)
+
     return DiscoveredJobRecord(
-        external_job_id=str(job.get("id") or discovered_url or job.get("title") or "").strip() or None,
-        title_raw=str(job.get("title") or "").strip() or None,
-        location_raw=location or None,
-        posted_at_raw=str(job.get("updated_at") or "").strip() or None,
-        summary_raw=str(job.get("content") or "").strip() or None,
-        discovered_url=discovered_url or None,
-        apply_url=discovered_url or None,
+        external_job_id=external_job_id,
+        title_raw=title,
+        location_raw=location,
+        posted_at_raw=posted_at,
+        summary_raw=summary,
+        discovered_url=discovered_url,
+        apply_url=discovered_url,
         listing_payload=job,
         completeness_score=round(completeness_score, 4),
         extraction_confidence=0.97,
         provenance={
             "adapter": "greenhouse",
             "method": ExtractionMethod.API.value,
-            "company": str(board.get("company") or board.get("slug") or ""),
+            "company": str(board.get("company") or board.get("slug") or "").strip(),
             "platform": "Greenhouse",
-            "board_url": str(board.get("url") or ""),
+            "board_url": str(board.get("url") or "").strip(),
+            "office_count": len(job.get("offices") or []),
+            "has_content": bool(_clean_text(job.get("content"))),
         },
     )
 
@@ -79,21 +122,53 @@ class GreenhouseAdapter(SourceAdapter):
 
         board = {
             "slug": slug,
-            "company": str(source_config.get("company") or slug),
-            "url": str(source_config.get("job_board_url") or f"https://boards.greenhouse.io/{slug}"),
+            "company": str(source_config.get("company") or slug).strip(),
+            "url": str(source_config.get("job_board_url") or f"https://boards.greenhouse.io/{slug}").strip(),
         }
         url = f"{API_BASE}/{slug}/jobs"
         params = {"content": "true"}
         timeout_seconds = float(source_config.get("timeout_seconds", 20))
-        diagnostics = AdapterDiagnostics(metadata={"slug": slug, "url": url})
+        diagnostics = AdapterDiagnostics(
+            metadata={
+                "slug": slug,
+                "url": url,
+                "job_board_url": board["url"],
+                "since": since.isoformat() if since else None,
+                "cursor_ignored": cursor is not None,
+            }
+        )
+        if cursor is not None:
+            diagnostics.warnings.append("GreenhouseAdapter does not support pagination. cursor was ignored.")
+        if since is not None:
+            diagnostics.warnings.append(
+                "GreenhouseAdapter cannot enforce incremental sync at source. Results are filtered best-effort after fetch."
+            )
 
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             response = await client.get(url, params=params)
             response.raise_for_status()
             data = response.json()
 
-        jobs = data.get("jobs") or []
-        records = [_parse_job(job, board) for job in jobs if isinstance(job, dict)]
-        diagnostics.counters["status_code"] = response.status_code
+        jobs = [job for job in (data.get("jobs") or []) if isinstance(job, dict)]
+        diagnostics.counters["status_code"] = int(response.status_code)
+        diagnostics.counters["jobs_received"] = len(jobs)
+
+        records: list[DiscoveredJobRecord] = []
+        filtered_out = 0
+        since_floor = since.date() if since else None
+        for job in jobs:
+            if since_floor is not None:
+                raw_updated = _clean_text(job.get("updated_at"))
+                if raw_updated:
+                    try:
+                        updated_dt = datetime.fromisoformat(raw_updated.replace("Z", "+00:00"))
+                        if updated_dt.date() < since_floor:
+                            filtered_out += 1
+                            continue
+                    except ValueError:
+                        diagnostics.warnings.append(f"Unparseable updated_at value for Greenhouse job: {raw_updated}")
+            records.append(_parse_job(job, board))
+
         diagnostics.counters["jobs_seen"] = len(records)
+        diagnostics.counters["filtered_out_since"] = filtered_out
         return DiscoveryPage(jobs=records, next_cursor=None, diagnostics=diagnostics)
