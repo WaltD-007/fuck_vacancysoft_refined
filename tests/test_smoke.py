@@ -1,5 +1,6 @@
 from vacancysoft import __version__
 from vacancysoft.adapters.adzuna import _format_salary, _parse_job as parse_adzuna_job
+from vacancysoft.adapters.greenhouse import _parse_job as parse_greenhouse_job
 from vacancysoft.adapters.workable import _parse_job as parse_workable_job
 from vacancysoft.adapters.workday import _job_to_record, derive_workday_candidate_endpoints
 
@@ -72,3 +73,20 @@ def test_workable_job_mapping() -> None:
     assert record.location_raw == "London, United Kingdom"
     assert record.discovered_url == "https://apply.workable.com/exampleco/j/XYZ123"
     assert record.provenance["company"] == "Example Co"
+
+
+def test_greenhouse_job_mapping() -> None:
+    board = {"slug": "example-bank", "company": "Example Bank", "url": "https://boards.greenhouse.io/example-bank"}
+    job = {
+        "id": 456,
+        "title": "Quant Developer",
+        "absolute_url": "https://boards.greenhouse.io/example-bank/jobs/456",
+        "updated_at": "2026-04-05T12:00:00Z",
+        "location": {"name": "London"},
+        "offices": [{"name": "London"}],
+    }
+    record = parse_greenhouse_job(job, board)
+    assert record.title_raw == "Quant Developer"
+    assert record.location_raw == "London"
+    assert record.discovered_url == "https://boards.greenhouse.io/example-bank/jobs/456"
+    assert record.provenance["company"] == "Example Bank"
