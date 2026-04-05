@@ -24,10 +24,6 @@ from vacancysoft.source_registry.legacy_board_mappings import lookup_company
 
 DEFAULT_SEARCH_TERMS = ["risk", "quant", "quantitative", "compliance", "strats", "pricing"]
 PAGE_TIMEOUT_MS = 45_000
-SEARCH_INPUT_SELECTOR = (
-    "input[name*='search' i], input[id*='search' i], input[placeholder*='search' i], "
-    "input[placeholder*='keyword' i], input[type='search']"
-)
 ICIMS_NETWORK_HINTS = ("search", "jobs", "api", "json", "positions")
 DOM_LINK_SELECTORS = [
     "a[href*='/jobs/']",
@@ -35,6 +31,9 @@ DOM_LINK_SELECTORS = [
     "a[href*='job']",
     "a[class*='job']",
     "a[class*='Job']",
+    "[class*='job-card'] a",
+    "[class*='opening'] a",
+    "[class*='search-result'] a",
 ]
 
 
@@ -63,13 +62,17 @@ def _looks_like_job_title(title: str | None) -> bool:
     if not title:
         return False
     lowered = title.strip().lower()
-    return len(lowered) >= 4 and lowered not in {"search", "apply", "learn more"}
+    if lowered in {"search", "apply", "learn more", "skip branding", "skip to main content"}:
+        return False
+    return len(lowered) >= 4
 
 
 def _looks_like_job_url(url: str | None) -> bool:
     if not url:
         return False
     lowered = url.lower()
+    if "#icims_content_iframe" in lowered:
+        return False
     return any(token in lowered for token in ("/jobs/", "jobdetail", "job?", "jobid"))
 
 
@@ -81,6 +84,8 @@ def _record_from_icims_json(job: dict[str, Any], board: dict[str, Any]) -> Disco
     job_url = _absolute_url(job.get("jobUrl") or job.get("url") or job.get("applyUrl"), board["url"])
     if not job_url:
         job_url = f"{board['url'].rstrip('/')}/jobs/{job_id}" if job_id else board["url"]
+    if not _looks_like_job_url(job_url):
+        return None
     location_obj = job.get("location") or job.get("jobLocation") or {}
     location = None
     if isinstance(location_obj, dict):
@@ -223,10 +228,10 @@ def _parse_icims_dom(html: str, board: dict[str, Any]) -> list[DiscoveredJobReco
     return parser.records
 
 
-async def _collect_anchor_samples(page: Any, board_url: str, limit: int = 8) -> list[dict[str, str]]:
+async def _collect_anchor_samples(scope: Any, board_url: str, limit: int = 8) -> list[dict[str, str]]:
     samples: list[dict[str, str]] = []
     try:
-        anchors = await page.query_selector_all("a")
+        anchors = await scope.query_selector_all("a")
     except Exception:
         return samples
     for anchor in anchors[:limit]:
@@ -240,32 +245,85 @@ async def _collect_anchor_samples(page: Any, board_url: str, limit: int = 8) -> 
     return samples
 
 
-async def _diagnose_page(page: Any, diagnostics: AdapterDiagnostics, board_url: str, label: str) -> None:
+async def _diagnose_scope(scope: Any, diagnostics: AdapterDiagnostics, board_url: str, label: str) -> None:
     try:
-        diagnostics.metadata[f"{label}_page_url"] = page.url
+        url = scope.url if hasattr(scope, "url") else None
+        if url is not None:
+            diagnostics.metadata[f"{label}_page_url"] = url
     except Exception:
         pass
     try:
-        diagnostics.metadata[f"{label}_page_title"] = await page.title()
+        if hasattr(scope, "title"):
+            diagnostics.metadata[f"{label}_page_title"] = await scope.title()
     except Exception:
         pass
     try:
-        frames = page.frames
-        diagnostics.counters[f"{label}_frame_count"] = len(frames)
-        diagnostics.metadata[f"{label}_frame_urls"] = [frame.url for frame in frames[:8]]
-    except Exception:
-        pass
-    try:
-        anchors = await page.query_selector_all("a")
+        anchors = await scope.query_selector_all("a")
         diagnostics.counters[f"{label}_anchor_count"] = len(anchors)
-        diagnostics.metadata[f"{label}_anchor_samples"] = await _collect_anchor_samples(page, board_url)
+        diagnostics.metadata[f"{label}_anchor_samples"] = await _collect_anchor_samples(scope, board_url)
     except Exception:
         pass
     try:
-        body_text = await page.locator("body").inner_text()
-        diagnostics.metadata[f"{label}_body_text_sample"] = body_text[:700].replace("\n", " ").strip()
+        locator = scope.locator("body") if hasattr(scope, "locator") else None
+        if locator is not None:
+            body_text = await locator.inner_text()
+            diagnostics.metadata[f"{label}_body_text_sample"] = body_text[:700].replace("\n", " ").strip()
     except Exception:
         pass
+
+
+async def _extract_records_from_scope(scope: Any, board: dict[str, Any], diagnostics: AdapterDiagnostics, *, label: str) -> list[DiscoveredJobRecord]:
+    html = ""
+    try:
+        html = await scope.content() if hasattr(scope, "content") else ""
+    except Exception:
+        diagnostics.counters[f"{label}_content_failures"] = diagnostics.counters.get(f"{label}_content_failures", 0) + 1
+    if html:
+        parsed = _parse_icims_dom(html, board)
+        if parsed:
+            diagnostics.counters[f"{label}_html_parser_records"] = len(parsed)
+            return parsed
+    try:
+        for selector in DOM_LINK_SELECTORS:
+            links = await scope.query_selector_all(selector)
+            if not links:
+                continue
+            diagnostics.metadata[f"{label}_dom_selector_used"] = selector
+            diagnostics.counters[f"{label}_dom_elements_seen"] = len(links)
+            parsed: list[DiscoveredJobRecord] = []
+            for link in links:
+                title = _clean(await link.inner_text())
+                href = _absolute_url(await link.get_attribute("href"), board["url"])
+                if _looks_like_job_title(title) and _looks_like_job_url(href):
+                    company_name = lookup_company("icims", board_url=board.get("url"), slug=board.get("slug"), explicit_company=board.get("company"))
+                    parsed.append(
+                        DiscoveredJobRecord(
+                            external_job_id=href or title,
+                            title_raw=title,
+                            location_raw=None,
+                            posted_at_raw=None,
+                            summary_raw=None,
+                            discovered_url=href or board["url"],
+                            apply_url=href or board["url"],
+                            listing_payload=None,
+                            completeness_score=0.5,
+                            extraction_confidence=0.7,
+                            provenance={
+                                "adapter": "icims",
+                                "method": ExtractionMethod.BROWSER.value,
+                                "company": company_name or "",
+                                "platform": "iCIMS",
+                                "board_url": str(board.get("url") or ""),
+                                "board_slug": str(board.get("slug") or ""),
+                                "fallback": label,
+                            },
+                        )
+                    )
+            if parsed:
+                return parsed
+    except Exception:
+        diagnostics.counters[f"{label}_dom_query_failures"] = diagnostics.counters.get(f"{label}_dom_query_failures", 0) + 1
+    return []
 
 
 class IcimsAdapter(SourceAdapter):
@@ -334,56 +392,36 @@ class IcimsAdapter(SourceAdapter):
                                 await page.goto(search_url, timeout=int(source_config.get("page_timeout_ms", PAGE_TIMEOUT_MS)), wait_until="domcontentloaded")
                                 await page.wait_for_timeout(4000)
 
-                            await _diagnose_page(page, diagnostics, board_url, f"term_{term}")
+                            await _diagnose_scope(page, diagnostics, board_url, f"term_{term}")
+                            diagnostics.counters[f"term_{term}_frame_count"] = len(page.frames)
+                            diagnostics.metadata[f"term_{term}_frame_urls"] = [frame.url for frame in page.frames[:8]]
                             diagnostics.metadata[f"term_{term}_network_urls"] = captured_urls[:12]
                             diagnostics.counters[f"term_{term}_network_payloads"] = len(intercepted)
 
                             parsed: list[DiscoveredJobRecord] = []
                             for idx, payload in enumerate(intercepted):
                                 parsed.extend(_parse_icims_json_payload(payload, board, diagnostics, source=f"term_{term}_payload_{idx}"))
+
+                            iframe = None
+                            for frame in page.frames:
+                                try:
+                                    if "in_iframe=1" in (frame.url or ""):
+                                        iframe = frame
+                                        break
+                                except Exception:
+                                    continue
+
+                            if iframe is not None:
+                                await _diagnose_scope(iframe, diagnostics, board_url, f"term_{term}_iframe")
+                                iframe_records = await _extract_records_from_scope(iframe, board, diagnostics, label=f"term_{term}_iframe")
+                                if iframe_records:
+                                    parsed.extend(iframe_records)
+
                             if not parsed:
-                                html = await page.content()
-                                parsed = _parse_icims_dom(html, board)
-                                if not parsed:
-                                    try:
-                                        for selector in DOM_LINK_SELECTORS:
-                                            links = await page.query_selector_all(selector)
-                                            if not links:
-                                                continue
-                                            diagnostics.metadata[f"term_{term}_dom_selector_used"] = selector
-                                            diagnostics.counters[f"term_{term}_dom_elements_seen"] = len(links)
-                                            for link in links:
-                                                title = _clean(await link.inner_text())
-                                                href = _absolute_url(await link.get_attribute("href"), board_url)
-                                                if _looks_like_job_title(title) and _looks_like_job_url(href):
-                                                    company_name = lookup_company("icims", board_url=board.get("url"), slug=board.get("slug"), explicit_company=board.get("company"))
-                                                    parsed.append(
-                                                        DiscoveredJobRecord(
-                                                            external_job_id=href or title,
-                                                            title_raw=title,
-                                                            location_raw=None,
-                                                            posted_at_raw=None,
-                                                            summary_raw=None,
-                                                            discovered_url=href or board_url,
-                                                            apply_url=href or board_url,
-                                                            listing_payload=None,
-                                                            completeness_score=0.5,
-                                                            extraction_confidence=0.7,
-                                                            provenance={
-                                                                "adapter": "icims",
-                                                                "method": ExtractionMethod.BROWSER.value,
-                                                                "company": company_name or "",
-                                                                "platform": "iCIMS",
-                                                                "board_url": str(board.get("url") or ""),
-                                                                "board_slug": str(board.get("slug") or ""),
-                                                                "fallback": "dom_query",
-                                                            },
-                                                        )
-                                                    )
-                                            if parsed:
-                                                break
-                                    except Exception:
-                                        diagnostics.counters["dom_query_failures"] = diagnostics.counters.get("dom_query_failures", 0) + 1
+                                page_records = await _extract_records_from_scope(page, board, diagnostics, label=f"term_{term}_page")
+                                if page_records:
+                                    parsed.extend(page_records)
+
                             for record in parsed:
                                 url = record.discovered_url or record.external_job_id
                                 if not url or url in seen_urls:
@@ -391,7 +429,6 @@ class IcimsAdapter(SourceAdapter):
                                 seen_urls.add(url)
                                 all_records.append(record)
                             page.remove_listener("response", handle_response)
-                
                     finally:
                         await page.close()
         except PlaywrightTimeoutError as exc:
