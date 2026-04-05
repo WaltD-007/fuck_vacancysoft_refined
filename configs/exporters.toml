@@ -1,0 +1,17 @@
+[profiles.accepted_only]
+include_export_decisions = ["accepted"]
+
+[profiles.accepted_plus_review]
+include_export_decisions = ["accepted", "review"]
+
+[client_segments.risk_only]
+taxonomy_keys = ["risk"]
+include_export_decisions = ["accepted", "review"]
+
+[client_segments.control_functions]
+taxonomy_keys = ["risk", "compliance", "audit", "legal"]
+include_export_decisions = ["accepted"]
+
+[client_segments.front_office]
+taxonomy_keys = ["front_office", "quant"]
+include_export_decisions = ["accepted", "review"]

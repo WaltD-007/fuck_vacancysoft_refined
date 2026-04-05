@@ -2,6 +2,7 @@ from vacancysoft import __version__
 from vacancysoft.classifiers.taxonomy import classify_against_legacy_taxonomy
 from vacancysoft.enrichers.date_parser import parse_posted_date
 from vacancysoft.enrichers.location_normaliser import normalise_location
+from vacancysoft.exporters.views import load_exporter_config
 from vacancysoft.pipelines.classification import build_classification_payload
 from vacancysoft.scoring.engine import compute_export_score
 from vacancysoft.source_registry.seed_loader import load_seed_config
@@ -38,3 +39,9 @@ def test_scoring_engine_returns_weighted_value() -> None:
     score = compute_export_score(0.9, 0.8, 0.7, 0.8, 0.8, 0.9)
     assert score > 0.0
     assert score <= 1.0
+
+
+def test_exporter_config_loads() -> None:
+    config = load_exporter_config()
+    assert "client_segments" in config
+    assert "risk_only" in config["client_segments"]

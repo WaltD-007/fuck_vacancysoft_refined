@@ -8,6 +8,14 @@ from vacancysoft.db.base import Base
 from vacancysoft.db.engine import build_engine
 from vacancysoft.db.models import ClassificationResult, EnrichedJob, RawJob, ScoreResult, Source, SourceRun
 from vacancysoft.db.session import SessionLocal
+from vacancysoft.exporters.views import (
+    accepted_only_query,
+    accepted_plus_review_query,
+    client_segment_query,
+    fetch_rows,
+    grouped_by_taxonomy_query,
+    load_exporter_config,
+)
 from vacancysoft.pipelines.classification_persistence import classify_enriched_jobs
 from vacancysoft.pipelines.enrichment_persistence import enrich_raw_jobs
 from vacancysoft.pipelines.maintenance import cleanup_orphaned_classification_results
@@ -158,6 +166,37 @@ def taxonomy_preview() -> None:
         typer.echo(
             f"title={row.title} taxonomy={row.primary_taxonomy_key} version={row.taxonomy_version} classification={row.decision} export={row.export_decision} score={row.export_eligibility_score}"
         )
+
+
+@export_app.command("preview-view")
+def preview_view(view_name: str = typer.Option(..., "--view"), limit: int = typer.Option(20, "--limit")) -> None:
+    with SessionLocal() as session:
+        if view_name == "accepted_only":
+            rows = fetch_rows(session, accepted_only_query(), limit=limit)
+        elif view_name == "accepted_plus_review":
+            rows = fetch_rows(session, accepted_plus_review_query(), limit=limit)
+        elif view_name == "grouped_by_taxonomy":
+            rows = fetch_rows(session, grouped_by_taxonomy_query(), limit=limit)
+        else:
+            raise typer.BadParameter("Unknown view. Use accepted_only, accepted_plus_review, or grouped_by_taxonomy.")
+
+    if not rows:
+        typer.echo("No rows found")
+        return
+    for row in rows:
+        typer.echo(str(row))
+
+
+@export_app.command("preview-segment")
+def preview_segment(segment_name: str = typer.Option(..., "--segment"), limit: int = typer.Option(20, "--limit")) -> None:
+    config = load_exporter_config()
+    with SessionLocal() as session:
+        rows = fetch_rows(session, client_segment_query(segment_name, config), limit=limit)
+    if not rows:
+        typer.echo("No rows found")
+        return
+    for row in rows:
+        typer.echo(str(row))
 
 
 if __name__ == "__main__":
