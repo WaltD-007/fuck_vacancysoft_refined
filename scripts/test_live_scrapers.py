@@ -10,9 +10,14 @@ from typing import Any
 from urllib.parse import urlparse
 
 from openpyxl import load_workbook
+from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
+from rich.table import Table
+
+console = Console()
 
 
-def _load_env_file(env_path: Path) -> None:
+def _load_key_value_env_file(env_path: Path) -> None:
     if not env_path.exists():
         return
     for raw_line in env_path.read_text(encoding="utf-8").splitlines():
@@ -27,7 +32,7 @@ def _load_env_file(env_path: Path) -> None:
 
 
 def _progress(message: str) -> None:
-    print(message, file=sys.stderr, flush=True)
+    console.print(f"[dim]{message}[/dim]")
 
 
 def _normalise_url(value: Any) -> str | None:
@@ -42,7 +47,22 @@ def _normalise_url(value: Any) -> str | None:
 KNOWN_SKIP_HOST_FRAGMENTS = {"linkedin.com", "indeed.com", "glassdoor.", "jobs.google.com", "google.com"}
 API_ADAPTERS = {"greenhouse", "workable", "workday", "google_jobs", "ashby", "smartrecruiters", "lever", "reed"}
 BROWSER_ADAPTERS = {"eightfold", "generic_site", "icims", "oracle", "successfactors", "efinancialcareers"}
-ALL_ADAPTERS = ["greenhouse", "workable", "workday", "ashby", "smartrecruiters", "lever", "icims", "oracle", "successfactors", "eightfold", "generic_site", "reed", "efinancialcareers", "google_jobs"]
+ALL_ADAPTERS = [
+    "greenhouse",
+    "workable",
+    "workday",
+    "ashby",
+    "smartrecruiters",
+    "lever",
+    "icims",
+    "oracle",
+    "successfactors",
+    "eightfold",
+    "generic_site",
+    "reed",
+    "efinancialcareers",
+    "google_jobs",
+]
 
 
 def _looks_like_board(url: str) -> bool:
@@ -144,6 +164,88 @@ def _should_run(name: str, args: argparse.Namespace) -> bool:
     return True
 
 
+def _planned_adapters(args: argparse.Namespace) -> list[str]:
+    return [name for name in ALL_ADAPTERS if _should_run(name, args)]
+
+
+def _planned_run_count(args: argparse.Namespace, planned: list[str]) -> int:
+    count = 0
+    for name in planned:
+        if name == "generic_site" and getattr(args, "generic_list", False):
+            from configs.config import GENERIC_BROWSER_BOARDS
+            count += args.generic_limit if args.generic_limit else len(GENERIC_BROWSER_BOARDS)
+        else:
+            count += 1
+    return count
+
+
+def _make_run_result(page: Any, limit: int) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "job_count": len(page.jobs),
+        "sample": [serialise_record(job) for job in page.jobs[:limit]],
+        "diagnostics": {
+            "counters": dict(getattr(page.diagnostics, "counters", {})),
+            "warnings": list(getattr(page.diagnostics, "warnings", [])),
+            "errors": list(getattr(page.diagnostics, "errors", [])),
+            "metadata": dict(getattr(page.diagnostics, "metadata", {})),
+        },
+    }
+
+
+def _summarise_runs(results: dict[str, Any]) -> None:
+    runs = results["runs"]
+
+    table = Table(title="Smoke test summary")
+    table.add_column("Adapter")
+    table.add_column("Status")
+    table.add_column("Jobs", justify="right")
+    table.add_column("Warnings", justify="right")
+    table.add_column("Errors", justify="right")
+    table.add_column("Notes")
+
+    ok_count = 0
+    fail_count = 0
+    total_jobs = 0
+
+    for name, run in runs.items():
+        if run.get("ok"):
+            ok_count += 1
+            job_count = int(run.get("job_count", 0))
+            total_jobs += job_count
+            diagnostics = run.get("diagnostics", {})
+            warnings = diagnostics.get("warnings", []) or []
+            errors = diagnostics.get("errors", []) or []
+            table.add_row(
+                name,
+                "[green]ok[/green]",
+                str(job_count),
+                str(len(warnings)),
+                str(len(errors)),
+                "",
+            )
+        else:
+            fail_count += 1
+            table.add_row(
+                name,
+                "[red]failed[/red]",
+                "0",
+                "-",
+                "-",
+                str(run.get("error", "")),
+            )
+
+    console.print()
+    console.print(table)
+    console.print(
+        f"[bold]Totals:[/bold] "
+        f"[green]{ok_count} ok[/green], "
+        f"[red]{fail_count} failed[/red], "
+        f"[cyan]{total_jobs} jobs[/cyan], "
+        f"{len(runs)} runs recorded"
+    )
+
+
 async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
     from vacancysoft.adapters import (
         AshbyAdapter,
@@ -161,7 +263,10 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
         WorkableAdapter,
         WorkdayAdapter,
     )
+    from configs.config import GENERIC_BROWSER_BOARDS
     from vacancysoft.source_registry.legacy_board_mappings import lookup_company
+
+    planned = _planned_adapters(args)
 
     if args.board_url:
         adapter_name = args.adapter or _classify_url(args.board_url)
@@ -170,131 +275,312 @@ async def run_smoke_tests(args: argparse.Namespace) -> dict[str, Any]:
     else:
         _progress(f"Loading workbook: {args.xlsx}")
         board_urls = load_board_urls(Path(args.xlsx))
+
     _progress(f"Found source URLs: {board_urls}")
     results: dict[str, Any] = {"source_urls": board_urls, "runs": {}}
-
-    async def capture(name: str, coro: Any) -> None:
-        _progress(f"Starting {name}...")
-        try:
-            page = await coro
-            _progress(f"Finished {name}: ok, jobs={len(page.jobs)}")
-            results["runs"][name] = {
-                "ok": True,
-                "job_count": len(page.jobs),
-                "sample": [serialise_record(job) for job in page.jobs[: args.limit]],
-                "diagnostics": {
-                    "counters": dict(getattr(page.diagnostics, "counters", {})),
-                    "warnings": list(getattr(page.diagnostics, "warnings", [])),
-                    "errors": list(getattr(page.diagnostics, "errors", [])),
-                    "metadata": dict(getattr(page.diagnostics, "metadata", {})),
-                },
-            }
-        except Exception as exc:
-            _progress(f"Finished {name}: failed with {type(exc).__name__}: {exc}")
-            results["runs"][name] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     def canonical_company(adapter_name: str, board_url: str | None, slug: str | None = None) -> str | None:
         return lookup_company(adapter_name, board_url=board_url, slug=slug)
 
-    greenhouse_url = board_urls.get("greenhouse")
-    if _should_run("greenhouse", args):
-        if greenhouse_url:
-            slug = _extract_greenhouse_slug(greenhouse_url)
-            await capture("greenhouse", GreenhouseAdapter().discover({"slug": slug, "company": canonical_company("greenhouse", greenhouse_url, slug), "job_board_url": greenhouse_url, "timeout_seconds": args.timeout_seconds}))
-        else:
-            results["runs"]["greenhouse"] = {"ok": False, "error": "No Greenhouse URL found"}
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        console=console,
+        transient=False,
+    )
 
-    workable_url = board_urls.get("workable")
-    if _should_run("workable", args):
-        if workable_url:
-            slug = _extract_workable_slug(workable_url)
-            await capture("workable", WorkableAdapter().discover({"slug": slug, "company": canonical_company("workable", workable_url, slug), "job_board_url": workable_url, "timeout_seconds": args.timeout_seconds}))
-        else:
-            results["runs"]["workable"] = {"ok": False, "error": "No Workable URL found"}
+    with progress:
+        overall_total = _planned_run_count(args, planned)
+        overall_task = progress.add_task("[bold cyan]Running adapters[/bold cyan]", total=overall_total or 1)
 
-    workday_url = board_urls.get("workday")
-    if _should_run("workday", args):
-        if workday_url:
-            adapter = WorkdayAdapter()
-            _progress("Starting workday...")
+        async def capture(name: str, coro: Any) -> None:
+            progress.update(overall_task, description=f"[bold cyan]Running {name}[/bold cyan]")
             try:
-                _endpoint, page = await adapter.discover_from_board_url(job_board_url=workday_url, limit=max(args.limit, 2))
-                _progress(f"Finished workday: ok, jobs={len(page.jobs)}")
-                results["runs"]["workday"] = {"ok": True, "job_count": len(page.jobs), "sample": [serialise_record(job) for job in page.jobs[: args.limit]], "diagnostics": {"counters": dict(getattr(page.diagnostics, "counters", {})), "warnings": list(getattr(page.diagnostics, "warnings", [])), "errors": list(getattr(page.diagnostics, "errors", [])), "metadata": dict(getattr(page.diagnostics, "metadata", {}))}}
+                page = await coro
+                results["runs"][name] = _make_run_result(page, args.limit)
+                progress.console.print(f"[green]✓[/green] {name}: {len(page.jobs)} jobs")
             except Exception as exc:
-                _progress(f"Finished workday: failed with {type(exc).__name__}: {exc}")
-                results["runs"]["workday"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-        else:
-            results["runs"]["workday"] = {"ok": False, "error": "No Workday URL found"}
+                results["runs"][name] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+                progress.console.print(f"[red]✗[/red] {name}: {type(exc).__name__}: {exc}")
+            finally:
+                progress.advance(overall_task)
 
-    ashby_url = board_urls.get("ashby")
-    if _should_run("ashby", args):
-        if ashby_url:
-            slug = _extract_tail_slug(ashby_url)
-            await capture("ashby", AshbyAdapter().discover({"slug": slug, "company": canonical_company("ashby", ashby_url, slug), "job_board_url": ashby_url, "timeout_seconds": args.timeout_seconds}))
-        else:
-            results["runs"]["ashby"] = {"ok": False, "error": "No Ashby URL found"}
+        greenhouse_url = board_urls.get("greenhouse")
+        if _should_run("greenhouse", args):
+            if greenhouse_url:
+                slug = _extract_greenhouse_slug(greenhouse_url)
+                await capture(
+                    "greenhouse",
+                    GreenhouseAdapter().discover(
+                        {
+                            "slug": slug,
+                            "company": canonical_company("greenhouse", greenhouse_url, slug),
+                            "job_board_url": greenhouse_url,
+                            "timeout_seconds": args.timeout_seconds,
+                        }
+                    ),
+                )
+            else:
+                results["runs"]["greenhouse"] = {"ok": False, "error": "No Greenhouse URL found"}
+                progress.console.print("[yellow]![/yellow] greenhouse: No Greenhouse URL found")
+                progress.advance(overall_task)
 
-    smart_url = board_urls.get("smartrecruiters")
-    if _should_run("smartrecruiters", args):
-        if smart_url:
-            slug = _extract_tail_slug(smart_url)
-            await capture("smartrecruiters", SmartRecruitersAdapter().discover({"slug": slug, "company": canonical_company("smartrecruiters", smart_url, slug), "job_board_url": smart_url, "timeout_seconds": args.timeout_seconds, "search_terms": args.search_terms}))
-        else:
-            results["runs"]["smartrecruiters"] = {"ok": False, "error": "No SmartRecruiters URL found"}
+        workable_url = board_urls.get("workable")
+        if _should_run("workable", args):
+            if workable_url:
+                slug = _extract_workable_slug(workable_url)
+                await capture(
+                    "workable",
+                    WorkableAdapter().discover(
+                        {
+                            "slug": slug,
+                            "company": canonical_company("workable", workable_url, slug),
+                            "job_board_url": workable_url,
+                            "timeout_seconds": args.timeout_seconds,
+                        }
+                    ),
+                )
+            else:
+                results["runs"]["workable"] = {"ok": False, "error": "No Workable URL found"}
+                progress.console.print("[yellow]![/yellow] workable: No Workable URL found")
+                progress.advance(overall_task)
 
-    lever_url = board_urls.get("lever")
-    if _should_run("lever", args):
-        if lever_url:
-            slug = _extract_tail_slug(lever_url)
-            await capture("lever", LeverAdapter().discover({"slug": slug, "company": canonical_company("lever", lever_url, slug), "job_board_url": lever_url, "timeout_seconds": args.timeout_seconds}))
-        else:
-            results["runs"]["lever"] = {"ok": False, "error": "No Lever URL found"}
+        workday_url = board_urls.get("workday")
+        if _should_run("workday", args):
+            if workday_url:
+                progress.update(overall_task, description="[bold cyan]Running workday[/bold cyan]")
+                try:
+                    adapter = WorkdayAdapter()
+                    _endpoint, page = await adapter.discover_from_board_url(
+                        job_board_url=workday_url,
+                        limit=max(args.limit, 2),
+                    )
+                    results["runs"]["workday"] = _make_run_result(page, args.limit)
+                    progress.console.print(f"[green]✓[/green] workday: {len(page.jobs)} jobs")
+                except Exception as exc:
+                    results["runs"]["workday"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+                    progress.console.print(f"[red]✗[/red] workday: {type(exc).__name__}: {exc}")
+                finally:
+                    progress.advance(overall_task)
+            else:
+                results["runs"]["workday"] = {"ok": False, "error": "No Workday URL found"}
+                progress.console.print("[yellow]![/yellow] workday: No Workday URL found")
+                progress.advance(overall_task)
 
-    icims_url = board_urls.get("icims")
-    if _should_run("icims", args):
-        if icims_url:
-            await capture("icims", IcimsAdapter().discover({"job_board_url": icims_url, "company": canonical_company("icims", icims_url), "page_timeout_ms": args.page_timeout_ms, "search_terms": args.search_terms}))
-        else:
-            results["runs"]["icims"] = {"ok": False, "error": "No iCIMS URL found"}
+        ashby_url = board_urls.get("ashby")
+        if _should_run("ashby", args):
+            if ashby_url:
+                slug = _extract_tail_slug(ashby_url)
+                await capture(
+                    "ashby",
+                    AshbyAdapter().discover(
+                        {
+                            "slug": slug,
+                            "company": canonical_company("ashby", ashby_url, slug),
+                            "job_board_url": ashby_url,
+                            "timeout_seconds": args.timeout_seconds,
+                        }
+                    ),
+                )
+            else:
+                results["runs"]["ashby"] = {"ok": False, "error": "No Ashby URL found"}
+                progress.console.print("[yellow]![/yellow] ashby: No Ashby URL found")
+                progress.advance(overall_task)
 
-    oracle_url = board_urls.get("oracle")
-    if _should_run("oracle", args):
-        if oracle_url:
-            await capture("oracle", OracleCloudAdapter().discover({"job_board_url": oracle_url, "company": canonical_company("oracle", oracle_url), "page_timeout_ms": args.page_timeout_ms, "search_terms": args.search_terms}))
-        else:
-            results["runs"]["oracle"] = {"ok": False, "error": "No Oracle URL found"}
+        smart_url = board_urls.get("smartrecruiters")
+        if _should_run("smartrecruiters", args):
+            if smart_url:
+                slug = _extract_tail_slug(smart_url)
+                await capture(
+                    "smartrecruiters",
+                    SmartRecruitersAdapter().discover(
+                        {
+                            "slug": slug,
+                            "company": canonical_company("smartrecruiters", smart_url, slug),
+                            "job_board_url": smart_url,
+                            "timeout_seconds": args.timeout_seconds,
+                            "search_terms": args.search_terms,
+                        }
+                    ),
+                )
+            else:
+                results["runs"]["smartrecruiters"] = {"ok": False, "error": "No SmartRecruiters URL found"}
+                progress.console.print("[yellow]![/yellow] smartrecruiters: No SmartRecruiters URL found")
+                progress.advance(overall_task)
 
-    successfactors_url = board_urls.get("successfactors")
-    if _should_run("successfactors", args):
-        if successfactors_url:
-            await capture("successfactors", SuccessFactorsAdapter().discover({"job_board_url": successfactors_url, "company": canonical_company("successfactors", successfactors_url), "page_timeout_ms": args.page_timeout_ms, "search_terms": args.search_terms}))
-        else:
-            results["runs"]["successfactors"] = {"ok": False, "error": "No SuccessFactors URL found"}
+        lever_url = board_urls.get("lever")
+        if _should_run("lever", args):
+            if lever_url:
+                slug = _extract_tail_slug(lever_url)
+                await capture(
+                    "lever",
+                    LeverAdapter().discover(
+                        {
+                            "slug": slug,
+                            "company": canonical_company("lever", lever_url, slug),
+                            "job_board_url": lever_url,
+                            "timeout_seconds": args.timeout_seconds,
+                        }
+                    ),
+                )
+            else:
+                results["runs"]["lever"] = {"ok": False, "error": "No Lever URL found"}
+                progress.console.print("[yellow]![/yellow] lever: No Lever URL found")
+                progress.advance(overall_task)
 
-    eightfold_url = board_urls.get("eightfold")
-    if _should_run("eightfold", args):
-        if eightfold_url:
-            await capture("eightfold", EightfoldAdapter().discover({"job_board_url": eightfold_url, "company": canonical_company("eightfold", eightfold_url), "search_terms": args.search_terms, "page_timeout_ms": args.page_timeout_ms, "search_settle_ms": args.search_settle_ms}))
-        else:
-            results["runs"]["eightfold"] = {"ok": False, "error": "No Eightfold URL found"}
+        icims_url = board_urls.get("icims")
+        if _should_run("icims", args):
+            if icims_url:
+                await capture(
+                    "icims",
+                    IcimsAdapter().discover(
+                        {
+                            "job_board_url": icims_url,
+                            "company": canonical_company("icims", icims_url),
+                            "page_timeout_ms": args.page_timeout_ms,
+                            "search_terms": args.search_terms,
+                        }
+                    ),
+                )
+            else:
+                results["runs"]["icims"] = {"ok": False, "error": "No iCIMS URL found"}
+                progress.console.print("[yellow]![/yellow] icims: No iCIMS URL found")
+                progress.advance(overall_task)
 
-    generic_url = board_urls.get("generic_site")
-    if _should_run("generic_site", args):
-        if generic_url:
-            await capture("generic_site", GenericBrowserAdapter().discover({"job_board_url": generic_url, "company": canonical_company("generic_site", generic_url), "search_terms": args.search_terms, "page_timeout_ms": args.page_timeout_ms, "wait_after_nav_ms": args.search_settle_ms}))
-        else:
-            results["runs"]["generic_site"] = {"ok": False, "error": "No generic-site URL found"}
+        oracle_url = board_urls.get("oracle")
+        if _should_run("oracle", args):
+            if oracle_url:
+                await capture(
+                    "oracle",
+                    OracleCloudAdapter().discover(
+                        {
+                            "job_board_url": oracle_url,
+                            "company": canonical_company("oracle", oracle_url),
+                            "page_timeout_ms": args.page_timeout_ms,
+                            "search_terms": args.search_terms,
+                        }
+                    ),
+                )
+            else:
+                results["runs"]["oracle"] = {"ok": False, "error": "No Oracle URL found"}
+                progress.console.print("[yellow]![/yellow] oracle: No Oracle URL found")
+                progress.advance(overall_task)
 
-    if _should_run("reed", args):
-        await capture("reed", ReedAdapter().discover({"timeout_seconds": args.timeout_seconds, "search_terms": args.search_terms}))
+        successfactors_url = board_urls.get("successfactors")
+        if _should_run("successfactors", args):
+            if successfactors_url:
+                await capture(
+                    "successfactors",
+                    SuccessFactorsAdapter().discover(
+                        {
+                            "job_board_url": successfactors_url,
+                            "company": canonical_company("successfactors", successfactors_url),
+                            "page_timeout_ms": args.page_timeout_ms,
+                            "search_terms": args.search_terms,
+                        }
+                    ),
+                )
+            else:
+                results["runs"]["successfactors"] = {"ok": False, "error": "No SuccessFactors URL found"}
+                progress.console.print("[yellow]![/yellow] successfactors: No SuccessFactors URL found")
+                progress.advance(overall_task)
 
-    if _should_run("efinancialcareers", args):
-        await capture("efinancialcareers", EFinancialCareersAdapter().discover({"page_timeout_ms": args.page_timeout_ms, "search_terms": args.search_terms}))
+        eightfold_url = board_urls.get("eightfold")
+        if _should_run("eightfold", args):
+            if eightfold_url:
+                await capture(
+                    "eightfold",
+                    EightfoldAdapter().discover(
+                        {
+                            "job_board_url": eightfold_url,
+                            "company": canonical_company("eightfold", eightfold_url),
+                            "search_terms": args.search_terms,
+                            "page_timeout_ms": args.page_timeout_ms,
+                            "search_settle_ms": args.search_settle_ms,
+                        }
+                    ),
+                )
+            else:
+                results["runs"]["eightfold"] = {"ok": False, "error": "No Eightfold URL found"}
+                progress.console.print("[yellow]![/yellow] eightfold: No Eightfold URL found")
+                progress.advance(overall_task)
 
-    if _should_run("google_jobs", args):
-        await capture("google_jobs", GoogleJobsAdapter().discover({"search_terms": args.google_queries, "timeout_seconds": args.timeout_seconds, "max_pages_per_query": 1}))
+        generic_url = board_urls.get("generic_site")
+        if _should_run("generic_site", args):
+            if args.generic_list:
+                generic_candidates = GENERIC_BROWSER_BOARDS[: args.generic_limit] if args.generic_limit else GENERIC_BROWSER_BOARDS
+                progress.console.print(f"[cyan]Running generic_site against {len(generic_candidates)} configured boards[/cyan]")
 
+                for board in generic_candidates:
+                    company = board["company"]
+                    job_board_url = board["url"]
+                    run_name = f"generic_site::{company}"
+
+                    await capture(
+                        run_name,
+                        GenericBrowserAdapter().discover(
+                            {
+                                "job_board_url": job_board_url,
+                                "company": company,
+                                "page_timeout_ms": args.page_timeout_ms,
+                                "wait_after_nav_ms": args.search_settle_ms,
+                            }
+                        ),
+                    )
+            elif generic_url:
+                await capture(
+                    "generic_site",
+                    GenericBrowserAdapter().discover(
+                        {
+                            "job_board_url": generic_url,
+                            "company": canonical_company("generic_site", generic_url) or urlparse(generic_url).netloc,
+                            "page_timeout_ms": args.page_timeout_ms,
+                            "wait_after_nav_ms": args.search_settle_ms,
+                        }
+                    ),
+                )
+            else:
+                results["runs"]["generic_site"] = {"ok": False, "error": "No generic-site URL found"}
+                progress.console.print("[yellow]![/yellow] generic_site: No generic-site URL found")
+                progress.advance(overall_task)
+
+        if _should_run("reed", args):
+            await capture(
+                "reed",
+                ReedAdapter().discover(
+                    {
+                        "timeout_seconds": args.timeout_seconds,
+                        "search_terms": args.search_terms,
+                    }
+                ),
+            )
+
+        if _should_run("efinancialcareers", args):
+            await capture(
+                "efinancialcareers",
+                EFinancialCareersAdapter().discover(
+                    {
+                        "page_timeout_ms": args.page_timeout_ms,
+                        "search_terms": args.search_terms,
+                    }
+                ),
+            )
+
+        if _should_run("google_jobs", args):
+            await capture(
+                "google_jobs",
+                GoogleJobsAdapter().discover(
+                    {
+                        "search_terms": args.google_queries,
+                        "timeout_seconds": args.timeout_seconds,
+                        "max_pages_per_query": 1,
+                    }
+                ),
+            )
+
+    _summarise_runs(results)
     return results
 
 
@@ -315,6 +601,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--board-url")
     parser.add_argument("--search-term", dest="search_terms", action="append", default=None)
     parser.add_argument("--google-query", dest="google_queries", action="append", default=None)
+    parser.add_argument("--json", action="store_true", help="Print full JSON results after the summary table")
+    parser.add_argument("--generic-list", action="store_true", help="Run generic_site against configured generic browser boards")
+    parser.add_argument("--generic-limit", type=int, default=None, help="Limit number of configured generic browser boards to test")
     return parser
 
 
@@ -324,25 +613,36 @@ def main() -> None:
         args.adapter = _classify_url(args.board_url)
     if args.adapter in {"google_jobs", "reed", "efinancialcareers"} and args.board_url:
         raise SystemExit("--board-url is not supported for this adapter")
+
     repo_root = Path(args.repo_root).resolve()
     add_repo_to_path(repo_root)
+
     env_path = Path(args.env_file)
     if not env_path.is_absolute():
         env_path = repo_root / env_path
-    _load_env_file(env_path)
+    _load_key_value_env_file(env_path)
     _progress(f"Loaded env file: {env_path}")
+
+    alembic_env_path = repo_root / "alembic" / "env"
+    _load_key_value_env_file(alembic_env_path)
+    _progress(f"Loaded key env file: {alembic_env_path}")
+
     if args.search_terms is None:
         args.search_terms = ["risk", "quant"]
     if args.google_queries is None:
         args.google_queries = ["risk manager finance", "quantitative analyst finance"]
-    if not args.board_url and args.adapter not in {"reed", "efinancialcareers"}:
+
+    if not args.board_url and not args.generic_list and args.adapter not in {"reed", "efinancialcareers"}:
         xlsx_path = Path(args.xlsx)
         if not xlsx_path.is_absolute():
             xlsx_path = repo_root / xlsx_path
         args.xlsx = str(xlsx_path)
         if not xlsx_path.exists():
             raise SystemExit(f"Workbook not found: {xlsx_path}")
-    print(json.dumps(asyncio.run(run_smoke_tests(args)), indent=2, ensure_ascii=False))
+
+    results = asyncio.run(run_smoke_tests(args))
+    if args.json:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

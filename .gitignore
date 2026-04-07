@@ -26,5 +26,14 @@ logs/
 .vscode/
 .idea/
 
-# Env
+# Env / secrets
 .env
+alembic/env
+
+# Build artifacts
+src/*.egg-info/
+
+# Audit output / data files
+*.xlsx
+*_audit_results.json
+*_waterfall_audit_results.json

@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from datetime import datetime
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -17,12 +17,12 @@ from vacancysoft.adapters.base import (
     ExtractionMethod,
     SourceAdapter,
 )
+from vacancysoft.browser.session import browser_session
 
-DEFAULT_SEARCH_TERMS = ["risk", "quant", "quantitative", "compliance", "strats", "pricing"]
 DEFAULT_PAGE_TIMEOUT_MS = 20_000
 DEFAULT_WAIT_AFTER_NAV_MS = 2_000
-SEARCH_PARAMS = ["q", "query", "keyword", "search", "keywords", "term", "s"]
-TITLE_LINK_SELECTORS = [
+
+CANDIDATE_LINK_SELECTORS = [
     "a[data-ph-at-id='job-title-link']",
     "a.job-title",
     ".job-title a",
@@ -33,31 +33,102 @@ TITLE_LINK_SELECTORS = [
     "[class*='position-title'] a",
     "[class*='vacancy-title'] a",
     "[class*='career-title'] a",
-    "article h2 a",
-    "article h3 a",
-    "li.job a",
-    ".job-card a",
-    ".job-item a",
-    ".job-listing a",
-    "table tr td a[href*='job']",
-    "table tr td a[href*='vacanc']",
-    "table tr td a[href*='career']",
+    "[class*='job-card'] a",
+    "[class*='job-item'] a",
+    "[class*='job-listing'] a",
+    "[class*='vacancy'] a",
+    "[class*='opening'] a",
+    "[class*='role'] a",
+    "[class*='opportunit'] a",
+    "[data-qa*='job'] a",
+    "[data-test*='job'] a",
+    "article a",
+    "li a",
+    "tr a",
     ".search-results a",
     ".results-list a",
 ]
-SEARCH_INPUT_SELECTORS = [
-    "input[id*='keyword' i]",
-    "input[name*='keyword' i]",
-    "input[placeholder*='search' i]",
-    "input[placeholder*='job title' i]",
-    "input[placeholder*='role' i]",
-    "input[type='search']",
-    "#keywordInput",
-    "#searchInput",
-    ".search-input input",
-]
-FALLBACK_LINK_SELECTOR = "a[href*='job'], a[href*='vacanc'], a[href*='career'], a[href*='position']"
-SKIP_PREFIXES = ("home", "about", "contact", "apply")
+
+FALLBACK_LINK_SELECTOR = "a[href]"
+
+NON_JOB_HREF_FRAGMENTS = (
+    "/cookie",
+    "/privacy",
+    "/terms",
+    "/faq",
+    "/about",
+    "/contact",
+    "/culture",
+    "/benefits",
+    "/team",
+    "/teams",
+    "/departments",
+    "/talent-community",
+    "/job-alert",
+    "/login",
+    "/account",
+    "/working-for-us",
+    "/discover",
+    "/key-teams",
+    "/early-careers",
+    "/graduates",
+    "/internships",
+    "/students",
+    "/leadership",
+    "/board-of-directors",
+    "/work-at",
+    "/life-at",
+    "/what-we-can-offer",
+    "javascript:",
+    "mailto:",
+    "tel:",
+    "#",
+)
+
+JOBISH_HREF_FRAGMENTS = (
+    "/job",
+    "jobdetail",
+    "job-detail",
+    "job_detail",
+    "/jobs/",
+    "/vacanc",
+    "/position",
+    "/posting",
+    "/requisition",
+    "/opening",
+    "vacancydetails",
+    "jobid=",
+    "reqid=",
+    "requisitionid",
+)
+
+NON_JOB_TITLE_PREFIXES = (
+    "home",
+    "about",
+    "contact",
+    "apply",
+    "read more",
+    "discover",
+    "key teams",
+    "careers",
+    "job opportunities",
+    "search jobs",
+    "latest job vacancies",
+    "working for us",
+    "cookie policy",
+    "your account",
+    "talent community",
+    "departments",
+    "find out more",
+    "back to the main site",
+    "culture",
+    "culture here",
+    "log in",
+    "login",
+    "english",
+    "deutsch",
+    "skip to content",
+)
 
 
 def _clean(value: Any) -> str | None:
@@ -75,45 +146,66 @@ def _absolute_url(href: str | None, base_url: str) -> str:
     return urljoin(base_url, href)
 
 
-def _with_query_param(board_url: str, param: str, term: str) -> str:
-    parsed = urlparse(board_url)
-    query = {k: values[-1] for k, values in parse_qs(parsed.query).items() if values}
-    query[param] = term
-    return parsed._replace(query=urlencode(query)).geturl()
+def _same_domain(url: str, board_url: str) -> bool:
+    try:
+        return urlparse(url).netloc.lower() == urlparse(board_url).netloc.lower()
+    except Exception:
+        return False
 
 
-async def _first_visible_input(page: Any) -> Any | None:
-    for selector in SEARCH_INPUT_SELECTORS:
-        try:
-            handle = await page.query_selector(selector)
-            if handle and await handle.is_visible():
-                return handle
-        except Exception:
-            continue
-    return None
+def _looks_like_non_job_title(title: str) -> bool:
+    lowered = title.lower().strip()
+    return any(lowered.startswith(prefix) for prefix in NON_JOB_TITLE_PREFIXES)
 
 
-async def _collect_jobs_on_page(page: Any, board_url: str, diagnostics: AdapterDiagnostics) -> list[dict[str, str | None]]:
+def _looks_like_job_url(url: str) -> bool:
+    lowered = url.lower()
+    if any(fragment in lowered for fragment in NON_JOB_HREF_FRAGMENTS):
+        return False
+    return any(token in lowered for token in JOBISH_HREF_FRAGMENTS)
+
+
+async def _collect_candidate_urls(page: Any, board_url: str, diagnostics: AdapterDiagnostics) -> list[dict[str, str | None]]:
     results: list[dict[str, str | None]] = []
     selector_used: str | None = None
 
-    for selector in TITLE_LINK_SELECTORS:
+    for selector in CANDIDATE_LINK_SELECTORS:
         try:
             elements = await page.query_selector_all(selector)
         except Exception:
             continue
         if not elements:
             continue
+
+        selector_results: list[dict[str, str | None]] = []
         for element in elements:
             try:
                 title = _clean(await element.inner_text())
                 href = await element.get_attribute("href")
                 url = _absolute_url(href, board_url)
-                if title and len(title) > 3:
-                    results.append({"title": title, "url": url, "href": href, "selector": selector})
+
+                if not href:
+                    continue
+                if not _same_domain(url, board_url):
+                    continue
+                if not _looks_like_job_url(url):
+                    continue
+                if title and _looks_like_non_job_title(title):
+                    continue
+
+                selector_results.append(
+                    {
+                        "title": title,
+                        "url": url,
+                        "href": href,
+                        "selector": selector,
+                    }
+                )
             except Exception:
                 diagnostics.counters["listing_parse_failures"] = diagnostics.counters.get("listing_parse_failures", 0) + 1
-        if results:
+
+        if selector_results:
+            results.extend(selector_results)
             selector_used = selector
             break
 
@@ -122,16 +214,33 @@ async def _collect_jobs_on_page(page: Any, board_url: str, diagnostics: AdapterD
             links = await page.query_selector_all(FALLBACK_LINK_SELECTOR)
         except Exception:
             links = []
+
         for link in links:
             try:
                 title = _clean(await link.inner_text())
                 href = await link.get_attribute("href")
                 url = _absolute_url(href, board_url)
-                lowered = title.lower() if title else ""
-                if title and len(title) > 5 and not lowered.startswith(SKIP_PREFIXES):
-                    results.append({"title": title, "url": url, "href": href, "selector": "fallback"})
+
+                if not href:
+                    continue
+                if not _same_domain(url, board_url):
+                    continue
+                if not _looks_like_job_url(url):
+                    continue
+                if title and _looks_like_non_job_title(title):
+                    continue
+
+                results.append(
+                    {
+                        "title": title,
+                        "url": url,
+                        "href": href,
+                        "selector": "fallback",
+                    }
+                )
             except Exception:
                 diagnostics.counters["listing_parse_failures"] = diagnostics.counters.get("listing_parse_failures", 0) + 1
+
         if results:
             selector_used = "fallback"
 
@@ -139,26 +248,6 @@ async def _collect_jobs_on_page(page: Any, board_url: str, diagnostics: AdapterD
         diagnostics.metadata["last_selector_used"] = selector_used
     diagnostics.counters["listings_seen"] = diagnostics.counters.get("listings_seen", 0) + len(results)
     return results
-
-
-async def _try_search_on_page(page: Any, term: str, wait_ms: int, diagnostics: AdapterDiagnostics) -> bool:
-    input_handle = await _first_visible_input(page)
-    if not input_handle:
-        return False
-    try:
-        await input_handle.click()
-        try:
-            await input_handle.press("Meta+A")
-        except Exception:
-            pass
-        await input_handle.fill(term)
-        await input_handle.press("Enter")
-        await page.wait_for_timeout(wait_ms)
-        diagnostics.counters["on_page_searches"] = diagnostics.counters.get("on_page_searches", 0) + 1
-        return True
-    except Exception as exc:
-        diagnostics.warnings.append(f"Generic browser on-page search failed for term '{term}': {exc}")
-        return False
 
 
 class GenericBrowserAdapter(SourceAdapter):
@@ -186,20 +275,18 @@ class GenericBrowserAdapter(SourceAdapter):
             raise ValueError("GenericBrowserAdapter requires job_board_url")
 
         company = str(source_config.get("company") or board_url).strip()
-        search_terms = [str(term).strip() for term in (source_config.get("search_terms") or DEFAULT_SEARCH_TERMS) if str(term).strip()]
-        search_params = [str(param).strip() for param in (source_config.get("search_params") or SEARCH_PARAMS) if str(param).strip()]
         timeout_ms = int(source_config.get("page_timeout_ms", DEFAULT_PAGE_TIMEOUT_MS))
         wait_ms = int(source_config.get("wait_after_nav_ms", DEFAULT_WAIT_AFTER_NAV_MS))
+
         diagnostics = AdapterDiagnostics(
             metadata={
                 "board_url": board_url,
                 "company": company,
-                "search_terms": search_terms,
-                "search_params": search_params,
                 "page_timeout_ms": timeout_ms,
                 "wait_after_nav_ms": wait_ms,
                 "since": since.isoformat() if since else None,
                 "cursor_ignored": cursor is not None,
+                "mode": "vacancy_url_harvest",
             }
         )
         if cursor is not None:
@@ -213,79 +300,20 @@ class GenericBrowserAdapter(SourceAdapter):
 
         try:
             async with async_playwright() as playwright:
-                browser = await playwright.chromium.launch(headless=True)
-                context = await browser.new_context()
-                page = await context.new_page()
-                try:
-                    for index, term in enumerate(search_terms):
-                        url_search_succeeded = False
-                        for param in search_params:
-                            test_url = _with_query_param(board_url, param, term)
-                            diagnostics.counters["url_search_attempts"] = diagnostics.counters.get("url_search_attempts", 0) + 1
-                            try:
-                                await page.goto(test_url, wait_until="domcontentloaded", timeout=timeout_ms)
-                                await page.wait_for_timeout(wait_ms)
-                                jobs = await _collect_jobs_on_page(page, board_url, diagnostics)
-                            except Exception:
-                                jobs = []
-                            if not jobs:
-                                continue
-                            url_search_succeeded = True
-                            diagnostics.counters["url_search_hits"] = diagnostics.counters.get("url_search_hits", 0) + 1
-                            for job in jobs:
-                                url = str(job["url"])
-                                if url in seen_urls:
-                                    diagnostics.counters["duplicate_urls"] = diagnostics.counters.get("duplicate_urls", 0) + 1
-                                    continue
-                                seen_urls.add(url)
-                                all_records.append(
-                                    DiscoveredJobRecord(
-                                        external_job_id=url,
-                                        title_raw=_clean(job["title"]),
-                                        location_raw=None,
-                                        posted_at_raw=None,
-                                        summary_raw=None,
-                                        discovered_url=url,
-                                        apply_url=url,
-                                        listing_payload={
-                                            "search_term": term,
-                                            "strategy": "url_param",
-                                            "search_param": param,
-                                            "href": job["href"],
-                                            "selector": job["selector"],
-                                        },
-                                        completeness_score=0.6667,
-                                        extraction_confidence=0.72,
-                                        provenance={
-                                            "adapter": "generic_site",
-                                            "method": ExtractionMethod.BROWSER.value,
-                                            "company": company,
-                                            "platform": "Generic Browser",
-                                            "board_url": board_url,
-                                            "strategy": "url_param",
-                                            "search_term": term,
-                                            "search_param": param,
-                                        },
-                                    )
-                                )
-                            break
-
-                        if url_search_succeeded:
-                            continue
-
-                        await page.goto(board_url, wait_until="domcontentloaded", timeout=timeout_ms)
+                async with browser_session(playwright, headless=True) as (_browser, context):
+                    page = await context.new_page()
+                    try:
+                        response = await page.goto(board_url, wait_until="domcontentloaded", timeout=timeout_ms)
                         await page.wait_for_timeout(wait_ms)
-                        searched = await _try_search_on_page(page, term, wait_ms, diagnostics)
-                        if not searched and index > 0:
-                            diagnostics.counters["terms_skipped_without_search"] = diagnostics.counters.get(
-                                "terms_skipped_without_search", 0
-                            ) + 1
-                            continue
-                        jobs = await _collect_jobs_on_page(page, board_url, diagnostics)
-                        strategy = "on_page_search" if searched else "extract_all"
-                        confidence = 0.7 if searched else 0.62
-                        for job in jobs:
-                            url = str(job["url"])
+
+                        diagnostics.metadata["final_url"] = page.url
+                        if response is not None:
+                            diagnostics.metadata["http_status"] = response.status
+
+                        candidates = await _collect_candidate_urls(page, board_url, diagnostics)
+
+                        for candidate in candidates:
+                            url = str(candidate["url"])
                             if url in seen_urls:
                                 diagnostics.counters["duplicate_urls"] = diagnostics.counters.get("duplicate_urls", 0) + 1
                                 continue
@@ -293,35 +321,31 @@ class GenericBrowserAdapter(SourceAdapter):
                             all_records.append(
                                 DiscoveredJobRecord(
                                     external_job_id=url,
-                                    title_raw=_clean(job["title"]),
+                                    title_raw=_clean(candidate["title"]),
                                     location_raw=None,
                                     posted_at_raw=None,
                                     summary_raw=None,
                                     discovered_url=url,
                                     apply_url=url,
                                     listing_payload={
-                                        "search_term": term,
-                                        "strategy": strategy,
-                                        "href": job["href"],
-                                        "selector": job["selector"],
+                                        "strategy": "candidate_url_harvest",
+                                        "href": candidate["href"],
+                                        "selector": candidate["selector"],
                                     },
-                                    completeness_score=0.6667,
-                                    extraction_confidence=confidence,
+                                    completeness_score=0.50,
+                                    extraction_confidence=0.60,
                                     provenance={
                                         "adapter": "generic_site",
                                         "method": ExtractionMethod.BROWSER.value,
                                         "company": company,
                                         "platform": "Generic Browser",
                                         "board_url": board_url,
-                                        "strategy": strategy,
-                                        "search_term": term,
+                                        "strategy": "candidate_url_harvest",
                                     },
                                 )
                             )
-                finally:
-                    await page.close()
-                    await context.close()
-                    await browser.close()
+                    finally:
+                        await page.close()
         except PlaywrightTimeoutError as exc:
             diagnostics.errors.append(f"Generic browser timeout: {exc}")
             raise
