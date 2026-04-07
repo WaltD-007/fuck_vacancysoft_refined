@@ -22,7 +22,7 @@ def persist_classification_for_enriched_job(session: Session, enriched_job: Enri
 
     values = {
         "enriched_job_id": enriched_job.id,
-        "classifier_version": "demo_classifier_v2",
+        "classifier_version": "rule_classifier_v2",
         "taxonomy_version": payload.taxonomy_version,
         "target_function": payload.primary_taxonomy_key,
         "target_domain": None,
@@ -53,7 +53,12 @@ def persist_classification_for_enriched_job(session: Session, enriched_job: Enri
 
 
 def classify_enriched_jobs(session: Session, limit: int | None = None) -> int:
-    stmt = select(EnrichedJob).order_by(EnrichedJob.created_at.desc())
+    already_classified = select(ClassificationResult.enriched_job_id)
+    stmt = (
+        select(EnrichedJob)
+        .where(~EnrichedJob.id.in_(already_classified))
+        .order_by(EnrichedJob.created_at.desc())
+    )
     if limit is not None:
         stmt = stmt.limit(limit)
     jobs = list(session.execute(stmt).scalars())

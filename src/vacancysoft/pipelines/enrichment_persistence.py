@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from hashlib import sha1
 
 from sqlalchemy import select
@@ -8,6 +9,27 @@ from sqlalchemy.orm import Session
 from vacancysoft.db.models import EnrichedJob, RawJob
 from vacancysoft.enrichers.date_parser import parse_posted_date
 from vacancysoft.enrichers.location_normaliser import normalise_location
+
+_SENIORITY_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b(?:chief|c-suite|cro|cfo|cto|coo|cio|ciso)\b", re.I), "c_suite"),
+    (re.compile(r"\b(?:head of|global head|group head)\b", re.I), "head"),
+    (re.compile(r"\b(?:managing director|md)\b", re.I), "managing_director"),
+    (re.compile(r"\bdirector\b", re.I), "director"),
+    (re.compile(r"\b(?:vice president|vp|svp|evp)\b", re.I), "vp"),
+    (re.compile(r"\b(?:senior|sr\.?|lead|principal)\b", re.I), "senior"),
+    (re.compile(r"\bmanager\b", re.I), "manager"),
+    (re.compile(r"\b(?:associate|junior|jr\.?|trainee|graduate|intern|entry[ -]level)\b", re.I), "junior"),
+    (re.compile(r"\b(?:analyst|officer|specialist|coordinator)\b", re.I), "mid"),
+]
+
+
+def _extract_seniority(title: str | None) -> str | None:
+    if not title:
+        return None
+    for pattern, level in _SENIORITY_PATTERNS:
+        if pattern.search(title):
+            return level
+    return None
 
 
 def _canonical_job_key(raw_job: RawJob, location: dict) -> str:
@@ -28,6 +50,7 @@ def persist_enrichment_for_raw_job(session: Session, raw_job: RawJob) -> Enriche
     title = raw_job.title_raw
     title_normalised = title.strip().lower() if title else None
     canonical_job_key = _canonical_job_key(raw_job, location)
+    seniority = _extract_seniority(title)
 
     existing = session.execute(
         select(EnrichedJob).where(EnrichedJob.raw_job_id == raw_job.id)
@@ -48,14 +71,14 @@ def persist_enrichment_for_raw_job(session: Session, raw_job: RawJob) -> Enriche
         "description_text": raw_job.description_raw,
         "team": None,
         "employment_type": None,
-        "seniority_hint": None,
+        "seniority_hint": seniority,
         "business_area_hint": None,
-        "detail_fetch_status": "demo_enriched",
+        "detail_fetch_status": "enriched",
         "enrichment_confidence": max(location.get("confidence", 0.0), raw_job.extraction_confidence),
         "completeness_score": raw_job.completeness_score,
         "provenance_blob": {
             "raw_job_id": raw_job.id,
-            "mode": "demo_enrichment",
+            "mode": "enrichment_v1",
         },
     }
 
@@ -72,7 +95,12 @@ def persist_enrichment_for_raw_job(session: Session, raw_job: RawJob) -> Enriche
 
 
 def enrich_raw_jobs(session: Session, limit: int | None = None) -> int:
-    stmt = select(RawJob).order_by(RawJob.created_at.desc())
+    already_enriched = select(EnrichedJob.raw_job_id)
+    stmt = (
+        select(RawJob)
+        .where(~RawJob.id.in_(already_enriched))
+        .order_by(RawJob.created_at.desc())
+    )
     if limit is not None:
         stmt = stmt.limit(limit)
     raw_jobs = list(session.execute(stmt).scalars())
