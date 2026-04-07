@@ -1,8 +1,25 @@
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
+
 import typer
 from sqlalchemy import select
+
+
+def _load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, value)
 
 from vacancysoft.adapters import AdzunaAdapter, EightfoldAdapter, GreenhouseAdapter, WorkableAdapter, WorkdayAdapter, derive_workday_candidate_endpoints
 from vacancysoft.adapters.base import DiscoveredJobRecord
@@ -35,6 +52,13 @@ db_app = typer.Typer(help="Database helpers")
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(export_app, name="export")
 app.add_typer(db_app, name="db")
+
+
+@app.callback()
+def _load_env(ctx: typer.Context) -> None:
+    root = Path.cwd()
+    _load_env_file(root / ".env")
+    _load_env_file(root / "alembic" / "env")
 
 
 @db_app.command("init")
