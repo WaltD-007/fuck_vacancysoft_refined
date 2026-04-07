@@ -21,8 +21,43 @@ def _load_env_file(path: Path) -> None:
         if key:
             os.environ.setdefault(key, value)
 
-from vacancysoft.adapters import AdzunaAdapter, EightfoldAdapter, GreenhouseAdapter, WorkableAdapter, WorkdayAdapter, derive_workday_candidate_endpoints
-from vacancysoft.adapters.base import DiscoveredJobRecord
+from vacancysoft.adapters import (
+    AdzunaAdapter,
+    AshbyAdapter,
+    EFinancialCareersAdapter,
+    EightfoldAdapter,
+    GenericBrowserAdapter,
+    GoogleJobsAdapter,
+    GreenhouseAdapter,
+    IcimsAdapter,
+    LeverAdapter,
+    OracleCloudAdapter,
+    ReedAdapter,
+    SmartRecruitersAdapter,
+    SuccessFactorsAdapter,
+    WorkableAdapter,
+    WorkdayAdapter,
+    derive_workday_candidate_endpoints,
+)
+from vacancysoft.adapters.base import DiscoveredJobRecord, SourceAdapter
+
+ADAPTER_REGISTRY: dict[str, type[SourceAdapter]] = {
+    "workday": WorkdayAdapter,
+    "greenhouse": GreenhouseAdapter,
+    "workable": WorkableAdapter,
+    "ashby": AshbyAdapter,
+    "smartrecruiters": SmartRecruitersAdapter,
+    "lever": LeverAdapter,
+    "icims": IcimsAdapter,
+    "oracle": OracleCloudAdapter,
+    "successfactors": SuccessFactorsAdapter,
+    "eightfold": EightfoldAdapter,
+    "generic_site": GenericBrowserAdapter,
+    "adzuna": AdzunaAdapter,
+    "efinancialcareers": EFinancialCareersAdapter,
+    "reed": ReedAdapter,
+    "google_jobs": GoogleJobsAdapter,
+}
 from vacancysoft.db.base import Base
 from vacancysoft.db.engine import build_engine
 from vacancysoft.db.models import ClassificationResult, EnrichedJob, RawJob, ScoreResult, Source, SourceRun
@@ -75,6 +110,14 @@ def seed_sources(config_path: str = typer.Option("configs/seeds/employers.yaml",
     typer.echo(f"Seeded sources. created={created} updated={updated}")
 
 
+@db_app.command("seed-config-boards")
+def seed_config_boards() -> None:
+    from vacancysoft.source_registry.config_seed_loader import seed_sources_from_config
+    with SessionLocal() as session:
+        created, updated = seed_sources_from_config(session)
+    typer.echo(f"Seeded config boards. created={created} updated={updated}")
+
+
 @db_app.command("stats")
 def db_stats() -> None:
     with SessionLocal() as session:
@@ -97,9 +140,14 @@ def cleanup_classifications() -> None:
 
 
 @pipeline_app.command("discover")
-def discover(all_sources: bool = typer.Option(False, "--all")) -> None:
-    target = "all configured sources" if all_sources else "selected source set"
-    typer.echo(f"Discovery stub for {target}")
+def discover(
+    adapter: str | None = typer.Option(None, "--adapter", help="Only run sources for this adapter"),
+    source_key: str | None = typer.Option(None, "--source-key", help="Run a single source by key"),
+    limit: int = typer.Option(0, "--limit", help="Max sources to process (0 = all)"),
+) -> None:
+    typer.echo("Discovering...")
+    ok, failed, total_jobs = _run_discovery(adapter, source_key, limit)
+    typer.echo(f"Discovery complete. ok={ok} failed={failed} total_jobs={total_jobs}")
 
 
 @pipeline_app.command("discover-demo")
@@ -270,8 +318,10 @@ def discover_eightfold(
 
 
 @pipeline_app.command("enrich")
-def enrich(pending: bool = typer.Option(True, "--pending/--all")) -> None:
-    typer.echo(f"Enrichment stub. pending_only={pending}")
+def enrich(limit: int = typer.Option(0, "--limit", help="Max records to enrich (0 = all pending)")) -> None:
+    with SessionLocal() as session:
+        count = enrich_raw_jobs(session, limit=limit or None)
+    typer.echo(f"Enrichment complete. enriched_jobs={count}")
 
 
 @pipeline_app.command("enrich-demo")
@@ -282,8 +332,10 @@ def enrich_demo(limit: int = typer.Option(10, "--limit")) -> None:
 
 
 @pipeline_app.command("classify")
-def classify(pending: bool = typer.Option(True, "--pending/--all")) -> None:
-    typer.echo(f"Classification stub. pending_only={pending}")
+def classify(limit: int = typer.Option(0, "--limit", help="Max records to classify (0 = all pending)")) -> None:
+    with SessionLocal() as session:
+        count = classify_enriched_jobs(session, limit=limit or None)
+    typer.echo(f"Classification complete. classification_results={count}")
 
 
 @pipeline_app.command("classify-demo")
@@ -293,6 +345,13 @@ def classify_demo(limit: int = typer.Option(10, "--limit")) -> None:
     typer.echo(f"Demo classification persisted. classification_results={count}")
 
 
+@pipeline_app.command("score")
+def score(limit: int = typer.Option(0, "--limit", help="Max records to score (0 = all pending)")) -> None:
+    with SessionLocal() as session:
+        count = score_enriched_jobs(session, limit=limit or None)
+    typer.echo(f"Scoring complete. score_results={count}")
+
+
 @pipeline_app.command("score-demo")
 def score_demo(limit: int = typer.Option(10, "--limit")) -> None:
     with SessionLocal() as session:
@@ -300,9 +359,103 @@ def score_demo(limit: int = typer.Option(10, "--limit")) -> None:
     typer.echo(f"Demo scoring persisted. score_results={count}")
 
 
-@pipeline_app.command("export")
-def export(profile: str = typer.Option("accepted_only", "--profile")) -> None:
-    typer.echo(f"Export stub for profile={profile}")
+def _run_discovery(
+    adapter_filter: str | None,
+    source_key_filter: str | None,
+    discover_limit: int,
+) -> tuple[int, int, int]:
+    """Shared discovery logic used by both `discover` and `run` commands."""
+    with SessionLocal() as session:
+        query = select(Source).where(Source.active.is_(True))
+        if source_key_filter:
+            query = select(Source).where(Source.source_key == source_key_filter)
+        elif adapter_filter:
+            query = query.where(Source.adapter_name == adapter_filter)
+        sources = list(session.execute(query).scalars())
+        if discover_limit > 0:
+            sources = sources[:discover_limit]
+
+    ok_count = 0
+    fail_count = 0
+    total_jobs = 0
+
+    for source in sources:
+        adapter_cls = ADAPTER_REGISTRY.get(source.adapter_name)
+        if adapter_cls is None:
+            typer.echo(f"  SKIP {source.source_key}: unknown adapter '{source.adapter_name}'")
+            fail_count += 1
+            continue
+
+        config = dict(source.config_blob or {})
+        config.setdefault("company", source.employer_name)
+
+        try:
+            adapter_instance = adapter_cls()
+            page = asyncio.run(adapter_instance.discover(source_config=config))
+            job_count = len(page.jobs)
+            total_jobs += job_count
+
+            if page.jobs:
+                with SessionLocal() as session:
+                    source_obj = session.execute(
+                        select(Source).where(Source.source_key == source.source_key)
+                    ).scalar_one()
+                    _run, raw_count = persist_discovery_batch(
+                        session=session, source=source_obj, records=page.jobs, trigger="pipeline_discover",
+                    )
+                typer.echo(f"  OK {source.source_key}: {job_count} jobs, {raw_count} persisted")
+            else:
+                typer.echo(f"  OK {source.source_key}: 0 jobs")
+            ok_count += 1
+        except Exception as exc:
+            typer.echo(f"  FAIL {source.source_key}: {type(exc).__name__}: {exc}")
+            fail_count += 1
+
+    return ok_count, fail_count, total_jobs
+
+
+@pipeline_app.command("run")
+def run_pipeline(
+    adapter: str | None = typer.Option(None, "--adapter", help="Only discover from this adapter type"),
+    source_key: str | None = typer.Option(None, "--source-key", help="Only discover from this source"),
+    discover_limit: int = typer.Option(0, "--discover-limit", help="Max sources to discover from (0 = all)"),
+    export_profile: str = typer.Option("accepted_only", "--export-profile"),
+    output: str | None = typer.Option(None, "--output", help="Excel output path"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Skip webhook send"),
+) -> None:
+    """Run the full pipeline: discover → enrich → classify → score → export."""
+    typer.echo("Step 1/5: Discovery")
+    ok, failed, jobs = _run_discovery(adapter, source_key, discover_limit)
+    typer.echo(f"  ok={ok} failed={failed} total_jobs={jobs}")
+
+    typer.echo("Step 2/5: Enrichment")
+    with SessionLocal() as session:
+        enriched = enrich_raw_jobs(session, limit=None)
+    typer.echo(f"  enriched={enriched}")
+
+    typer.echo("Step 3/5: Classification")
+    with SessionLocal() as session:
+        classified = classify_enriched_jobs(session, limit=None)
+    typer.echo(f"  classified={classified}")
+
+    typer.echo("Step 4/5: Scoring")
+    with SessionLocal() as session:
+        scored = score_enriched_jobs(session, limit=None)
+    typer.echo(f"  scored={scored}")
+
+    typer.echo("Step 5/5: Export")
+    if output:
+        with SessionLocal() as session:
+            path = export_profile_to_excel(session, profile_name=export_profile, output_path=output, limit=10000)
+        typer.echo(f"  Excel written to {path}")
+
+    with SessionLocal() as session:
+        result = send_profile_to_webhook(
+            session=session, profile_name=export_profile, limit=10000, dry_run=dry_run,
+        )
+    typer.echo(f"  Webhook: {result}")
+
+    typer.echo("Pipeline run complete.")
 
 
 @export_app.command("taxonomy-preview")
