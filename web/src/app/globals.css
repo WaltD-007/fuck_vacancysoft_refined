@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-card: #16161f;
+  --bg-card-hover: #1a1a25;
+  --bg-elevated: #1e1e2a;
+  --border: #2a2a3a;
+  --border-subtle: #1f1f2f;
+  --text-primary: #e8e8f0;
+  --text-secondary: #8888a0;
+  --text-muted: #555570;
+  --accent: #6c5ce7;
+  --accent-light: #a29bfe;
+  --accent-glow: rgba(108, 92, 231, 0.15);
+  --green: #00d2a0;
+  --green-bg: rgba(0, 210, 160, 0.08);
+  --green-border: rgba(0, 210, 160, 0.2);
+  --red: #ff6b6b;
+  --red-bg: rgba(255, 107, 107, 0.08);
+  --amber: #ffd93d;
+  --amber-bg: rgba(255, 217, 61, 0.08);
+  --blue: #4dabf7;
+}
+
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
