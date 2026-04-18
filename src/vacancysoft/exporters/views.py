@@ -4,13 +4,21 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from vacancysoft.db.models import ClassificationResult, EnrichedJob, RawJob, ScoreResult, Source
+from vacancysoft.db.models import ClassificationResult, EnrichedJob, ExportRecord, RawJob, ScoreResult, Source
 
 
 def _base_export_query():
+    # Prefer the real employer extracted from the listing payload (stored in
+    # EnrichedJob.team) over the Source-level employer_name, which is just
+    # the aggregator name for Adzuna/Reed/Google Jobs.
+    employer_col = case(
+        (EnrichedJob.team.isnot(None), EnrichedJob.team),
+        else_=Source.employer_name,
+    ).label("employer_name")
+
     return (
         select(
             EnrichedJob.id.label("enriched_job_id"),
@@ -27,7 +35,7 @@ def _base_export_query():
             ScoreResult.export_decision,
             ScoreResult.export_eligibility_score,
             ScoreResult.scoring_version,
-            Source.employer_name,
+            employer_col,
             Source.source_key,
             RawJob.discovered_url,
             RawJob.apply_url,
@@ -45,6 +53,20 @@ def accepted_only_query():
 
 def accepted_plus_review_query():
     return _base_export_query().where(ScoreResult.export_decision.in_(["accepted", "review"]))
+
+
+def new_leads_only_query(destination: str = "webhook"):
+    """Return accepted+review leads that have NOT been exported to the given destination."""
+    already_exported = (
+        select(ExportRecord.enriched_job_id)
+        .where(ExportRecord.destination == destination)
+        .where(ExportRecord.delivered.is_(True))
+    )
+    return (
+        _base_export_query()
+        .where(ScoreResult.export_decision.in_(["accepted", "review"]))
+        .where(~EnrichedJob.id.in_(already_exported))
+    )
 
 
 def grouped_by_taxonomy_query():

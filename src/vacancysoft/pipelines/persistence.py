@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from vacancysoft.adapters.base import DiscoveredJobRecord
 from vacancysoft.db.models import ExtractionAttempt, RawJob, Source, SourceRun
+from vacancysoft.enrichers.location_normaliser import is_allowed_country, normalise_location
 
 
 def _job_fingerprint(source_id: int, record: DiscoveredJobRecord) -> str:
@@ -107,6 +108,16 @@ def finalise_source_run(session: Session, source_run: SourceRun, records_seen: i
     session.flush()
 
 
+def _record_in_target_geo(record: DiscoveredJobRecord) -> bool:
+    """Drop records whose location resolves to a country outside the allow list.
+
+    Records with unresolved locations (no parseable country) are kept so that
+    enrichment can try to resolve them; ``is_allowed_country`` returns True for
+    None. Known-but-non-target countries (e.g. "Poland") are dropped here.
+    """
+    return is_allowed_country(normalise_location(record.location_raw).get("country"))
+
+
 def persist_discovery_batch(
     session: Session,
     source: Source,
@@ -114,11 +125,13 @@ def persist_discovery_batch(
     trigger: str = "manual",
 ) -> tuple[SourceRun, int]:
     items = list(records)
+    kept = [r for r in items if _record_in_target_geo(r)]
+
     source_run = start_source_run(session=session, source=source, trigger=trigger)
     attempt = create_extraction_attempt(session=session, source=source, source_run=source_run)
 
     count = 0
-    for record in items:
+    for record in kept:
         upsert_raw_job(
             session=session,
             source=source,

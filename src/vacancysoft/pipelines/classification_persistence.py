@@ -57,6 +57,7 @@ def classify_enriched_jobs(session: Session, limit: int | None = None) -> int:
     stmt = (
         select(EnrichedJob)
         .where(~EnrichedJob.id.in_(already_classified))
+        .where(EnrichedJob.detail_fetch_status.notin_(["geo_filtered", "agency_filtered", "title_filtered"]))
         .order_by(EnrichedJob.created_at.desc())
     )
     if limit is not None:
