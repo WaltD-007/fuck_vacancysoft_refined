@@ -128,7 +128,29 @@ Return JSON only:
 async def generate_dossier(
     enriched_job_id: str,
     session: Session,
+    force: bool = False,
 ) -> IntelligenceDossier:
+    """Generate (or return cached) dossier for an enriched job.
+
+    By default this reads the most recent dossier for the enriched job
+    and returns it without calling the LLM if one exists with a real
+    body. Pass force=True to bypass the cache and regenerate (useful
+    after a prompt-version bump).
+    """
+    if not force:
+        existing = session.execute(
+            select(IntelligenceDossier)
+            .where(IntelligenceDossier.enriched_job_id == enriched_job_id)
+            .order_by(IntelligenceDossier.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if existing and (existing.core_problem or "").strip():
+            logger.info(
+                "Reusing cached dossier %s for enriched_job %s — skipping LLM call",
+                existing.id, enriched_job_id,
+            )
+            return existing
+
     enriched = session.get(EnrichedJob, enriched_job_id)
     if not enriched:
         raise ValueError(f"EnrichedJob {enriched_job_id} not found")

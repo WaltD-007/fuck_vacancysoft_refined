@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 import tomllib
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from vacancysoft.db.models import (
@@ -37,7 +38,29 @@ def _load_intel_config() -> dict[str, Any]:
 async def generate_campaign(
     dossier_id: str,
     session: Session,
+    force: bool = False,
 ) -> CampaignOutput:
+    """Generate (or return cached) campaign emails for a dossier.
+
+    By default this reads the most recent campaign for the dossier
+    and returns it without calling the LLM if one exists with a
+    populated outreach_emails payload. Pass force=True to bypass
+    the cache.
+    """
+    if not force:
+        existing = session.execute(
+            select(CampaignOutput)
+            .where(CampaignOutput.dossier_id == dossier_id)
+            .order_by(CampaignOutput.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if existing and existing.outreach_emails:
+            logger.info(
+                "Reusing cached campaign %s for dossier %s — skipping LLM call",
+                existing.id, dossier_id,
+            )
+            return existing
+
     dossier = session.get(IntelligenceDossier, dossier_id)
     if not dossier:
         raise ValueError(f"IntelligenceDossier {dossier_id} not found")
