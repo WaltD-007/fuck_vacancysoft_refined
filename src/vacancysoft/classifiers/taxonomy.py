@@ -33,9 +33,15 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float]]] = {
         ("value at risk", 1.0),
         ("investment risk", 0.9), ("trading risk", 0.9),
         ("cva", 0.8), ("xva", 0.8),
-        # Quant Risk
-        ("model risk", 1.0),
+        # Quant Risk — quant-flavoured risk roles route to Risk so the Risk
+        # team owns model risk, validation, and risk-analytics quant work.
+        # Phrases below at weight 1.0 must beat Quant's catch-all "quant" 0.8.
+        ("model risk", 1.0), ("model risk quant", 1.0),
         ("model review", 0.9), ("model validation", 0.9),
+        ("model validation quant", 1.0), ("quantitative model risk", 1.0),
+        ("quantitative validation", 1.0),
+        ("risk quant", 1.0), ("risk analytics quant", 1.0),
+        ("quantitative risk", 1.0),
         ("reverse stress", 0.9), ("risk analytics", 0.9),
         ("stress test", 0.9), ("stress testing", 0.9),
         ("scenario analysis", 0.85), ("validation analyst", 0.85),
@@ -91,8 +97,10 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float]]] = {
         ("ai engineer hedge fund", 0.9), ("ai engineer investment", 0.85),
         ("applied ml", 0.7), ("nlp engineer", 0.7),
         ("deep learning", 0.7),
-        ("model validation quant", 0.9), ("quantitative validation", 0.9),
-        ("model risk quant", 0.9), ("quantitative model risk", 0.9),
+        # Note: "model validation quant", "quantitative validation",
+        # "model risk quant", "quantitative model risk" intentionally NOT
+        # routed here — they all belong to Risk → Quant Risk. See the
+        # Quant Risk section in the "risk" rules above.
         ("pricing model", 0.8), ("pricing quant", 0.9),
         ("derivatives pricing", 0.9), ("exotic pricing", 0.9),
         ("structurer", 0.85), ("structuring", 0.75), ("structured products", 0.85),

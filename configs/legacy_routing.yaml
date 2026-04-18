@@ -31,7 +31,11 @@ sub_specialism_keywords:
     # in the title pick the sub-specialism; otherwise fall through to Risk Management default.
     Credit Risk: [counterparty credit, counterparty risk, credit quality assurance, credit risk, credit quality, retail credit risk, risk appetite, wholesale credit, asset liability, credit analyst, credit assessment, credit officer, credit portfolio, credit strategy, credit portolio management]
     Market Risk: [market risk assurance, market risk, value at risk, investment risk, trading risk, cva, xva]
-    Quant Risk: [model risk, model review, model validation, reverse stress, risk analytics, stress testing, stress test, scenario analysis, validation analyst, validation engineer]
+    # Quant Risk owns ALL quant-flavoured risk roles. Keywords from the
+    # former Quant → Risk Quant sub-spec (risk quant, quantitative risk,
+    # risk analytics quant) plus model-validation/risk variants are
+    # consolidated here so substring matches land in one place.
+    Quant Risk: [model risk, model risk quant, model review, model validation, model validation quant, quantitative model risk, quantitative validation, quantitative risk, risk quant, risk analytics quant, risk analytics, reverse stress, scenario analysis, stress testing, stress test, validation analyst, validation engineer]
     # Operational Risk before Prudential Risk so "non financial risk" wins over
     # Prudential's "financial risk" keyword on substring match.
     Operational Risk: [enterprise risk, head of risk, non financial risk, op risk, operational risk, ops risk, risk controls, risk framework, risk governance, risk reporting]
@@ -47,7 +51,11 @@ sub_specialism_keywords:
     Algorithmic Trading: [algorithmic trader, algorithmic trading, algo trader, algo trading, algo developer, algo engineer, low latency algo]
     Systematic Trading: [systematic trader, systematic trading]
     Electronic Trading Dev: [electronic trading developer, etrading developer, low latency developer]
-    Risk Quant: [risk quant, risk analytics quant, quantitative risk]
+    # Risk Quant sub-spec removed — quant-flavoured risk roles (risk quant,
+    # quantitative risk, risk analytics quant, model risk quant, model
+    # validation quant, etc.) now consolidate under Risk → Quant Risk.
+    # Top-level routing in classifiers/taxonomy.py also pushes those
+    # phrases to Risk so the YAML mapper sees them under the right category.
     Machine Learning: [machine learning quant, ml quant, quant ml, trading ml engineer, financial ml engineer, alpha ml, ml researcher trading]
     AI Engineer: [ai quant, quant ai engineer, trading ai engineer, financial ai engineer, ai engineer trading, ai engineer quant, ai architect trading, ai architect quant, ai engineer hedge fund, ai engineer investment]
     Data Engineering (Quant): [quant data engineer, quant data, trading data engineer]
