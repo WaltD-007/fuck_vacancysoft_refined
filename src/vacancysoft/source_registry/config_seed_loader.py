@@ -15,6 +15,37 @@ def _slugify(value: str) -> str:
     return "_".join("".join(ch.lower() if ch.isalnum() else " " for ch in value).split())
 
 
+# URL patterns that override adapter assignment regardless of config list placement.
+# Maps regex on full URL → (adapter_name, platform_key).
+_URL_ADAPTER_OVERRIDES: list[tuple[str, str, str]] = [
+    (r"\.hibob\.com",           "hibob",          "hibob"),
+    (r"\.successfactors\.",     "successfactors",  "successfactors"),
+    (r"\.eightfold\.ai",       "eightfold",       "eightfold"),
+    (r"\.icims\.com",          "icims",           "icims"),
+    (r"\.pinpointhq\.com",     "pinpoint",        "pinpoint"),
+    (r"\.teamtailor\.com",     "teamtailor",      "teamtailor"),
+    (r"\.taleo\.net",          "taleo",           "taleo"),
+    (r"\.lever\.co/",          "lever",           "lever"),
+    (r"greenhouse\.io/",       "greenhouse",      "greenhouse"),
+    (r"\.ashbyhq\.com",        "ashby",           "ashby"),
+    (r"\.workable\.com",       "workable",        "workable"),
+    (r"smartrecruiters\.com/", "smartrecruiters",  "smartrecruiters"),
+    (r"myworkdayjobs\.com",    "workday",         "workday"),
+    (r"\.oraclecloud\.com",    "oracle",          "oracle"),
+    (r"selectminds\.com",      "selectminds",     "selectminds"),
+    (r"silkroad\.com",         "silkroad",        "silkroad"),
+]
+
+
+def detect_adapter_from_url(url: str) -> tuple[str, str] | None:
+    """Return (adapter_name, platform_key) if URL matches a known ATS, else None."""
+    import re
+    for pattern, adapter, platform_key in _URL_ADAPTER_OVERRIDES:
+        if re.search(pattern, url, re.IGNORECASE):
+            return adapter, platform_key
+    return None
+
+
 PLATFORM_REGISTRY: dict[str, dict] = {
     "workday":         {"adapter": "workday",         "source_type": "ats_api",      "ats_family": "workday",         "board_name": "Workday"},
     "greenhouse":      {"adapter": "greenhouse",      "source_type": "ats_api",      "ats_family": "greenhouse",      "board_name": "Greenhouse"},
@@ -27,6 +58,17 @@ PLATFORM_REGISTRY: dict[str, dict] = {
     "successfactors":  {"adapter": "successfactors",  "source_type": "browser_site", "ats_family": "successfactors",  "board_name": "SuccessFactors"},
     "eightfold":       {"adapter": "eightfold",       "source_type": "browser_site", "ats_family": "eightfold",       "board_name": "Eightfold"},
     "generic_browser": {"adapter": "generic_site",    "source_type": "browser_site", "ats_family": None,              "board_name": "Generic Browser"},
+    "adzuna":          {"adapter": "adzuna",          "source_type": "ats_api",      "ats_family": "adzuna",          "board_name": "Adzuna"},
+    "reed":            {"adapter": "reed",            "source_type": "ats_api",      "ats_family": "reed",            "board_name": "Reed"},
+    "efinancialcareers": {"adapter": "efinancialcareers", "source_type": "browser_site", "ats_family": "efinancialcareers", "board_name": "eFinancialCareers"},
+    "google_jobs":     {"adapter": "google_jobs",     "source_type": "ats_api",      "ats_family": "google_jobs",     "board_name": "Google Jobs"},
+    "hibob":           {"adapter": "hibob",           "source_type": "browser_site", "ats_family": "hibob",           "board_name": "HiBob"},
+    "selectminds":     {"adapter": "selectminds",     "source_type": "browser_site", "ats_family": "selectminds",     "board_name": "SelectMinds"},
+    "silkroad":        {"adapter": "silkroad",        "source_type": "ats_api",      "ats_family": "silkroad",        "board_name": "SilkRoad OpenHire"},
+    "taleo":           {"adapter": "taleo",           "source_type": "ats_api",      "ats_family": "taleo",           "board_name": "Taleo Enterprise"},
+    "pinpoint":        {"adapter": "pinpoint",        "source_type": "ats_api",      "ats_family": "pinpoint",        "board_name": "Pinpoint"},
+    "teamtailor":      {"adapter": "teamtailor",      "source_type": "ats_api",      "ats_family": "teamtailor",      "board_name": "Teamtailor"},
+    "coresignal":      {"adapter": "coresignal",      "source_type": "ats_api",      "ats_family": "coresignal",      "board_name": "Coresignal"},
 }
 
 
@@ -52,9 +94,14 @@ def _build_config_blob_with_slug(board: dict) -> dict:
 
 
 def _build_config_blob_url_only(board: dict) -> dict:
-    return {
+    blob: dict[str, Any] = {
         "job_board_url": board["url"],
     }
+    # Pass through optional flags (e.g. use_firefox for Cloudflare sites)
+    for key in ("use_firefox", "scroll_rounds", "max_pages", "page_timeout_ms"):
+        if key in board:
+            blob[key] = board[key]
+    return blob
 
 
 def seed_sources_from_config(session: Session) -> tuple[int, int]:
@@ -65,18 +112,31 @@ def seed_sources_from_config(session: Session) -> tuple[int, int]:
         sys.path.insert(0, cwd)
 
     from configs.config import (
+        ADZUNA_BOARDS,
         ASHBY_BOARDS,
+        EFINANCIALCAREERS_BOARDS,
         EIGHTFOLD_BOARDS,
         GENERIC_BROWSER_BOARDS,
+        GOOGLE_JOBS_BOARDS,
         GREENHOUSE_BOARDS,
+        HIBOB_BOARDS,
         ICIMS_BOARDS,
         LEVER_BOARDS,
         ORACLE_BOARDS,
+        PINPOINT_BOARDS,
+        REED_BOARDS,
+        SELECTMINDS_BOARDS,
+        SILKROAD_BOARDS,
         SMARTRECRUITERS_BOARDS,
         SUCCESSFACTORS_BOARDS,
+        TALEO_BOARDS,
         WORKABLE_BOARDS,
         WORKDAY_BOARDS,
     )
+    try:
+        from configs.config import CORESIGNAL_BOARDS
+    except ImportError:
+        CORESIGNAL_BOARDS = []
 
     all_boards: list[tuple[str, list]] = [
         ("workday", WORKDAY_BOARDS),
@@ -90,6 +150,16 @@ def seed_sources_from_config(session: Session) -> tuple[int, int]:
         ("generic_browser", GENERIC_BROWSER_BOARDS),
         ("lever", LEVER_BOARDS),
         ("icims", ICIMS_BOARDS),
+        ("hibob", HIBOB_BOARDS),
+        ("selectminds", SELECTMINDS_BOARDS),
+        ("silkroad", SILKROAD_BOARDS),
+        ("taleo", TALEO_BOARDS),
+        ("pinpoint", PINPOINT_BOARDS),
+        ("adzuna", ADZUNA_BOARDS),
+        ("reed", REED_BOARDS),
+        ("efinancialcareers", EFINANCIALCAREERS_BOARDS),
+        ("google_jobs", GOOGLE_JOBS_BOARDS),
+        ("coresignal", CORESIGNAL_BOARDS),
     ]
 
     slug_platforms = {"greenhouse", "workable", "ashby", "smartrecruiters", "lever", "icims"}
@@ -114,10 +184,31 @@ def seed_sources_from_config(session: Session) -> tuple[int, int]:
                 base_url = board["url"]
                 company = board["company"]
                 config_blob = _build_config_blob_with_slug(board)
+            elif platform_key in ("adzuna", "reed", "efinancialcareers", "google_jobs", "coresignal"):
+                base_url = board["url"]
+                company = board["company"]
+                # Aggregator sources carry their full config (search terms, locations, etc.)
+                config_blob = {"job_board_url": board["url"]}
+                for key in ("search_terms", "countries", "locations", "domains",
+                            "max_pages", "max_pages_per_query", "results_per_page",
+                            "max_per_term", "request_delay"):
+                    if key in board:
+                        config_blob[key] = board[key]
             else:
                 base_url = board["url"]
                 company = board["company"]
                 config_blob = _build_config_blob_url_only(board)
+
+            # Auto-detect adapter from URL if assigned to generic_browser
+            if platform_key == "generic_browser":
+                override = detect_adapter_from_url(base_url)
+                if override:
+                    real_adapter, real_platform = override
+                    real_meta = PLATFORM_REGISTRY.get(real_platform, meta)
+                    adapter_name = real_meta["adapter"]
+                    source_type = real_meta["source_type"]
+                    ats_family = real_meta["ats_family"]
+                    board_name = real_meta["board_name"]
 
             source_key = f"{adapter_name}_{_slugify(company)}_{_url_hash(base_url)}"
             parsed = urlparse(base_url)

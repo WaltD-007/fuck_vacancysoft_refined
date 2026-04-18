@@ -1,35 +1,4 @@
 from __future__ import annotations
 
-GENERIC_BROWSER_BOARDS: list[dict[str, str]] = [
-    {"url": "https://careers.enstargroup.com/search-our-jobs", "company": "Enstar Group"},
-    {"url": "https://careers.arbuthnotlatham.co.uk/vacancies", "company": "Arbuthnot Latham"},
-    {"url": "https://www.nhbc.co.uk/careers/job-opportunities", "company": "NHBC"},
-    {"url": "https://jobs.exxonmobil.com/ExxonMobil", "company": "ExxonMobil"},
-    {"url": "https://careers.travelers.com", "company": "Travelers"},
-    {"url": "https://jobs.ajg.com/ajg-home/jobs", "company": "Gallagher"},
-    {"url": "https://www.allstate.jobs", "company": "Allstate"},
-    {"url": "https://www.careers.zurich.com", "company": "Zurich"},
-    {"url": "https://ppf.current-vacancies.com/Jobs", "company": "PPF"},
-    {"url": "https://careers.axa.com/careers-home/jobs", "company": "AXA"},
-    {"url": "https://www.lloydsbankinggroup.com/careers/job-search", "company": "Lloyds Banking Group"},
-    {"url": "https://careers.nomura.com/Nomura", "company": "Nomura"},
-    {"url": "https://ybscareers.co.uk", "company": "Yorkshire Building Society"},
-    {"url": "https://tescoinsuranceandmoneyservices.avature.net/careers", "company": "Tesco Insurance"},
-    {"url": "https://metrobank.avature.net/amazingcareers", "company": "Metro Bank"},
-    {"url": "https://www.coventrycareers.co.uk/vacancies", "company": "Coventry Building Society"},
-    {"url": "https://careers.cynergybank.co.uk/jobs", "company": "Cynergy Bank"},
-    {"url": "https://ce0602li.webitrent.com/ce0602li_webrecruitment", "company": "H & T PawnBrokers"},
-    {"url": "https://search.jobs.barclays", "company": "Barclays"},
-    {"url": "https://jobs.rbc.com/ca/en", "company": "RBC"},
-    {"url": "https://www.standardbank.com/sbg/standard-bank-group/careers/apply/jobs", "company": "Standard Bank"},
-    {"url": "https://collercapital-1660725598.teamtailor.com/jobs", "company": "Coller Capital"},
-    {"url": "https://careers.shawbrook.co.uk/en/jobs", "company": "Shawbrook"},
-    {"url": "https://careers.paragonbankinggroup.co.uk/vacancies", "company": "Paragon Banking Group"},
-    {"url": "https://recruit.vitality.co.uk/vacancies", "company": "Vitality"},
-    {"url": "https://markerstudygroup.talosats-careers.com", "company": "Markerstudy Group"},
-    {"url": "https://careers.pinnaclepetuk.com", "company": "Pinnacle Pet UK"},
-    {"url": "https://careers.zenobe.com/jobs", "company": "Zenobe"},
-    {"url": "https://jobs.handelsbanken.co.uk/jobs", "company": "Handelsbanken"},
-    {"url": "https://www.chathamfinancial.com/careers/jobs", "company": "Chatham Financial"},
-    {"url": "https://bambusdev.my.site.com/s", "company": "Balyasny"},
-]
+# Re-export from central config so audit scripts that import from here still work
+from configs.config import GENERIC_BROWSER_BOARDS  # noqa: F401
