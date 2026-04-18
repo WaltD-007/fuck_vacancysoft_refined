@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -65,6 +66,11 @@ class DiscoveryPage:
     diagnostics: AdapterDiagnostics = field(default_factory=AdapterDiagnostics)
 
 
+# Callback type for per-page incremental results.
+# Called with (page_number, new_records_this_page, all_records_so_far).
+PageCallback = Callable[[int, list["DiscoveredJobRecord"], list["DiscoveredJobRecord"]], None] | None
+
+
 class SourceAdapter(ABC):
     adapter_name: str
     capabilities: AdapterCapabilities
@@ -75,5 +81,6 @@ class SourceAdapter(ABC):
         source_config: dict[str, Any],
         cursor: str | None = None,
         since: datetime | None = None,
+        on_page_scraped: PageCallback = None,
     ) -> DiscoveryPage:
         raise NotImplementedError
