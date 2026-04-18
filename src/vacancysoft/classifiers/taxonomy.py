@@ -224,6 +224,35 @@ _TITLE_BLOCKLIST = re.compile(
     re.IGNORECASE,
 )
 
+# ── Out-of-scope blocklist: internships and French fixed-term schemes ──
+# We don't recruit for these populations, so titles matching here have
+# their primary_taxonomy_key set to None and drop out of every export.
+_OUT_OF_SCOPE_BLOCKLIST = re.compile(
+    "|".join([
+        # Internships and student placements (English / German / French)
+        r"\bintern(s|ship[s]?)?\b",
+        r"\bco-?op[s]?\b",
+        r"\bpraktikum\b",
+        r"\bpraktikant(in)?\b",
+        r"\bwerkstudium\b",
+        r"\bwerkstudent(in)?\b",
+        r"\bstagiaire\b",
+        r"\bplacement programme?\b",
+        r"\b\d+\s*-?\s*month[s]?\s+placement\b",
+        # French CDD — only when followed by a fixed-term marker (digit,
+        # "de", "month", "mois", "fixed"). Avoids matching CDD = Customer
+        # Due Diligence, which is a permanent compliance role we DO recruit.
+        r"\bcdd[\s\-]+(\d|de\b|month|mois|fixed)",
+        # French V.I.E. (Volontariat International en Entreprise) —
+        # formal dotted form, the full French phrase, or "VIE" followed
+        # by a dash separator (the common job-title pattern).
+        r"\bv\.i\.e\.",
+        r"\bvolontariat\s+international\b",
+        r"\bvie\b\s*[\-\u2013]",
+    ]),
+    re.IGNORECASE,
+)
+
 # Precompile patterns: longer phrases first so they match before single words
 _COMPILED_RULES: dict[str, list[tuple[re.Pattern[str], float]]] = {}
 for _key, _rules in _TAXONOMY_RULES.items():
@@ -240,6 +269,10 @@ def classify_against_legacy_taxonomy(title: str | None) -> TaxonomyMatch:
 
     # Block retail / non-financial titles that contain false-positive keywords
     if _TITLE_BLOCKLIST.search(title):
+        return TaxonomyMatch(primary_taxonomy_key=None, secondary_taxonomy_keys=[], confidence=0.0)
+
+    # Block out-of-scope populations we don't recruit for (internships, CDD, VIE)
+    if _OUT_OF_SCOPE_BLOCKLIST.search(title):
         return TaxonomyMatch(primary_taxonomy_key=None, secondary_taxonomy_keys=[], confidence=0.0)
 
     best_key: str | None = None
