@@ -227,21 +227,21 @@ export default function DashboardPage() {
                   <span className="w-[7px] h-[7px] rounded-full" style={{ background: "#00d2a0", animation: "pulse 2s infinite" }} />
                   Live Feed
                 </div>
-                <div className="flex gap-2">
-                  <select value={feedCountry} onChange={(e) => setFeedCountry(e.target.value)} className="text-xs px-2 py-1 rounded-md cursor-pointer outline-none" style={{ background: "#16161f", color: feedCountry ? "#e8e8f0" : "#555570", border: "1px solid #2a2a3a" }}>
-                    <option value="">All Locations</option>
+                <div className="flex gap-1.5 flex-nowrap">
+                  <select value={feedCountry} onChange={(e) => setFeedCountry(e.target.value)} className="text-[11px] px-1.5 py-1 rounded-md cursor-pointer outline-none max-w-[110px]" style={{ background: "#16161f", color: feedCountry ? "#e8e8f0" : "#555570", border: "1px solid #2a2a3a" }}>
+                    <option value="">Locations</option>
                     {(() => { const c = new Set<string>(); (data?.recent_leads || []).forEach(l => { if (l.country) c.add(l.country); }); return Array.from(c).sort().map(co => <option key={co} value={co}>{co}</option>); })()}
                   </select>
-                  <select value={feedEmploymentType} onChange={(e) => setFeedEmploymentType(e.target.value)} className="text-xs px-2 py-1 rounded-md cursor-pointer outline-none" style={{ background: "#16161f", color: "#e8e8f0", border: "1px solid #2a2a3a" }}>
+                  <select value={feedEmploymentType} onChange={(e) => setFeedEmploymentType(e.target.value)} className="text-[11px] px-1.5 py-1 rounded-md cursor-pointer outline-none" style={{ background: "#16161f", color: "#e8e8f0", border: "1px solid #2a2a3a" }}>
                     <option value="Permanent">Permanent</option>
                     <option value="Contract">Contract</option>
                   </select>
-                  <select value={feedCategory} onChange={(e) => { setFeedCategory(e.target.value); setFeedSubSpec(""); }} className="text-xs px-2 py-1 rounded-md cursor-pointer outline-none" style={{ background: "#16161f", color: feedCategory ? "#e8e8f0" : "#555570", border: "1px solid #2a2a3a" }}>
-                    <option value="">All Categories</option>
+                  <select value={feedCategory} onChange={(e) => { setFeedCategory(e.target.value); setFeedSubSpec(""); }} className="text-[11px] px-1.5 py-1 rounded-md cursor-pointer outline-none max-w-[110px]" style={{ background: "#16161f", color: feedCategory ? "#e8e8f0" : "#555570", border: "1px solid #2a2a3a" }}>
+                    <option value="">Categories</option>
                     {["Risk", "Quant", "Compliance", "Audit", "Cyber", "Legal", "Front Office"].map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
-                  <select value={feedSubSpec} onChange={(e) => setFeedSubSpec(e.target.value)} className="text-xs px-2 py-1 rounded-md cursor-pointer outline-none" style={{ background: "#16161f", color: feedSubSpec ? "#e8e8f0" : "#555570", border: "1px solid #2a2a3a" }}>
-                    <option value="">All Sub-specialisms</option>
+                  <select value={feedSubSpec} onChange={(e) => setFeedSubSpec(e.target.value)} className="text-[11px] px-1.5 py-1 rounded-md cursor-pointer outline-none max-w-[130px]" style={{ background: "#16161f", color: feedSubSpec ? "#e8e8f0" : "#555570", border: "1px solid #2a2a3a" }}>
+                    <option value="">Specialisms</option>
                     {(() => { const subs = new Set<string>(); (data?.recent_leads || []).filter(l => !feedCategory || l.category === feedCategory).forEach(l => { if (l.sub_specialism) subs.add(l.sub_specialism); }); return Array.from(subs).sort().map(s => <option key={s} value={s}>{s}</option>); })()}
                   </select>
                 </div>
