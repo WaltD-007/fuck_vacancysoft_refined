@@ -1,9 +1,11 @@
 from vacancysoft.db.models_v2 import (
     BaseV2 as Base,
+    CampaignOutput,
     ClassificationResult,
     EnrichedJob,
     ExportRecord,
     ExtractionAttempt,
+    IntelligenceDossier,
     RawJob,
     ReviewQueueItem,
     ScoreResult,
@@ -24,4 +26,6 @@ __all__ = [
     "SourceHealth",
     "ExportRecord",
     "ReviewQueueItem",
+    "IntelligenceDossier",
+    "CampaignOutput",
 ]

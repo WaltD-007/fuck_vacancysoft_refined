@@ -225,6 +225,42 @@ class ExportRecord(BaseV2):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class IntelligenceDossier(BaseV2):
+    __tablename__ = "intelligence_dossiers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    enriched_job_id: Mapped[str] = mapped_column(ForeignKey("enriched_jobs.id"), index=True)
+    prompt_version: Mapped[str] = mapped_column(String(64))
+    category_used: Mapped[str] = mapped_column(String(128), index=True)
+    model_used: Mapped[str] = mapped_column(String(128))
+    company_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+    core_problem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stated_vs_actual: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    spec_risk: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    candidate_profiles: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    search_booleans: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    lead_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lead_score_justification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hiring_managers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    raw_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class CampaignOutput(BaseV2):
+    __tablename__ = "campaign_outputs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    dossier_id: Mapped[str] = mapped_column(ForeignKey("intelligence_dossiers.id"), index=True)
+    model_used: Mapped[str] = mapped_column(String(128))
+    outreach_emails: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    raw_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class ReviewQueueItem(BaseV2):
     __tablename__ = "review_queue_items"
 
