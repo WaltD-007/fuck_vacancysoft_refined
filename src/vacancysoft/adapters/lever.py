@@ -11,6 +11,7 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 from vacancysoft.source_registry.legacy_board_mappings import lookup_company
@@ -34,8 +35,9 @@ def _parse_posting(posting: dict[str, Any], board: dict[str, Any]) -> Discovered
             all_locations = categories.get("allLocations") or []
             if isinstance(all_locations, list) and all_locations:
                 location = _clean(all_locations[0])
-    if not location:
-        location = _clean(posting.get("workplaceType"))
+    # workplaceType ("remote", "hybrid", "on-site") is NOT a location — keep it separate
+    # from location_raw so the normaliser doesn't try to geocode "Remote" as a city.
+    workplace_type = _clean(posting.get("workplaceType"))
     contract_type = _clean((categories.get("commitment") if isinstance(categories, dict) else None))
     company_name = lookup_company("lever", board_url=board.get("url"), slug=board.get("slug"), explicit_company=board.get("company"))
     discovered_url = _clean(posting.get("hostedUrl")) or board["url"]
@@ -61,6 +63,7 @@ def _parse_posting(posting: dict[str, Any], board: dict[str, Any]) -> Discovered
             "board_url": str(board.get("url") or ""),
             "board_slug": str(board.get("slug") or ""),
             "contract_type": contract_type,
+            "workplace_type": workplace_type,
         },
     )
 
@@ -79,7 +82,7 @@ class LeverAdapter(SourceAdapter):
         supports_site_rescue=False,
     )
 
-    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None) -> DiscoveryPage:
+    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
         slug = str(source_config.get("slug") or "").strip()
         if not slug:
             raise ValueError("Lever source_config requires slug")

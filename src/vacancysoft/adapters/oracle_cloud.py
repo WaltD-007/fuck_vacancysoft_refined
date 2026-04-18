@@ -17,6 +17,7 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 from vacancysoft.browser import browser_session
@@ -393,7 +394,7 @@ class OracleCloudAdapter(SourceAdapter):
         supports_site_rescue=False,
     )
 
-    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None) -> DiscoveryPage:
+    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
         board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip()
         if not board_url:
             raise ValueError("OracleCloudAdapter requires job_board_url")
@@ -454,12 +455,18 @@ class OracleCloudAdapter(SourceAdapter):
                                 diagnostics.counters["xhr_records_found"] = diagnostics.counters.get("xhr_records_found", 0) + len(parsed)
                             else:
                                 parsed = await _dom_fallback(page, board, diagnostics)
+                            records_before = len(all_records)
                             for record in parsed:
                                 url = record.discovered_url or record.external_job_id
                                 if not url or url in seen_urls:
                                     continue
                                 seen_urls.add(url)
                                 all_records.append(record)
+                            if on_page_scraped and len(all_records) > records_before:
+                                try:
+                                    on_page_scraped(search_terms.index(term) + 1, all_records[records_before:], all_records)
+                                except Exception:
+                                    pass
                             page.remove_listener("response", on_response)
                             await page.wait_for_timeout(int(source_config.get("between_searches_ms", 1500)))
                     finally:

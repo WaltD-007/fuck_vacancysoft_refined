@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime
 from typing import Any
@@ -12,6 +13,7 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 
@@ -25,8 +27,8 @@ DEFAULT_COUNTRIES = [
     ("de", "Germany"),
     ("fr", "France"),
     ("nl", "Netherlands"),
+    ("ch", "Switzerland"),
     ("sg", "Singapore"),
-    ("au", "Australia"),
 ]
 
 
@@ -105,6 +107,7 @@ class AdzunaAdapter(SourceAdapter):
         source_config: dict[str, Any],
         cursor: str | None = None,
         since: datetime | None = None,
+        on_page_scraped: PageCallback = None,
     ) -> DiscoveryPage:
         app_id = str(source_config.get("app_id") or os.getenv("ADZUNA_APP_ID") or "").strip()
         app_key = str(source_config.get("app_key") or os.getenv("ADZUNA_APP_KEY") or "").strip()
@@ -131,6 +134,8 @@ class AdzunaAdapter(SourceAdapter):
             }
         )
 
+        request_delay = float(source_config.get("request_delay", 1.0))
+
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
             for country_code, _country_name in countries:
                 board_url = f"https://www.adzuna.com/{country_code}/search"
@@ -144,7 +149,29 @@ class AdzunaAdapter(SourceAdapter):
                         }
                         if since is not None:
                             params["max_days_old"] = max((datetime.utcnow().date() - since.date()).days, 1)
-                        response = await client.get(f"{API_BASE}/{country_code}/search/{page}", params=params)
+
+                        # Rate limiting — delay between requests to avoid 429
+                        await asyncio.sleep(request_delay)
+
+                        # Retry on transient errors (429, 500, 502, 503, 504)
+                        _retryable = {429, 500, 502, 503, 504}
+                        _backoff = (5, 15, 30)
+                        response = None
+                        for _attempt in range(len(_backoff) + 1):
+                            try:
+                                response = await client.get(f"{API_BASE}/{country_code}/search/{page}", params=params)
+                                if response.status_code not in _retryable:
+                                    break
+                                if _attempt < len(_backoff):
+                                    wait = _backoff[_attempt]
+                                    diagnostics.warnings.append(f"HTTP {response.status_code} on {country_code}/{term}/p{page}, retry in {wait}s")
+                                    await asyncio.sleep(wait)
+                            except httpx.TimeoutException:
+                                if _attempt < len(_backoff):
+                                    await asyncio.sleep(_backoff[_attempt])
+                                else:
+                                    raise
+
                         response.raise_for_status()
                         data = response.json()
                         diagnostics.counters["http_requests"] = diagnostics.counters.get("http_requests", 0) + 1
@@ -152,12 +179,18 @@ class AdzunaAdapter(SourceAdapter):
                         if not results:
                             break
 
+                        records_before = len(all_records)
                         for job in results:
                             job_url = str(job.get("redirect_url") or "").strip()
                             if not job_url or job_url in seen_urls:
                                 continue
                             seen_urls.add(job_url)
                             all_records.append(_parse_job(job, board_url))
+                        if on_page_scraped and len(all_records) > records_before:
+                            try:
+                                on_page_scraped(page, all_records[records_before:], all_records)
+                            except Exception:
+                                pass
 
                         total = int(data.get("count") or 0)
                         if page * results_per_page >= total:

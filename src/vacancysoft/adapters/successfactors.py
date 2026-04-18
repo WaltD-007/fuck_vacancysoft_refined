@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -16,12 +17,13 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 from vacancysoft.browser import browser_session
 from vacancysoft.source_registry.legacy_board_mappings import lookup_company
 
-DEFAULT_SEARCH_TERMS = ["risk", "quant", "quantitative", "compliance"]
+DEFAULT_SEARCH_TERMS = ["risk", "quant", "quantitative", "compliance", "audit", "cyber", "legal"]
 PAGE_TIMEOUT_MS = 60_000
 JOB_SELECTORS = [
     "a[href*='/job/']",
@@ -70,6 +72,32 @@ _REJECT_URL_TOKENS = (
     "colleague-login",
 )
 
+# DOM selectors commonly used by SuccessFactors templates for per-row location text.
+_LOCATION_HINT_SELECTORS = (
+    "[class*='location' i]",
+    "[class*='jobLocation' i]",
+    "[class*='Location']",
+    "[class*='city' i]",
+    "[data-test*='location' i]",
+    "span.location",
+)
+
+# JSON keys across the many SuccessFactors/SAP variants that carry location info.
+_JSON_LOCATION_KEYS = (
+    "jobLocation",
+    "location",
+    "locationDescription",
+    "cityState",
+    "city",
+    "state",
+    "country",
+    "countryName",
+    "locationCity",
+    "locationCountry",
+    "workLocation",
+    "primaryLocation",
+)
+
 
 def _clean(value: Any) -> str | None:
     if value is None:
@@ -107,19 +135,83 @@ def _looks_like_job_title(title: str | None) -> bool:
     return len(lowered) >= 4
 
 
-def _make_record(title: str, href: str, board: dict[str, Any], *, source: str | None = None) -> DiscoveredJobRecord:
+# Many SF-fronted career sites (e.g. careers.mizuhoemea.com) render URLs like
+#   /job/{Location}-{Title…}-{LocShort}/{id}/
+# where {LocShort} is a truncation of {Location} (e.g. "London"/"Lond"). The
+# truncation check is the strong signal — it means we only accept a prefix
+# token that's corroborated by a matching suffix token, avoiding false
+# positives on titles that start with a capitalised non-location word.
+_URL_LOCATION_RE = re.compile(
+    r"/job/"
+    r"([A-Za-z][A-Za-z]+)"   # prefix token (location candidate)
+    r"-.+?-"                 # anything in between
+    r"([A-Za-z][A-Za-z]+)"   # suffix token (truncated location candidate)
+    r"/\d+/?(?:[?#].*)?$"
+)
+
+
+def _extract_location_from_url(url: str | None) -> str | None:
+    """Parse a ``/job/{Location}-{…}-{LocShort}/{id}/`` style URL.
+
+    Returns the prefix token only when the suffix token is a case-insensitive
+    truncation of the prefix (length ≥ 3) — this disambiguates real locations
+    from job titles that happen to start with a capitalised word.
+    """
+    if not url:
+        return None
+    try:
+        decoded = unquote(url)
+    except Exception:
+        decoded = url
+    match = _URL_LOCATION_RE.search(decoded)
+    if not match:
+        return None
+    prefix, suffix = match.group(1), match.group(2)
+    if len(suffix) < 3 or len(prefix) < len(suffix):
+        return None
+    if not prefix.lower().startswith(suffix.lower()):
+        return None
+    return prefix
+
+
+def _make_record(
+    title: str,
+    href: str,
+    board: dict[str, Any],
+    *,
+    source: str | None = None,
+    location: str | None = None,
+) -> DiscoveredJobRecord:
     company_name = lookup_company("successfactors", board_url=board.get("url"), explicit_company=board.get("company"))
-    listing_payload = {"source": source} if source else None
+    # Fallback: extract location from the URL slug when upstream paths
+    # (LD-JSON / DOM / network JSON) didn't yield anything. Common on SF sites
+    # that redirect to a branded careers host and render location only in URLs.
+    location_source = "upstream" if location else None
+    if not location:
+        url_loc = _extract_location_from_url(href)
+        if url_loc:
+            location = url_loc
+            location_source = "url_slug"
+    listing_payload: dict[str, Any] = {}
+    if source:
+        listing_payload["source"] = source
+    if location:
+        listing_payload["location"] = location
+        if location_source:
+            listing_payload["location_source"] = location_source
+    completeness = 0.5 if href else 0.25
+    if location:
+        completeness += 0.15
     return DiscoveredJobRecord(
         external_job_id=href or title,
         title_raw=_clean(title),
-        location_raw=None,
+        location_raw=location,
         posted_at_raw=None,
         summary_raw=None,
         discovered_url=href,
         apply_url=href,
-        listing_payload=listing_payload,
-        completeness_score=0.5 if href else 0.25,
+        listing_payload=listing_payload or None,
+        completeness_score=round(min(completeness, 1.0), 4),
         extraction_confidence=0.72,
         provenance={
             "adapter": "successfactors",
@@ -130,6 +222,70 @@ def _make_record(title: str, href: str, board: dict[str, Any], *, source: str | 
             "source": source or "unknown",
         },
     )
+
+
+def _format_address(node: dict[str, Any]) -> str | None:
+    """Extract a readable location string from a schema.org PostalAddress."""
+    parts: list[str] = []
+    for key in ("addressLocality", "addressRegion", "addressCountry"):
+        val = node.get(key)
+        if isinstance(val, dict):
+            val = val.get("name") or val.get("@value")
+        if val:
+            text = str(val).strip()
+            if text and text not in parts:
+                parts.append(text)
+    return ", ".join(parts) if parts else None
+
+
+def _extract_ld_json_location(node: dict[str, Any]) -> str | None:
+    job_location = node.get("jobLocation")
+    if not job_location:
+        return None
+    # jobLocation can be a single object or list of objects; normalise.
+    candidates = job_location if isinstance(job_location, list) else [job_location]
+    for loc in candidates:
+        if not isinstance(loc, dict):
+            continue
+        address = loc.get("address")
+        if isinstance(address, dict):
+            formatted = _format_address(address)
+            if formatted:
+                return formatted
+        name = loc.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return None
+
+
+def _extract_json_location(node: Any) -> str | None:
+    """Pull a location-like string from an SF/SAP API payload.
+
+    Walks common key shapes without assuming a fixed schema — SF Recruiting,
+    SAP CareerSite, and third-party SF layers all differ.
+    """
+    if not isinstance(node, dict):
+        return None
+    # Direct string values on the node itself
+    for key in ("jobLocation", "location", "locationDescription", "cityState", "locationCity"):
+        val = node.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    # Nested list: locations[0].name / locations[0].city
+    locations = node.get("locations")
+    if isinstance(locations, list) and locations and isinstance(locations[0], dict):
+        first = locations[0]
+        for key in ("name", "city", "locationName", "displayName"):
+            val = first.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+    # Composite city + country
+    city = node.get("city") or node.get("locationCity")
+    country = node.get("country") or node.get("countryName") or node.get("locationCountry")
+    parts = [p.strip() for p in (city, country) if isinstance(p, str) and p.strip()]
+    if parts:
+        return ", ".join(parts)
+    return None
 
 
 async def _collect_anchor_samples(scope: Any, board_url: str, limit: int = 8) -> list[dict[str, str]]:
@@ -257,7 +413,16 @@ async def _extract_ld_json_records(page: Any, board_url: str, board: dict[str, A
                     title = _clean(node.get("title"))
                     href = _absolute_url(node.get("url"), board_url)
                     if _looks_like_job_title(title) and _looks_like_job_url(href):
-                        records.append(_make_record(title or href or "", href or board_url, board, source="ld_json"))
+                        location = _extract_ld_json_location(node)
+                        records.append(
+                            _make_record(
+                                title or href or "",
+                                href or board_url,
+                                board,
+                                source="ld_json",
+                                location=location,
+                            )
+                        )
                 stack.extend(node.values())
             elif isinstance(node, list):
                 stack.extend(node)
@@ -299,7 +464,24 @@ async def _extract_records_from_scope(
                 href = _absolute_url(href, board_url)
                 if not _looks_like_job_title(title) or not _looks_like_job_url(href):
                     continue
-                records.append(_make_record(title, href, board, source=source))
+                location = None
+                for loc_selector in _LOCATION_HINT_SELECTORS:
+                    try:
+                        loc_el = await el.query_selector(loc_selector)
+                    except Exception:
+                        continue
+                    if not loc_el:
+                        continue
+                    try:
+                        loc_text = (await loc_el.inner_text()).strip()
+                    except Exception:
+                        continue
+                    if loc_text and len(loc_text) <= 120 and loc_text.lower().rstrip(":") not in {"location", "city", "office"}:
+                        location = loc_text
+                        break
+                if location:
+                    diagnostics.counters["dom_locations_found"] = diagnostics.counters.get("dom_locations_found", 0) + 1
+                records.append(_make_record(title, href, board, source=source, location=location))
             except Exception:
                 diagnostics.counters["element_parse_failures"] = diagnostics.counters.get("element_parse_failures", 0) + 1
         if records:
@@ -399,7 +581,16 @@ def _records_from_json_payload(payload: Any, board_url: str, board: dict[str, An
                 board_url,
             )
             if _looks_like_job_title(title) and _looks_like_job_url(href):
-                records.append(_make_record(title or href or "", href or board_url, board, source=source))
+                location = _extract_json_location(node)
+                records.append(
+                    _make_record(
+                        title or href or "",
+                        href or board_url,
+                        board,
+                        source=source,
+                        location=location,
+                    )
+                )
             for value in node.values():
                 walk(value)
         elif isinstance(node, list):
@@ -432,11 +623,13 @@ class SuccessFactorsAdapter(SourceAdapter):
         supports_site_rescue=False,
     )
 
-    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None) -> DiscoveryPage:
+    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
         board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip()
         if not board_url:
             raise ValueError("SuccessFactorsAdapter requires job_board_url")
-        search_terms = [str(term).strip() for term in (source_config.get("search_terms") or DEFAULT_SEARCH_TERMS) if str(term).strip()]
+        # Always start with an empty-string pass to scrape all visible jobs, then optionally search by term
+        extra_terms = [str(term).strip() for term in (source_config.get("search_terms") or DEFAULT_SEARCH_TERMS) if str(term).strip()]
+        search_terms = [""] + extra_terms  # "" = no keyword filter
         diagnostics = AdapterDiagnostics(metadata={"board_url": board_url, "search_terms": search_terms})
         if cursor is not None:
             diagnostics.warnings.append("SuccessFactorsAdapter does not support pagination. cursor was ignored.")
@@ -488,11 +681,17 @@ class SuccessFactorsAdapter(SourceAdapter):
                             no_keyword_records = await _extract_records(page, page.url or board_url, board, diagnostics)
                             diagnostics.counters[f"term_{term}_no_keyword_records"] = len(no_keyword_records)
                             if no_keyword_records:
+                                records_before_nk = len(all_records)
                                 for record in no_keyword_records:
                                     href = record.discovered_url
                                     if href and href not in seen_urls:
                                         seen_urls.add(href)
                                         all_records.append(record)
+                                if on_page_scraped and len(all_records) > records_before_nk:
+                                    try:
+                                        on_page_scraped(search_terms.index(term) + 1, all_records[records_before_nk:], all_records)
+                                    except Exception:
+                                        pass
                                 page.remove_listener("response", on_response)
                                 continue
 
@@ -558,6 +757,7 @@ class SuccessFactorsAdapter(SourceAdapter):
                             else:
                                 parsed = await _extract_records(page, page.url or board_url, board, diagnostics)
 
+                            records_before = len(all_records)
                             for record in parsed:
                                 href = record.discovered_url
                                 if record.title_raw:
@@ -565,6 +765,11 @@ class SuccessFactorsAdapter(SourceAdapter):
                                 if href and href not in seen_urls:
                                     seen_urls.add(href)
                                     all_records.append(record)
+                            if on_page_scraped and len(all_records) > records_before:
+                                try:
+                                    on_page_scraped(search_terms.index(term) + 1, all_records[records_before:], all_records)
+                                except Exception:
+                                    pass
 
                             page.remove_listener("response", on_response)
                     finally:

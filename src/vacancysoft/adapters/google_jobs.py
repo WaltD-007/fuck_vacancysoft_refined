@@ -12,6 +12,7 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 
@@ -41,7 +42,6 @@ DEFAULT_QUERIES = [
     "cyber security financial services",
     "trader fixed income",
     "portfolio manager",
-    "actuarial analyst",
 ]
 
 
@@ -159,6 +159,7 @@ class GoogleJobsAdapter(SourceAdapter):
         source_config: dict[str, Any],
         cursor: str | None = None,
         since: datetime | None = None,
+        on_page_scraped: PageCallback = None,
     ) -> DiscoveryPage:
         api_key = _clean(source_config.get("serpapi_api_key")) or _clean(os.getenv("SERPAPI_KEY"))
         queries = [str(term).strip() for term in (source_config.get("search_terms") or DEFAULT_QUERIES) if str(term).strip()]
@@ -231,6 +232,7 @@ class GoogleJobsAdapter(SourceAdapter):
                                 )
                             break
                         diagnostics.counters["jobs_received"] = diagnostics.counters.get("jobs_received", 0) + len(jobs)
+                        records_before = len(all_records)
                         for job in jobs:
                             if not isinstance(job, dict):
                                 continue
@@ -243,6 +245,11 @@ class GoogleJobsAdapter(SourceAdapter):
                             record = _parse_result(job, query=query, location_seed=location, country_seed=country)
                             if record:
                                 all_records.append(record)
+                        if on_page_scraped and len(all_records) > records_before:
+                            try:
+                                on_page_scraped(page_index + 1, all_records[records_before:], all_records)
+                            except Exception:
+                                pass
                         next_page_token = _clean(((data.get("serpapi_pagination") or {}).get("next_page_token")))
                         if not next_page_token:
                             break

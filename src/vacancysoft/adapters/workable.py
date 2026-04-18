@@ -11,6 +11,7 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 from vacancysoft.source_registry.legacy_board_mappings import lookup_company
@@ -77,7 +78,7 @@ class WorkableAdapter(SourceAdapter):
     adapter_name = "workable"
     capabilities = AdapterCapabilities(supports_discovery=True, supports_detail_fetch=False, supports_healthcheck=False, supports_pagination=False, supports_incremental_sync=False, supports_api=True, supports_html=False, supports_browser=False, supports_site_rescue=False)
 
-    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None) -> DiscoveryPage:
+    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
         slug = str(source_config.get("slug") or "").strip()
         if not slug:
             raise ValueError("Workable source_config requires slug")

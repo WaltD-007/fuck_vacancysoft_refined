@@ -12,6 +12,7 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 
@@ -87,7 +88,7 @@ class ReedAdapter(SourceAdapter):
         supports_site_rescue=False,
     )
 
-    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None) -> DiscoveryPage:
+    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
         api_key = _clean(source_config.get("reed_api_key")) or _clean(os.getenv("REED_API_KEY"))
         diagnostics = AdapterDiagnostics(metadata={"api_base": API_BASE})
         if not api_key:

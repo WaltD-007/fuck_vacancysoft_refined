@@ -8,6 +8,7 @@ from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlencode, urljoin
 
+import httpx
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from playwright.async_api import async_playwright
@@ -18,6 +19,7 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 from vacancysoft.browser import browser_session
@@ -73,7 +75,7 @@ def _absolute_url(href: str | None, board_url: str) -> str | None:
 
 
 def _build_search_url(board_url: str, term: str) -> str:
-    params = urlencode({"searchKeyword": term, "in": 1, "ip": -1, "pr": 0, "hd": 0})
+    params = urlencode({"searchKeyword": term, "in": 1, "ip": -1, "pr": 0, "hd": 0, "in_iframe": 1})
     return f"{board_url.rstrip('/')}/search?{params}"
 
 
@@ -93,9 +95,27 @@ def _normalise_title(title: str | None) -> str | None:
     if not title:
         return None
     lowered = title.lower()
-    if lowered.startswith("job posting title"):
-        title = title[len("Job Posting Title"):].strip()
+    for prefix in ("job posting title", "job title", "title"):
+        if lowered.startswith(prefix):
+            title = title[len(prefix):].strip()
+            lowered = title.lower()
     return _clean(title)
+
+
+def _clean_icims_location(raw: str | None) -> str | None:
+    """Clean iCIMS location format like 'US-NY-New York' → 'New York, NY, US'."""
+    if not raw:
+        return None
+    raw = raw.strip()
+    # Pattern: CC-ST-City or CC-City
+    parts = raw.split("-", 2)
+    if len(parts) == 3:
+        country, state, city = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        return f"{city}, {state}, {country}"
+    elif len(parts) == 2:
+        country, city = parts[0].strip(), parts[1].strip()
+        return f"{city}, {country}"
+    return raw
 
 
 def _looks_like_job_url(url: str | None) -> bool:
@@ -159,36 +179,59 @@ class _IcimsDomParser(HTMLParser):
         self.records: list[DiscoveredJobRecord] = []
         self._in_title = False
         self._in_location = False
+        self._in_card = False
         self._current_title = ""
         self._current_href = ""
         self._current_location = ""
+        self._skip_sr_only = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attrs_d = {k: (v or "") for k, v in attrs}
         cls = attrs_d.get("class", "")
         href = attrs_d.get("href", "")
+        # Detect job card
+        if tag == "li" and "jobcarditem" in cls.lower().replace(" ", "").replace("_", ""):
+            self._in_card = True
+            self._current_location = ""
+        # Detect location container: "header left" div or explicit location/headerfield class
+        if tag in {"span", "div", "li"} and (
+            "location" in cls.lower()
+            or "icims_jobheaderfield" in cls.lower()
+            or ("header" in cls.lower() and "left" in cls.lower())
+        ):
+            self._in_location = True
+        # Skip sr-only label text ("Job Locations", "Title")
+        if tag == "span" and "sr-only" in cls.lower():
+            self._skip_sr_only = True
+        # Detect title link
         if tag == "a" and (
             "job-title" in cls.lower()
             or "icims_jobtitle" in cls.lower()
+            or "icims_anchor" in cls.lower()
             or "icims_anchorlink" in attrs_d.get("id", "").lower()
             or "/jobs/" in href.lower()
             or "jobdetail" in href.lower()
         ):
             self._in_title = True
+            self._in_location = False  # Stop capturing location once we hit the title
             self._current_href = _absolute_url(href, self.board["url"]) or self.board["url"]
-        if tag in {"span", "div", "li"} and ("location" in cls.lower() or "icims_jobheaderfield" in cls.lower()):
-            self._in_location = True
 
     def handle_data(self, data: str) -> None:
+        if self._skip_sr_only:
+            return
         if self._in_title:
             self._current_title += data
-        if self._in_location:
+        elif self._in_location:
             self._current_location += data
 
     def handle_endtag(self, tag: str) -> None:
+        if self._skip_sr_only and tag == "span":
+            self._skip_sr_only = False
         if self._in_title and tag == "a":
             title = _normalise_title(self._current_title)
-            location = _clean(self._current_location)
+            # Clean location: strip "US-NY-" prefixes → "New York"
+            raw_loc = _clean(self._current_location)
+            location = _clean_icims_location(raw_loc)
             company_name = lookup_company("icims", board_url=self.board.get("url"), slug=self.board.get("slug"), explicit_company=self.board.get("company"))
             if _looks_like_job_title(title) and _looks_like_job_url(self._current_href):
                 self.records.append(
@@ -218,8 +261,11 @@ class _IcimsDomParser(HTMLParser):
             self._current_title = ""
             self._current_href = ""
             self._current_location = ""
-        if self._in_location and tag in {"span", "div", "li"}:
+        if self._in_location and tag in {"div"}:
             self._in_location = False
+        if tag == "li" and self._in_card:
+            self._in_card = False
+            self._current_location = ""
 
 
 def _parse_icims_json_payload(payload: dict[str, Any] | list[Any], board: dict[str, Any], diagnostics: AdapterDiagnostics | None = None, *, source: str | None = None) -> list[DiscoveredJobRecord]:
@@ -371,7 +417,7 @@ class IcimsAdapter(SourceAdapter):
         supports_site_rescue=False,
     )
 
-    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None) -> DiscoveryPage:
+    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
         board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip()
         if not board_url:
             raise ValueError("IcimsAdapter requires job_board_url")
@@ -388,6 +434,35 @@ class IcimsAdapter(SourceAdapter):
         all_records: list[DiscoveredJobRecord] = []
         seen_urls: set[str] = set()
 
+        # ── HTTP fast path: try fetching in_iframe=1 HTML directly ──
+        board = {"url": board_url, "slug": slug, "company": source_config.get("company")}
+        try:
+            http_url = _build_search_url(board_url, "")
+            async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+                resp = await client.get(http_url)
+            if resp.status_code == 200:
+                http_records = _parse_icims_dom(resp.text, board)
+                for rec in http_records:
+                    url_key = rec.discovered_url or rec.external_job_id
+                    if url_key and url_key not in seen_urls:
+                        seen_urls.add(url_key)
+                        all_records.append(rec)
+                diagnostics.counters["http_fast_path_records"] = len(all_records)
+                if all_records:
+                    diagnostics.metadata["method"] = "http_fast_path"
+                    if on_page_scraped:
+                        try:
+                            on_page_scraped(1, all_records, all_records)
+                        except Exception:
+                            pass
+                    diagnostics.counters["jobs_seen"] = len(all_records)
+                    diagnostics.counters["unique_urls"] = len(seen_urls)
+                    diagnostics.timings_ms["discover"] = int((time.perf_counter() - started) * 1000)
+                    return DiscoveryPage(jobs=all_records, next_cursor=None, diagnostics=diagnostics)
+        except Exception:
+            diagnostics.counters["http_fast_path_failed"] = 1
+
+        # ── Browser fallback ──
         try:
             async with async_playwright() as playwright:
                 async with browser_session(playwright) as (_browser, context):
@@ -453,12 +528,18 @@ class IcimsAdapter(SourceAdapter):
                                 if page_records:
                                     parsed.extend(page_records)
 
+                            records_before = len(all_records)
                             for record in parsed:
                                 url = record.discovered_url or record.external_job_id
                                 if not url or url in seen_urls:
                                     continue
                                 seen_urls.add(url)
                                 all_records.append(record)
+                            if on_page_scraped and len(all_records) > records_before:
+                                try:
+                                    on_page_scraped(search_terms.index(term) + 1, all_records[records_before:], all_records)
+                                except Exception:
+                                    pass
                             page.remove_listener("response", handle_response)
                     finally:
                         await page.close()

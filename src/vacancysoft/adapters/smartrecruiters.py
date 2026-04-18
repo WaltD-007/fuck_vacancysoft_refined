@@ -11,6 +11,7 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 from vacancysoft.source_registry.legacy_board_mappings import lookup_company
@@ -76,7 +77,7 @@ class SmartRecruitersAdapter(SourceAdapter):
         supports_site_rescue=False,
     )
 
-    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None) -> DiscoveryPage:
+    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
         slug = str(source_config.get("slug") or "").strip()
         if not slug:
             raise ValueError("SmartRecruiters source_config requires slug")

@@ -16,6 +16,7 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 
@@ -71,6 +72,107 @@ async def _extract_text(page_or_node: Any, selectors: list[str]) -> str | None:
     try:
         return _clean(await handle.inner_text())
     except Exception:
+        return None
+
+
+async def _http_api_fast_path(
+    board_url: str,
+    company: str,
+    search_terms: list[str],
+    diagnostics: AdapterDiagnostics,
+) -> list[DiscoveredJobRecord] | None:
+    """Hit the Eightfold /api/apply/v2/jobs REST endpoint directly."""
+    import httpx
+    from urllib.parse import urlparse
+
+    parsed = urlparse(board_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    # Extract domain from hostname (e.g. hsbc.eightfold.ai -> hsbc.com, or portal.careers.hsbc.com -> hsbc.com)
+    # The domain param is usually the company's main domain
+    host = parsed.netloc.lower()
+    if "eightfold.ai" in host:
+        domain = host.split(".eightfold.ai")[0] + ".com"
+    else:
+        # Custom domain — try extracting from the host
+        parts = host.replace("portal.", "").replace("careers.", "").replace("jobs.", "").split(".")
+        domain = ".".join(parts[-2:]) if len(parts) >= 2 else host
+
+    api_base = f"{origin}/api/apply/v2/jobs"
+    all_records: list[DiscoveredJobRecord] = []
+    seen_ids: set[str] = set()
+
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+            # First, verify the API exists with a small test request
+            test_resp = await client.get(api_base, params={"domain": domain, "start": 0, "num": 1, "query": "risk"})
+            if test_resp.status_code != 200:
+                diagnostics.errors.append(f"Eightfold API returned {test_resp.status_code}")
+                return None
+            test_data = test_resp.json()
+            if not isinstance(test_data, dict) or "positions" not in test_data:
+                return None
+
+            for term in search_terms:
+                start = 0
+                while start < 200:  # cap at 200 results per term
+                    resp = await client.get(api_base, params={
+                        "domain": domain, "start": start, "num": 50, "query": term,
+                    })
+                    if resp.status_code != 200:
+                        break
+                    data = resp.json()
+                    positions = data.get("positions", [])
+                    if not positions:
+                        break
+                    for pos in positions:
+                        job_id = str(pos.get("id", ""))
+                        if not job_id or job_id in seen_ids:
+                            continue
+                        seen_ids.add(job_id)
+
+                        title = _clean(pos.get("name") or pos.get("title"))
+                        if not title or len(title) < 4:
+                            continue
+                        location = _clean(pos.get("location"))
+                        department = _clean(pos.get("department"))
+                        apply_url = pos.get("apply_url") or pos.get("canonicalPositionUrl")
+                        if not apply_url:
+                            apply_url = f"{origin}/careers/job/{job_id}?domain={domain}"
+
+                        completeness_fields = [title, location, apply_url]
+                        completeness_score = sum(1 for v in completeness_fields if v) / len(completeness_fields)
+
+                        all_records.append(DiscoveredJobRecord(
+                            external_job_id=job_id,
+                            title_raw=title,
+                            location_raw=location,
+                            posted_at_raw=_clean(pos.get("t_create") or pos.get("postedOn")),
+                            summary_raw=department,
+                            discovered_url=apply_url,
+                            apply_url=apply_url,
+                            listing_payload=pos,
+                            completeness_score=round(completeness_score, 4),
+                            extraction_confidence=0.92,
+                            provenance={
+                                "adapter": "eightfold",
+                                "method": ExtractionMethod.BROWSER.value,
+                                "company": company,
+                                "platform": "Eightfold",
+                                "board_url": board_url,
+                                "source": "http_api",
+                                "search_term": term,
+                            },
+                        ))
+
+                    total = data.get("count", 0)
+                    start += len(positions)
+                    if start >= total:
+                        break
+
+            diagnostics.counters["http_api_jobs"] = len(all_records)
+            return all_records if all_records else None
+    except Exception as exc:
+        diagnostics.errors.append(f"Eightfold API error: {exc}")
         return None
 
 
@@ -174,6 +276,7 @@ class EightfoldAdapter(SourceAdapter):
         source_config: dict[str, Any],
         cursor: str | None = None,
         since: datetime | None = None,
+        on_page_scraped: PageCallback = None,
     ) -> DiscoveryPage:
         board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip()
         if not board_url:
@@ -205,6 +308,19 @@ class EightfoldAdapter(SourceAdapter):
         seen_urls: set[str] = set()
         started = time.perf_counter()
 
+        # ── HTTP API fast path ──
+        api_records = await _http_api_fast_path(board_url, company, search_terms, diagnostics)
+        if api_records:
+            all_records = api_records
+            seen_urls = {r.discovered_url for r in all_records if r.discovered_url}
+            diagnostics.counters["jobs_seen"] = len(all_records)
+            diagnostics.counters["unique_urls"] = len(seen_urls)
+            diagnostics.timings_ms["discover"] = int((time.perf_counter() - started) * 1000)
+            if on_page_scraped:
+                await on_page_scraped(1, all_records, all_records)
+            return DiscoveryPage(jobs=all_records, next_cursor=None, diagnostics=diagnostics)
+
+        # ── Browser fallback ──
         try:
             async with async_playwright() as playwright:
                 browser = await playwright.chromium.launch(headless=True)
@@ -224,6 +340,7 @@ class EightfoldAdapter(SourceAdapter):
                         diagnostics.counters["records_before_dedupe"] = diagnostics.counters.get(
                             "records_before_dedupe", 0
                         ) + len(term_records)
+                        records_before = len(all_records)
                         for record in term_records:
                             url = record.discovered_url
                             if not url:
@@ -236,6 +353,11 @@ class EightfoldAdapter(SourceAdapter):
                                 continue
                             seen_urls.add(url)
                             all_records.append(record)
+                        if on_page_scraped and len(all_records) > records_before:
+                            try:
+                                on_page_scraped(search_terms.index(term) + 1, all_records[records_before:], all_records)
+                            except Exception:
+                                pass
                 finally:
                     await page.close()
                     await context.close()

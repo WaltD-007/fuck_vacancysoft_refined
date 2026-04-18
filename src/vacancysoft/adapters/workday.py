@@ -13,6 +13,7 @@ from vacancysoft.adapters.base import (
     DiscoveredJobRecord,
     DiscoveryPage,
     ExtractionMethod,
+    PageCallback,
     SourceAdapter,
 )
 from vacancysoft.source_registry.legacy_board_mappings import lookup_company
@@ -59,8 +60,31 @@ def _coalesce(*values: Any) -> Any:
     return None
 
 
+_MULTI_LOC_RE = re.compile(r"^\d+\s+locations?$", re.I)
+
+
+def _location_from_path(path: str | None) -> str | None:
+    """Extract primary location from Workday externalPath URL slug.
+    e.g. '/job/Hong-Kong/Analyst_R260177' → 'Hong Kong'
+    """
+    if not path:
+        return None
+    # Path format: /job/{Location-Slug}/{Title-Slug}_{ReqId}
+    parts = [p for p in path.split("/") if p]
+    if len(parts) >= 3 and parts[0] == "job":
+        slug = parts[1]
+        # Convert slug to readable: "Hong-Kong" → "Hong Kong", "Chennai-Tamil-Nadu-India" → "Chennai Tamil Nadu India"
+        return slug.replace("-", " ")
+    return None
+
+
 def _extract_location(job: dict[str, Any]) -> str | None:
     locations = job.get("locationsText")
+    # If "N Locations", try to extract primary from the URL path instead
+    if isinstance(locations, str) and _MULTI_LOC_RE.match(locations.strip()):
+        from_path = _location_from_path(job.get("externalPath"))
+        if from_path:
+            return from_path
     if isinstance(locations, str) and locations.strip():
         return locations.strip()
     primary = job.get("primaryLocation")
@@ -146,26 +170,78 @@ class WorkdayAdapter(SourceAdapter):
     adapter_name = "workday"
     capabilities = AdapterCapabilities(supports_discovery=True, supports_detail_fetch=False, supports_healthcheck=False, supports_pagination=True, supports_incremental_sync=False, supports_api=True, supports_html=False, supports_browser=False, supports_site_rescue=False)
 
-    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None) -> DiscoveryPage:
+    async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
         endpoint_url = str(source_config.get("endpoint_url") or "").strip()
         if not endpoint_url:
             raise ValueError("Workday source_config requires endpoint_url")
         limit = int(source_config.get("limit", 20))
+        max_pages = int(source_config.get("max_pages", 250))
         offset = int(cursor or 0)
-        payload: dict[str, Any] = {"limit": limit, "offset": offset, "searchText": source_config.get("search_text", "")}
-        if since is not None:
-            payload["postedAfter"] = since.date().isoformat()
+
         diagnostics = AdapterDiagnostics(metadata={"endpoint_url": endpoint_url, "offset": offset, "limit": limit})
-        async with httpx.AsyncClient(timeout=float(source_config.get("timeout_seconds", 20))) as client:
-            response = await client.post(endpoint_url, json=payload)
-            response.raise_for_status()
-            response_json = response.json()
-        jobs = _extract_jobs(response_json)
-        diagnostics.counters["status_code"] = int(response.status_code)
-        diagnostics.counters["jobs_seen"] = len(jobs)
-        records = [_job_to_record(job, source_config) for job in jobs]
-        next_cursor = str(offset + limit) if len(jobs) >= limit else None
-        return DiscoveryPage(jobs=records, next_cursor=next_cursor, diagnostics=diagnostics)
+        all_records: list[DiscoveredJobRecord] = []
+        seen_urls: set[str] = set()
+        page_num = 0
+        server_total: int | None = None
+
+        async with httpx.AsyncClient(timeout=float(source_config.get("timeout_seconds", 30))) as client:
+            while page_num < max_pages:
+                payload: dict[str, Any] = {"limit": limit, "offset": offset, "searchText": source_config.get("search_text", "")}
+                if since is not None:
+                    payload["postedAfter"] = since.date().isoformat()
+
+                response = await client.post(endpoint_url, json=payload)
+                response.raise_for_status()
+                response_json = response.json()
+
+                # Use server-reported total to know when to stop
+                if server_total is None and "total" in response_json:
+                    server_total = int(response_json["total"])
+                    diagnostics.metadata["server_total"] = server_total
+
+                jobs = _extract_jobs(response_json)
+                diagnostics.counters["status_code"] = int(response.status_code)
+                page_num += 1
+
+                if not jobs:
+                    break
+
+                # Dedup: stop if API is wrapping around
+                new_records: list[DiscoveredJobRecord] = []
+                for job in jobs:
+                    rec = _job_to_record(job, source_config)
+                    url_key = rec.discovered_url or rec.external_job_id
+                    if url_key and url_key in seen_urls:
+                        continue
+                    if url_key:
+                        seen_urls.add(url_key)
+                    new_records.append(rec)
+
+                if not new_records:
+                    # Entire page was duplicates — API is wrapping around
+                    break
+
+                all_records.extend(new_records)
+
+                if on_page_scraped and new_records:
+                    try:
+                        on_page_scraped(page_num, new_records, all_records)
+                    except Exception:
+                        pass
+
+                # Stop if this page returned fewer than limit (no more results)
+                if len(jobs) < limit:
+                    break
+
+                # Stop if we've fetched everything the server says exists
+                if server_total is not None and offset + limit >= server_total:
+                    break
+
+                offset += limit
+
+        diagnostics.counters["jobs_seen"] = len(all_records)
+        diagnostics.counters["pages_fetched"] = page_num
+        return DiscoveryPage(jobs=all_records, next_cursor=None, diagnostics=diagnostics)
 
     async def discover_from_board_url(self, job_board_url: str, limit: int = 20, since: datetime | None = None) -> tuple[str, DiscoveryPage]:
         candidates = derive_workday_candidate_endpoints(job_board_url)
