@@ -1,5 +1,5 @@
 live_source:
-  enabled: true
+  enabled: false  # Disabled — taxonomy now managed in this YAML. Update Google Sheet to match before re-enabling.
   spreadsheet_id: "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw"
   sheet_name: "Taxonomy"
   timeout_seconds: 10
@@ -25,39 +25,48 @@ category_defaults:
 
 sub_specialism_keywords:
   Risk:
-    Credit Risk: [credit risk]
-    Market Risk: [market risk]
-    Operational Risk: [operational risk]
-    Model Risk: [model risk]
-    Model Validation: [model validation]
-    Liquidity Risk: [liquidity risk]
-    Enterprise Risk: [enterprise risk]
-    Insurance Risk: [insurance risk]
-    Treasury: [treasury]
-    Stress Testing: [stress testing]
-    Resilience: [resilience, operational resilience]
-    Financial Crime: [financial crime]
-    Risk Management: [risk manager, risk management]
+    # Order matters: more specific sub-specialisms first, Risk Management last (catch-all).
+    # `chief risk` and `cro ` are intentionally NOT routed here — they are "all sub specialisms"
+    # signals. They still classify as Risk via _TAXONOMY_RULES, but let a more specific keyword
+    # in the title pick the sub-specialism; otherwise fall through to Risk Management default.
+    Credit Risk: [counterparty credit, counterparty risk, credit quality assurance, credit risk, credit quality, retail credit risk, risk appetite, wholesale credit, asset liability, credit analyst, credit assessment, credit officer, credit portfolio, credit strategy, credit portolio management]
+    Market Risk: [market risk assurance, market risk, value at risk, investment risk, trading risk, cva, xva]
+    Quant Risk: [model risk, model review, model validation, reverse stress, risk analytics, stress testing, stress test, scenario analysis, validation analyst, validation engineer]
+    # Operational Risk before Prudential Risk so "non financial risk" wins over
+    # Prudential's "financial risk" keyword on substring match.
+    Operational Risk: [enterprise risk, head of risk, non financial risk, op risk, operational risk, ops risk, risk controls, risk framework, risk governance, risk reporting]
+    Prudential Risk: [liquidity risk, capital planning risk, financial risk, icaap, ilaap, prudential risk, reserving risk, treasury risk, treasury analyst, treasury manager, liquidity management, prudential, alm, treasury]
+    Risk Management: [insurance risk, risk management, risk advisory, risk assessment, risk associate, risk assurance, risk consultant, risk]
   Quant:
-    Quantitative Research: [quantitative research]
-    Quantitative Development: [quantitative developer, quantitative development]
-    Quantitative Trading: [quantitative trading]
-    Strats: [strats]
-    Data Science: [data science, data scientist]
-    Model Validation: [model validation]
-    Model Risk: [model risk]
-    Actuarial: [actuarial, actuary]
-    Pricing: [pricing]
-    Structuring: [structuring]
-    Derivatives: [derivatives]
+    Quantitative Research: [quantitative research, quant research, quant researcher, quantitative researcher]
+    Quantitative Development: [quantitative developer, quantitative development, quant developer, quant dev, c++ quant, python quant]
+    Quantitative Trading: [quantitative trading, quant trader, quant trading]
+    Quantitative Strategist: [strat, strats, quant strat, quantitative strategist, quantitative strategy]
+    Quantitative Analytics: [quantitative analyst, quant analyst, quantitative analytics, quant analytics]
+    Quantitative Modelling: [quantitative modeller, quantitative modeler, quantitative model, quant modeller, quant modeler, quantitative modelling, quantitative modeling]
+    Algorithmic Trading: [algorithmic trader, algorithmic trading, algo trader, algo trading, algo developer, algo engineer, low latency algo]
+    Systematic Trading: [systematic trader, systematic trading]
+    Electronic Trading Dev: [electronic trading developer, etrading developer, low latency developer]
+    Risk Quant: [risk quant, risk analytics quant, quantitative risk]
+    Machine Learning: [machine learning quant, ml quant, quant ml, trading ml engineer, financial ml engineer, alpha ml, ml researcher trading]
+    AI Engineer: [ai quant, quant ai engineer, trading ai engineer, financial ai engineer, ai engineer trading, ai engineer quant, ai architect trading, ai architect quant, ai engineer hedge fund, ai engineer investment]
+    Data Engineering (Quant): [quant data engineer, quant data, trading data engineer]
+    Signal Research: [signal research, alpha research, alpha generation, factor research]
+    Portfolio Construction: [portfolio construction, portfolio optimisation, portfolio optimization]
+    Execution Research: [execution research, tca, transaction cost analysis]
+    Data Science: [quant data scientist, quantitative data scientist, trading data scientist, financial data scientist, data science quant, data scientist quant, alpha data scientist]
+    Pricing: [pricing quant, derivatives pricing, exotic pricing, pricing model, pricing analyst quant]
+    Structuring: [structuring, structurer, exotic structuring]
+    Derivatives: [derivatives, derivatives quant, derivatives modelling, derivatives modeling, derivatives structuring, derivatives analyst, derivatives sales]
     Quantitative (General): [quant, quantitative]
   Compliance:
-    Financial Crime: [financial crime, aml, kyc]
+    Financial Crime: [financial crime, aml, kyc, sanctions, transaction monitoring, fraud risk, mlro, money laundering]
     Governance: [governance]
     Regulatory Compliance: [compliance, regulatory compliance, surveillance]
   Audit:
+    # External Audit intentionally omitted — we do not recruit that market;
+    # those titles are hard-blocked via _TITLE_BLOCKLIST in classifiers/taxonomy.py.
     Internal Audit: [internal audit]
-    External Audit: [external audit]
     IT Audit: [it audit, technology audit]
     Audit (General): [audit]
   Cyber:
@@ -66,6 +75,7 @@ sub_specialism_keywords:
     Threat Detection: [threat detection]
     Offensive Security: [offensive security, red team, penetration testing]
     Cyber GRC: [cyber grc, grc]
+    Resilience: [resilience, operational resilience, business continuity, disaster recovery, crisis management]
     Cyber Security: [cyber, cyber security, information security]
   Legal:
     Contracts: [contracts, contract]
@@ -85,48 +95,203 @@ sub_specialism_keywords:
     Sales Trading: [sales trading]
     Portfolio Management: [portfolio manager, portfolio management]
     Trading (General): [trader, trading]
+  Other:
+    Underwriting: [underwriter, underwriting, chief underwriting officer]
 
 allowed_countries:
-  - Australia
-  - Austria
-  - Belgium
-  - Bermuda
+  # North America
+  - USA
   - Canada
-  - China
-  - Denmark
-  - Egypt
+  # UK
+  - UK
+  # Europe
   - France
   - Germany
-  - Hong Kong
-  - Hungary
-  - India
-  - Ireland
-  - Israel
-  - Italy
   - Luxembourg
   - Netherlands
-  - Norway
-  - Poland
-  - Portugal
-  - Sauda Arabia
-  - Singapore
-  - South Africa
-  - Spain
-  - Sweden
   - Switzerland
+  # Middle East
   - UAE
-  - Ukraine
-  - USA
-  - N/A
+  - Saudi Arabia
+  # Asia (selected)
+  - Hong Kong
+  - Singapore
 
 country_aliases:
+  # United Kingdom
+  uk: UK
+  gb: UK
+  united kingdom: UK
+  england: UK
+  scotland: UK
+  wales: UK
+  northern ireland: UK
+  britain: UK
+  great britain: UK
+  # United States
   us: USA
   usa: USA
   united states: USA
   united states of america: USA
+  america: USA
+  # US state codes → USA
+  al: USA
+  ak: USA
+  az: USA
+  ar: USA
+  ca: USA
+  co: USA
+  ct: USA
+  dc: USA
+  # de: USA — conflicts with Germany ISO code, handled by state name instead
+  fl: USA
+  ga: USA
+  hi: USA
+  # id: USA — conflicts with Indonesia ISO code
+  # il: USA — conflicts with Israel ISO code, handled by state name instead
+  ia: USA
+  ks: USA
+  ky: USA
+  la: USA
+  ma: USA
+  md: USA
+  mi: USA
+  mn: USA
+  mo: USA
+  ms: USA
+  mt: USA
+  nc: USA
+  nj: USA
+  nm: USA
+  ny: USA
+  oh: USA
+  ok: USA
+  or: USA
+  pa: USA
+  ri: USA
+  sc: USA
+  tn: USA
+  tx: USA
+  ut: USA
+  va: USA
+  wa: USA
+  wi: USA
+  # US state names
+  new york: USA
+  california: USA
+  texas: USA
+  florida: USA
+  illinois: USA
+  pennsylvania: USA
+  ohio: USA
+  georgia: USA
+  north carolina: USA
+  michigan: USA
+  new jersey: USA
+  virginia: USA
+  washington: USA
+  arizona: USA
+  massachusetts: USA
+  tennessee: USA
+  indiana: USA
+  maryland: USA
+  minnesota: USA
+  colorado: USA
+  missouri: USA
+  wisconsin: USA
+  oregon: USA
+  connecticut: USA
+  iowa: USA
+  kentucky: USA
+  utah: USA
+  nevada: USA
+  arkansas: USA
+  mississippi: USA
+  kansas: USA
+  nebraska: USA
+  louisiana: USA
+  delaware: USA
+  montana: USA
+  rhode island: USA
+  maine: USA
+  alaska: USA
+  hawaii: USA
+  district of columbia: USA
+  # Canada
+  ontario: Canada
+  quebec: Canada
+  british columbia: Canada
+  alberta: Canada
+  manitoba: Canada
+  saskatchewan: Canada
+  nova scotia: Canada
+  # Other
   uae: UAE
   united arab emirates: UAE
-  saudi arabia: Sauda Arabia
+  saudi arabia: Saudi Arabia
+  sauda arabia: Saudi Arabia
+  south korea: South Korea
+  korea: South Korea
+  kr: South Korea
+  jp: Japan
+  japan: Japan
+  # in: India — conflicts with US state Indiana
+  india: India
+  sg: Singapore
+  singapore: Singapore
+  au: Australia
+  australia: Australia
+  br: Brazil
+  brazil: Brazil
+  ph: Philippines
+  philippines: Philippines
+  hk: Hong Kong
+  hong kong: Hong Kong
+  fr: France
+  france: France
+  de: Germany
+  germany: Germany
+  ie: Ireland
+  ireland: Ireland
+  nl: Netherlands
+  netherlands: Netherlands
+  ch: Switzerland
+  switzerland: Switzerland
+  it: Italy
+  italy: Italy
+  es: Spain
+  spain: Spain
+  se: Sweden
+  sweden: Sweden
+  # no: Norway — ambiguous two-letter code
+  norway: Norway
+  dk: Denmark
+  denmark: Denmark
+  pl: Poland
+  poland: Poland
+  pt: Portugal
+  portugal: Portugal
+  at: Austria
+  austria: Austria
+  be: Belgium
+  belgium: Belgium
+  lu: Luxembourg
+  luxembourg: Luxembourg
+  # il: Israel — conflicts with US state Illinois, match on full name only
+  israel: Israel
+  za: South Africa
+  south africa: South Africa
+  eg: Egypt
+  egypt: Egypt
+  hu: Hungary
+  hungary: Hungary
+  cn: China
+  china: China
+  ua: Ukraine
+  ukraine: Ukraine
+  bm: Bermuda
+  bermuda: Bermuda
   n/a: N/A
   na: N/A
   unknown: N/A
+  remote: N/A
