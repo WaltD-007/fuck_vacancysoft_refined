@@ -202,8 +202,16 @@ async def generate_dossier(
         and "former" not in (hm.get("title") or "").lower()
     ]
 
+    from vacancysoft.intelligence.pricing import compute_cost
+
+    total_prompt = result["tokens_prompt"] + hm_result["tokens_prompt"]
+    total_completion = result["tokens_completion"] + hm_result["tokens_completion"]
     total_tokens = result["tokens_total"] + hm_result["tokens_total"]
     total_latency = result["latency_ms"] + hm_result["latency_ms"]
+    cost_usd = (
+        compute_cost(result["model"], result["tokens_prompt"], result["tokens_completion"])
+        + compute_cost(hm_result["model"], hm_result["tokens_prompt"], hm_result["tokens_completion"])
+    )
 
     dossier = IntelligenceDossier(
         enriched_job_id=enriched_job_id,
@@ -221,14 +229,17 @@ async def generate_dossier(
         hiring_managers=hiring_managers,
         raw_response=parsed,
         tokens_used=total_tokens,
+        tokens_prompt=total_prompt,
+        tokens_completion=total_completion,
+        cost_usd=round(cost_usd, 6),
         latency_ms=total_latency,
     )
     session.add(dossier)
     session.commit()
 
     logger.info(
-        "Dossier generated for %s [%s] — %d tokens, %dms, score=%s, HMs=%d",
-        job_data["company"], category, total_tokens, total_latency,
-        parsed.get("lead_score"), len(hiring_managers),
+        "Dossier generated for %s [%s] — %d tokens (%d in / %d out), $%.4f, %dms, score=%s, HMs=%d",
+        job_data["company"], category, total_tokens, total_prompt, total_completion,
+        cost_usd, total_latency, parsed.get("lead_score"), len(hiring_managers),
     )
     return dossier

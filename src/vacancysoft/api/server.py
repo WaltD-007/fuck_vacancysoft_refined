@@ -2137,6 +2137,9 @@ async def generate_lead_campaign(item_id: str):
                 "emails": existing.outreach_emails or [],
                 "model": existing.model_used,
                 "tokens": existing.tokens_used,
+                "tokens_prompt": existing.tokens_prompt,
+                "tokens_completion": existing.tokens_completion,
+                "cost_usd": existing.cost_usd,
                 "latency_ms": existing.latency_ms,
             }
 
@@ -2147,6 +2150,9 @@ async def generate_lead_campaign(item_id: str):
             "emails": campaign.outreach_emails or [],
             "model": campaign.model_used,
             "tokens": campaign.tokens_used,
+            "tokens_prompt": campaign.tokens_prompt,
+            "tokens_completion": campaign.tokens_completion,
+            "cost_usd": campaign.cost_usd,
             "latency_ms": campaign.latency_ms,
         }
 
@@ -2157,6 +2163,9 @@ def _dossier_to_dict(d) -> dict:
         "category": d.category_used,
         "model": d.model_used,
         "tokens": d.tokens_used,
+        "tokens_prompt": d.tokens_prompt,
+        "tokens_completion": d.tokens_completion,
+        "cost_usd": d.cost_usd,
         "latency_ms": d.latency_ms,
         "lead_score": d.lead_score,
         "lead_score_justification": d.lead_score_justification,

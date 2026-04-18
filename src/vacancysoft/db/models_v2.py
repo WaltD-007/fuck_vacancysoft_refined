@@ -245,6 +245,9 @@ class IntelligenceDossier(BaseV2):
     hiring_managers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     raw_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_prompt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_completion: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -258,6 +261,9 @@ class CampaignOutput(BaseV2):
     outreach_emails: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     raw_response: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     tokens_used: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_prompt: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_completion: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

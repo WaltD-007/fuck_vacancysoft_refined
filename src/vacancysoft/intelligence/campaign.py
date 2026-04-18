@@ -99,12 +99,18 @@ async def generate_campaign(
 
     parsed = result["parsed"]
 
+    from vacancysoft.intelligence.pricing import compute_cost
+    cost_usd = compute_cost(result["model"], result["tokens_prompt"], result["tokens_completion"])
+
     campaign = CampaignOutput(
         dossier_id=dossier_id,
         model_used=result["model"],
         outreach_emails=parsed.get("emails"),
         raw_response=parsed,
         tokens_used=result["tokens_total"],
+        tokens_prompt=result["tokens_prompt"],
+        tokens_completion=result["tokens_completion"],
+        cost_usd=cost_usd,
         latency_ms=result["latency_ms"],
     )
     session.add(campaign)
