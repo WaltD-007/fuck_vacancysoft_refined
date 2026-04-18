@@ -37,3 +37,6 @@ src/*.egg-info/
 *.xlsx
 *_audit_results.json
 *_waterfall_audit_results.json
+
+# Claude Code worktrees and local agent metadata
+.claude/
