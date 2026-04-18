@@ -73,10 +73,51 @@ export default function DashboardPage() {
   const [feedCountry, setFeedCountry] = useState("");
   const [feedSubSpec, setFeedSubSpec] = useState("");
   const [queued, setQueued] = useState<Set<string>>(new Set());
+  const [excludedCompanies, setExcludedCompanies] = useState<Set<string>>(new Set());
+  // company -> end timestamp ms; non-empty rows are greyed out and
+  // become live until the timer expires, at which point we POST.
+  const [pendingUndo, setPendingUndo] = useState<Record<string, number>>({});
+  const [nowTick, setNowTick] = useState<number>(Date.now());
 
   useEffect(() => {
     fetch(`${API}/dashboard`).then((r) => r.json()).then(setData).catch(() => {});
   }, []);
+
+  // Tick every 200ms while there is at least one pending undo so the
+  // countdown digits update. No-op when nothing is pending.
+  useEffect(() => {
+    if (Object.keys(pendingUndo).length === 0) return;
+    const id = setInterval(() => setNowTick(Date.now()), 200);
+    return () => clearInterval(id);
+  }, [pendingUndo]);
+
+  // Fire expired undos. We compute expired off the latest tick rather
+  // than relying on per-key setTimeouts so the cancel path is just
+  // "remove the key from pendingUndo".
+  useEffect(() => {
+    const expired = Object.entries(pendingUndo).filter(([, end]) => nowTick >= end);
+    if (expired.length === 0) return;
+    expired.forEach(async ([company]) => {
+      try {
+        const res = await fetch(`${API}/agency`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ company }),
+        });
+        if (res.ok) {
+          setExcludedCompanies((prev) => new Set(prev).add(company));
+        }
+      } catch {
+        // Network error: just drop the pending state, row reappears.
+      } finally {
+        setPendingUndo((prev) => {
+          const next = { ...prev };
+          delete next[company];
+          return next;
+        });
+      }
+    });
+  }, [nowTick, pendingUndo]);
 
   // Real data only — no fallbacks that pretend to be live numbers.
   const totalLeads = data?.total_jobs ?? 0;
@@ -209,13 +250,17 @@ export default function DashboardPage() {
                     .filter((lead) => !feedCategory || lead.category === feedCategory)
                     .filter((lead) => !feedSubSpec || lead.sub_specialism === feedSubSpec)
                     .filter((lead) => !feedCountry || lead.country === feedCountry)
+                    .filter((lead) => !excludedCompanies.has(lead.company))
                     .map((lead, i) => {
                       const score = lead.score;
                       const scoreColor = score === null ? "#555570" : score >= 8 ? "#00d2a0" : score >= 6 ? "#ffd93d" : "#ff6b6b";
                       const scoreBg = score === null ? "rgba(85,85,112,0.08)" : score >= 8 ? "rgba(0,210,160,0.08)" : score >= 6 ? "rgba(255,217,61,0.08)" : "rgba(255,107,107,0.08)";
                       const scoreBorder = score === null ? "rgba(85,85,112,0.2)" : score >= 8 ? "rgba(0,210,160,0.2)" : score >= 6 ? "rgba(255,217,61,0.2)" : "rgba(255,107,107,0.2)";
+                      const undoEnd = pendingUndo[lead.company];
+                      const isPending = undoEnd !== undefined;
+                      const remainingSec = isPending ? Math.max(0, Math.ceil((undoEnd - nowTick) / 1000)) : 0;
                       return (
-                        <div key={`${lead.url || lead.title}-${i}`} className="px-5 py-3.5" style={{ borderBottom: "1px solid #1f1f2f" }}>
+                        <div key={`${lead.url || lead.title}-${i}`} className="px-5 py-3.5" style={{ borderBottom: "1px solid #1f1f2f", opacity: isPending ? 0.45 : 1, transition: "opacity 150ms" }}>
                           <div className="flex justify-between items-start mb-1">
                             <div className="text-[13.5px] font-semibold">{lead.title} — {lead.company}</div>
                             <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md shrink-0 ml-3" style={{
@@ -238,29 +283,56 @@ export default function DashboardPage() {
                             }}>{lead.category}</span>
                             <span className="ml-auto">{relativeTime(lead.discovered)}</span>
                           </div>
-                          <div className="flex gap-2 mt-2">
-                            <a href={lead.url || "#"} target="_blank" rel="noreferrer" className="px-2.5 py-1 rounded text-[10px] font-semibold text-white cursor-pointer inline-block" style={{ background: "#00d2a0", textDecoration: "none" }}>&#128196; View Advert</a>
-                            {queued.has(lead.url || lead.title) ? (
-                              <span className="px-2.5 py-1 rounded text-[10px] font-semibold" style={{ background: "rgba(0,210,160,0.08)", color: "#00d2a0", border: "1px solid rgba(0,210,160,0.2)" }}>&#10003; Added</span>
+                          <div className="flex gap-2 mt-2 items-center">
+                            {isPending ? (
+                              <>
+                                <span className="text-[11px]" style={{ color: "#ff9f6b" }}>Marked as agency</span>
+                                <button
+                                  className="px-2.5 py-1 rounded text-[10px] font-semibold cursor-pointer"
+                                  style={{ background: "rgba(255,159,107,0.1)", color: "#ff9f6b", border: "1px solid rgba(255,159,107,0.3)" }}
+                                  onClick={() => {
+                                    setPendingUndo((prev) => {
+                                      const next = { ...prev };
+                                      delete next[lead.company];
+                                      return next;
+                                    });
+                                  }}
+                                >undo ({remainingSec}s)</button>
+                              </>
                             ) : (
-                              <button
-                                className="px-2.5 py-1 rounded text-[10px] font-semibold text-white cursor-pointer"
-                                style={{ background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)" }}
-                                onClick={async () => {
-                                  const key = lead.url || lead.title;
-                                  await fetch(`${API}/queue`, {
-                                    method: "POST",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({
-                                      title: lead.title, company: lead.company,
-                                      location: lead.location, country: lead.country,
-                                      category: lead.category, sub_specialism: lead.sub_specialism,
-                                      url: lead.url, score: lead.score,
-                                    }),
-                                  });
-                                  setQueued((prev) => new Set(prev).add(key));
-                                }}
-                              >+ Add Lead</button>
+                              <>
+                                <a href={lead.url || "#"} target="_blank" rel="noreferrer" className="px-2.5 py-1 rounded text-[10px] font-semibold text-white cursor-pointer inline-block" style={{ background: "#00d2a0", textDecoration: "none" }}>&#128196; View Advert</a>
+                                {queued.has(lead.url || lead.title) ? (
+                                  <span className="px-2.5 py-1 rounded text-[10px] font-semibold" style={{ background: "rgba(0,210,160,0.08)", color: "#00d2a0", border: "1px solid rgba(0,210,160,0.2)" }}>&#10003; Added</span>
+                                ) : (
+                                  <button
+                                    className="px-2.5 py-1 rounded text-[10px] font-semibold text-white cursor-pointer"
+                                    style={{ background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)" }}
+                                    onClick={async () => {
+                                      const key = lead.url || lead.title;
+                                      await fetch(`${API}/queue`, {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          title: lead.title, company: lead.company,
+                                          location: lead.location, country: lead.country,
+                                          category: lead.category, sub_specialism: lead.sub_specialism,
+                                          url: lead.url, score: lead.score,
+                                        }),
+                                      });
+                                      setQueued((prev) => new Set(prev).add(key));
+                                    }}
+                                  >+ Add Lead</button>
+                                )}
+                                <button
+                                  className="ml-auto px-2 py-1 rounded text-[10px] font-medium cursor-pointer"
+                                  style={{ background: "transparent", color: "#555570", border: "1px solid #2a2a3a" }}
+                                  title="Mark this company as a recruitment agency"
+                                  onClick={() => {
+                                    setPendingUndo((prev) => ({ ...prev, [lead.company]: Date.now() + 5000 }));
+                                  }}
+                                >agy job</button>
+                              </>
                             )}
                           </div>
                         </div>

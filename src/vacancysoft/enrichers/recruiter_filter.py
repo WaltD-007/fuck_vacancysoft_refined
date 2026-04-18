@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
+import yaml
+
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Recruitment agency exclusion
 # ---------------------------------------------------------------------------
-# Two layers: (1) exact company name match, (2) keyword fallback for
-# agencies not yet in the list.
+# Three layers: (1) hardcoded exact-match set below, (2) runtime YAML
+# additions appended via the "agy job" button in the UI, (3) keyword
+# fallback for agencies not yet in either list.
 
 EXCLUDED_RECRUITERS: set[str] = {
     '4square recruitment ltd',
@@ -610,11 +618,66 @@ RECRUITER_KEYWORDS: tuple[str, ...] = (
 )
 
 
+_RUNTIME_EXCLUSIONS_PATH = Path("configs/agency_exclusions.yaml")
+_RUNTIME_EXCLUSIONS: set[str] = set()
+
+
+def _load_runtime_exclusions() -> set[str]:
+    if not _RUNTIME_EXCLUSIONS_PATH.exists():
+        return set()
+    try:
+        with _RUNTIME_EXCLUSIONS_PATH.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load %s: %s", _RUNTIME_EXCLUSIONS_PATH, exc)
+        return set()
+    names = data.get("agencies") or []
+    return {str(n).strip().lower() for n in names if str(n).strip()}
+
+
+def refresh_runtime_exclusions() -> int:
+    """Re-read configs/agency_exclusions.yaml. Returns the loaded count."""
+    global _RUNTIME_EXCLUSIONS
+    _RUNTIME_EXCLUSIONS = _load_runtime_exclusions()
+    return len(_RUNTIME_EXCLUSIONS)
+
+
+def add_agency_exclusion(company: str) -> bool:
+    """Append a company name to the runtime YAML exclusion list.
+
+    Returns True if newly added, False if already present (in either the
+    hardcoded set or the runtime set).
+    """
+    if not company or not company.strip():
+        return False
+    norm = company.strip().lower()
+    if norm in EXCLUDED_RECRUITERS or norm in _RUNTIME_EXCLUSIONS:
+        return False
+
+    _RUNTIME_EXCLUSIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if _RUNTIME_EXCLUSIONS_PATH.exists():
+        with _RUNTIME_EXCLUSIONS_PATH.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+    else:
+        data = {}
+    agencies = list(data.get("agencies") or [])
+    agencies.append(norm)
+    data["agencies"] = agencies
+    with _RUNTIME_EXCLUSIONS_PATH.open("w", encoding="utf-8") as fh:
+        yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True)
+    refresh_runtime_exclusions()
+    return True
+
+
+# Populate runtime cache at import time. Tolerates missing file.
+refresh_runtime_exclusions()
+
+
 def is_recruiter(company: str | None) -> bool:
     """Return True if the company looks like a recruitment agency."""
     if not company:
         return False
     norm = company.strip().lower()
-    if norm in EXCLUDED_RECRUITERS:
+    if norm in EXCLUDED_RECRUITERS or norm in _RUNTIME_EXCLUSIONS:
         return True
     return any(kw in norm for kw in RECRUITER_KEYWORDS)

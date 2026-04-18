@@ -1844,6 +1844,115 @@ def delete_source(source_id: int):
     return {"message": f"Removed {name}", "id": source_id}
 
 
+# ── Mark company as agency ──
+
+
+class MarkAgencyRequest(BaseModel):
+    company: str
+
+
+class MarkAgencyResponse(BaseModel):
+    added: bool
+    deleted_jobs: int
+    deleted_classifications: int
+    deleted_scores: int
+    deleted_dossiers: int
+    deleted_queue_items: int
+
+
+@app.post("/api/agency", response_model=MarkAgencyResponse)
+def mark_agency(payload: MarkAgencyRequest):
+    """Mark a company as a recruitment agency.
+
+    Appends the company name to configs/agency_exclusions.yaml and
+    hard-deletes every EnrichedJob (plus dependent dossiers, campaigns,
+    queue items, scores, classifications) for that company. Leaves
+    RawJob and Source rows intact.
+    """
+    from sqlalchemy import delete as sa_delete
+    from vacancysoft.db.models import (
+        ClassificationResult, IntelligenceDossier, CampaignOutput,
+        ReviewQueueItem,
+    )
+    from vacancysoft.enrichers.recruiter_filter import add_agency_exclusion
+
+    company = (payload.company or "").strip()
+    if not company:
+        raise HTTPException(status_code=400, detail="company is required")
+    norm = company.lower()
+
+    added = add_agency_exclusion(company)
+
+    with SessionLocal() as s:
+        # Match by enriched_job.team (post-extraction employer) OR by source employer name
+        team_ej_ids = {
+            row.id for row in s.execute(
+                select(EnrichedJob).where(func.lower(EnrichedJob.team) == norm)
+            ).scalars()
+        }
+        source_ids = [
+            r.id for r in s.execute(
+                select(Source).where(func.lower(Source.employer_name) == norm)
+            ).scalars()
+        ]
+        if source_ids:
+            raw_ids = [
+                r.id for r in s.execute(
+                    select(RawJob).where(RawJob.source_id.in_(source_ids))
+                ).scalars()
+            ]
+            if raw_ids:
+                src_ej_ids = {
+                    e.id for e in s.execute(
+                        select(EnrichedJob).where(EnrichedJob.raw_job_id.in_(raw_ids))
+                    ).scalars()
+                }
+                team_ej_ids |= src_ej_ids
+
+        ej_ids = list(team_ej_ids)
+        deleted_dossiers = 0
+        deleted_queue = 0
+        deleted_scores = 0
+        deleted_classifications = 0
+        deleted_jobs = 0
+
+        if ej_ids:
+            dossier_ids = [
+                d.id for d in s.execute(
+                    select(IntelligenceDossier).where(
+                        IntelligenceDossier.enriched_job_id.in_(ej_ids)
+                    )
+                ).scalars()
+            ]
+            if dossier_ids:
+                s.execute(sa_delete(CampaignOutput).where(CampaignOutput.dossier_id.in_(dossier_ids)))
+            deleted_dossiers = s.execute(
+                sa_delete(IntelligenceDossier).where(IntelligenceDossier.enriched_job_id.in_(ej_ids))
+            ).rowcount or 0
+            deleted_queue = s.execute(
+                sa_delete(ReviewQueueItem).where(ReviewQueueItem.enriched_job_id.in_(ej_ids))
+            ).rowcount or 0
+            deleted_scores = s.execute(
+                sa_delete(ScoreResult).where(ScoreResult.enriched_job_id.in_(ej_ids))
+            ).rowcount or 0
+            deleted_classifications = s.execute(
+                sa_delete(ClassificationResult).where(ClassificationResult.enriched_job_id.in_(ej_ids))
+            ).rowcount or 0
+            deleted_jobs = s.execute(
+                sa_delete(EnrichedJob).where(EnrichedJob.id.in_(ej_ids))
+            ).rowcount or 0
+        s.commit()
+
+    return MarkAgencyResponse(
+        added=added,
+        deleted_jobs=deleted_jobs,
+        deleted_classifications=deleted_classifications,
+        deleted_scores=deleted_scores,
+        deleted_dossiers=deleted_dossiers,
+        deleted_queue_items=deleted_queue,
+    )
+
+
 # ── Intelligence Dossier ──
 
 @app.post("/api/leads/{item_id}/dossier")
