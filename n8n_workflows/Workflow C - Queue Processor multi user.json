@@ -1,0 +1,1156 @@
+{
+  "name": "Workflow C - Queue Processor multi user",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "job-queue-drain",
+        "options": {
+          "ignoreBots": true
+        }
+      },
+      "id": "e29d80db-5b12-4546-80d9-fa69bce75ec7",
+      "name": "Queue drain webhook1",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        3088,
+        0
+      ],
+      "webhookId": "63025ad4-d3f3-4e9a-bcdc-d8f021065b05",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw",
+          "mode": "list",
+          "cachedResultName": "fuck_vacancysoft",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Queue",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "9f486307-1f1a-4c01-851f-2a965a70b2e0",
+      "name": "Get queue rows1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3312,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yXZppibUV1e9fFir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.status || '' }}",
+              "rightValue": "pending",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.jobRef || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c1f39040-6672-434d-baf2-621c85def6f2",
+      "name": "Filter pending1",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        3536,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = items\n  .map(item => item.json)\n  .filter(r => (r.status || '').toLowerCase() === 'pending' && String(r.jobRef || '').trim() !== '')\n  .sort((a, b) => {\n    const aTime = Date.parse(a.receivedAt || '') || 0;\n    const bTime = Date.parse(b.receivedAt || '') || 0;\n    return aTime - bTime;\n  });\n\nreturn rows.length ? [{ json: rows[0] }] : [];"
+      },
+      "id": "da23dc19-f585-477e-a585-a5028f0dde0e",
+      "name": "Take oldest pending1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3760,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw",
+          "mode": "list",
+          "cachedResultName": "fuck_vacancysoft",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Queue",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "queue_id": "={{ $json.queue_id }}",
+            "jobRef": "={{ $json.jobRef }}",
+            "receivedAt": "={{ $json.receivedAt }}",
+            "status": "processing",
+            "source": "={{ $json.source || 'teams' }}",
+            "error": "={{ '' }}",
+            "userKey": "={{ $json.userKey }}",
+            "queueKey": "={{ $json.queueKey || '' }}"
+          },
+          "matchingColumns": [
+            "queue_id"
+          ],
+          "schema": [
+            {
+              "id": "queue_id",
+              "displayName": "queue_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "jobRef",
+              "displayName": "jobRef",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "receivedAt",
+              "displayName": "receivedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "userKey",
+              "displayName": "userKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "queueKey",
+              "displayName": "queueKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "f0011d05-0c28-4610-ad5c-4d90e1470619",
+      "name": "Mark processing1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3984,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yXZppibUV1e9fFir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw",
+          "mode": "list",
+          "cachedResultName": "fuck_vacancysoft",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Job Lead",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "fc4704fd-0b24-48a2-b653-e2522f854a5b",
+      "name": "Read Job Lead1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4624,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yXZppibUV1e9fFir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ String($json['Job Ref'] || '').trim() }}",
+              "rightValue": "={{ String($item(0).$node['Take oldest pending1'].json['jobRef'] || '').trim() }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "be070aa4-0fcf-4ee7-8e04-83f5aef1079d",
+      "name": "Find matching job1",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        3120,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.length ? [items[0]] : [];"
+      },
+      "id": "9898bbac-36ae-4e21-afa7-29ee46a828eb",
+      "name": "Take first match1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3344,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw",
+          "mode": "list",
+          "cachedResultName": "fuck_vacancysoft",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Job List",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Job URL": "={{ $json['Job URL'] }}",
+            "Job Title": "={{ $json['Job Title'] }}",
+            "Job Ref": "={{ $json['Job Ref'] }}",
+            "Category": "={{ $json['Category'] }}",
+            "Sub Specialism": "={{ $json['Sub Specialism'] }}",
+            "Company": "={{ $json['Company'] }}",
+            "Location": "={{ $json['Location'] }}",
+            "Country": "={{ $json['Country'] }}",
+            "Salary": "={{ $json['Salary'] }}",
+            "Contract Type": "={{ $json['Contract Type'] }}",
+            "Date Posted": "={{ $json['Date Posted'] }}",
+            "Job Board URL": "={{ $json['Job Board URL'] }}",
+            "Platform": "={{ $json['Platform'] }}",
+            "Date Scraped": "={{ $json['Date Scraped'] }}"
+          },
+          "matchingColumns": [
+            "Job Ref"
+          ],
+          "schema": [
+            {
+              "id": "Job URL",
+              "displayName": "Job URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Job Ref",
+              "displayName": "Job Ref",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Sub Specialism",
+              "displayName": "Sub Specialism",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Salary",
+              "displayName": "Salary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Contract Type",
+              "displayName": "Contract Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Date Posted",
+              "displayName": "Date Posted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Job Board URL",
+              "displayName": "Job Board URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Platform",
+              "displayName": "Platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Date Scraped",
+              "displayName": "Date Scraped",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "67f08dd8-ebf8-4907-ba6e-e52de97559af",
+      "name": "Upsert Job List1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3568,
+        288
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yXZppibUV1e9fFir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://playwright-runner.bluecliff-1ceb6690.uksouth.azurecontainerapps.io/scrape",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"url\": \"{{$node['Take first match1'].json['Job URL']}}\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "5c9ef17f-853c-4506-acfd-36a6afb135f6",
+      "name": "fetch rendered page via browseless1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        3792,
+        288
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const lead = $item(0).$node['Take first match1'].json;\nconst scrape = $json || {};\nconst user = $item(0).$node['Find matching user1'].json || {};\nconst queue = $item(0).$node['Take oldest pending1'].json || {};\nreturn [{\n  json: {\n    ...lead,\n    queue_id: queue.queue_id || '',\n    queueKey: queue.queueKey || '',\n    jobRef: queue.jobRef || lead['Job Ref'] || '',\n    userKey: queue.userKey || user.userKey || '',\n    Description: scrape.description || lead.Description || '',\n    scrapedUrl: scrape.url || lead['Job URL'] || '',\n    outputChatId: user.outputChatId || '',\n    customPrompt: user.customPrompt || '',\n    userName: user.name || ''\n  }\n}];"
+      },
+      "id": "36c437fd-d617-4cce-8a66-d84b1aca0d0c",
+      "name": "Combine lead and scrape1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4016,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw",
+          "mode": "list",
+          "cachedResultName": "fuck_vacancysoft",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Job List",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Job Ref": "={{ $json['Job Ref'] }}",
+            "Job URL": "={{ $json['Job URL'] }}",
+            "Description": "={{ $json['Description'] }}"
+          },
+          "matchingColumns": [
+            "Job Ref"
+          ],
+          "schema": [
+            {
+              "id": "Job Ref",
+              "displayName": "Job Ref",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Job URL",
+              "displayName": "Job URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "Description",
+              "displayName": "Description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "d3e83b82-7b18-4519-9e9f-48faea60e980",
+      "name": "Write Description to Job List1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4336,
+        224
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yXZppibUV1e9fFir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "function stripHtml(html) {\n  return String(html || '')\n    .replace(/<br\\s*\\/?>/gi, '\\n')\n    .replace(/<\\/p>\\s*<p>/gi, '\\n\\n')\n    .replace(/<\\/li>\\s*<li>/gi, '\\n- ')\n    .replace(/<li>/gi, '- ')\n    .replace(/<\\/(p|div|ul|ol|li|h\\d)>/gi, '\\n')\n    .replace(/<[^>]+>/g, '')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&quot;/g, '\"')\n    .replace(/&#39;/g, \"'\")\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\nfunction pad2(n) {\n  const num = Number(n);\n  if (!Number.isFinite(num)) return '';\n  return String(num).padStart(2, '0');\n}\n\nfunction toDatePosted(day, month, year) {\n  const y = String(year ?? '').trim();\n  const m = pad2(month);\n  const d = pad2(day);\n  if (!y || !m || !d) return '';\n  return `${d}-${m}-${y}`;\n}\n\nconst row = $json || {};\n\nconst title       = row['Job Title'] || row['Title'] || '';\nconst company     = row['Company'] || '';\nconst location    = row['Location'] || '';\nconst seniority   = row['Seniority'] || '' || '';\nconst datePosted  = row['Date Posted'] || '';\nconst descriptionText = stripHtml(row['Description'] || '');\nconst customPrompt  = row.customPrompt || '';\nconst outputChatId  = row.outputChatId || '';\nconst userName      = row.userName || '';\n\nconst jobInput = `\\n\\n# Input\\n\\nAdvert text:\\n${descriptionText}\\n\\nCompany: ${company}\\nJob title: ${title}\\nLocation: ${location}\\nDate posted: ${datePosted}`;\n\nlet fullPrompt;\nif (customPrompt.trim()) {\n  fullPrompt = customPrompt + jobInput;\n} else {\n  fullPrompt = `Job title: ${title}\nLocation: ${location}\nDate posted: ${datePosted}\n\n\nInstruction:\n# Role\nYou are a senior research analyst at an elite agency recruiter.\nYou will be given a public job description, which you should treat it as the primary signal\n\n# Research Scope\nUse publicly available information to understand the company and its wholesale credit context across buy-side and sell-side perspectives, including:\n-Company structure, ownership, governance, filings, and group relationships\n-The hiring company’s website and investor materials\n-Recent news, leadership changes, and events affecting leverage, liquidity, covenants, refinancing, capital allocation, or risk governance\n-Regulatory, legal, and ESG issues relevant to wholesale credit risk\n-Public market signals such as equity performance, bond or CDS commentary, and changes in consensus expectations\nPrioritise issuer disclosures, investor relations material, filings, prospectuses, rating agency releases, and reputable financial press.\nAvoid buzzwords without explanation and speculation not grounded in public signals.\nYour task is not to sell or pitch. Your task is to explain what is really happening, in plain English, and build the understanding a recruiter needs to become useful later if hiring stalls.\n\n# Strategic Framing (critical)\nAssume:\n1.\tThe company does not want recruiters initially\n2.\tMultiple recruiters are already involved\n3.\tInbound volume is high\n4.\tSpeed and access are not differentiators\n5.\tThe recruiter’s edge is interpretation, timing, and framing\n6.\tThe goal is to be useful later, not noisy now\n\n# Objective\nProduce a Hiring Intelligence Dossier that allows the recruiter to:\n1.\tUnderstand the company and role beyond the job description\n2.\tExplain why this role exists now\n3.\tIdentify where the hiring process is likely to fail\n4.\tAnticipate what the company will only realise after trying to hire alone\n5.\tBuild the basis for a future insight-led outreach message\n\n# Output\nProduce a Hiring Intelligence Dossier. Explain all jargon the first time it appears. Do not restate the job description.\n\n\n## 1. Company and Market Context\n\nIn plain English, explain:\n-What the company does and how it generates cash that services debt\n-Its market position versus peers and its credit profile where observable\n-How it is financed across public and private markets and who its lenders or investors are\n-What matters right now for credit risk, such as refinancing, M&A, covenant pressure, or liquidity changes\n-Any recent events that make this hire necessary now\n-External pressures affecting wholesale credit outcomes, including regulation, funding costs, market windows, and investor risk appetite\n-Market mechanics that affect execution, such as underwriting, syndication, and distribution risk\n\n## 2. The Core Business Problem\nExplain the real problem beneath the role and what the business risks losing if the hire is delayed, typically revenue or balance sheet control.\n\n## 3. Stated Need vs Actual Need\nProvide a two-column table:\n| What the JD Asks For | What the Business Likely Needs |\nHighlight gaps and misalignment in plain language.\n\n## 4. Specification and Execution Risk\nIdentify and explain:\n-Whether there is over-specification and unrealistic scope\n-If three are conflicting expectations such as discipline versus growth or independence versus distribution\n-Is there a mismatch between responsibility, authority, and accountability\n-Are theree any signals that materially reduce the talent pool\n-What is the pay versus market and are there any mismatches if disclosed\n-Whether the firm’s reputation or franchise strength is insufficient to attract the profile required\n\n## 5. Ideal Candidate Profiles\nDescribe two strong-fit candidate types. For each, explain:\n-Where they typically come from\n-Why they fit this situation\n-What outcomes they could realistically deliver\n\n\n## 6. Recruiter Search Boolean\nProvide copy-paste-ready Boolean strings only, with no explanation, for:\n-Core titles\n-Adjacent or non-obvious titles\n-Keywords\n-Target companies as a single OR string\n\n## 7. Lead Score (1–5)\n- Include a 2–3 sentence justification \n \nAssign one overall score from 1–5 representing:\n \nHow worthwhile this company and role would be for a high-quality agency recruiter to invest meaningful time in, assuming the company initially resists recruiters and only engages if hiring becomes difficult.\n \nThis score is a filter, not a compliment.\n\n## 8. Who’s Hiring Manager?\n1.\tDecide what role the hiring manager has (this could be up to 10, but fewer if you are more confident). \na.\tAs this is a credit risk role and the hiring manager will be the Head of Credit, so only look for any senior people in the company who's title contains the word \"credit\", for example, Head of Credit, Deputy Head of Credit, Chief Credit Officer or Credit Risk Director. If you can't find a senior \"credit\" person, the next best thing is the \"Chief Risk Officer\"\ni.\tThis is non negotiable. Only return people who are leaders with the word \"credit\" or, 'cheif risk officer'\n2. \tUsing the above criteria, try to figure out the exact hiring manager and narrow it down to specific people, share their names with a linkedin URL.\n\n## 9. Outreach Messages\nWrite a five-step SourceWhale email sequence consisting of an initial message and four follow-ups. \n\nFor the initial email use professional, direct, plain British English. Position the sender as a specialist recruiter with a strong network and long track record. Keep the technical jargon to a minimum and the focus squarely on the recruitment pain points, such as candidate shortages, fierce competition for top talent, and any other relevant factors that might mean the employer struggles to attract talent. Aim to differentiate the sender from the competition by emphasising their long standing track record and extensive network in credit risk recruitment.\n\nThe follow up emails should all be more generic, recruitment-focused and lay off the technicals.\n\nDo not include any sign-off or signature in any outreach message.\n\n\n#Constraints\n- Use external research only for context and validation \n- Do not restate or summarise the JD \n- Explain all jargon and assumptions \n- Be decisive, commercial, and clear \n- Don’t exactly parrot the job title or anything else in the JD, humans don’t write this way. Condense if possible\n- No em-dashes, or emboldenings.\n\n#Rules\nYou will be given job metadata fields: title, company, datePosted, location.\nReturn JSON that includes these four fields at the top level AND an \"output\" object.\nCopy title, company, datePosted, location exactly as provided. Do not edit them.\n\n\n\n# Input\n\nAdvert text:\n${descriptionText}\n\nCompany: ${company}\nJob title: ${title}\nLocation: ${location}\nDate posted: ${datePosted}\n\n\n`;\n}\n\nreturn {\n  title,\n  company,\n  location,\n  seniority,\n  datePosted,\n  descriptionText,\n  customPrompt,\n  outputChatId,\n  userName,\n  fullPrompt\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4336,
+        432
+      ],
+      "id": "868b4d99-3e89-4474-bda2-87ef381c43b5",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.fullPrompt }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "To follow the prompt to the letter"
+        }
+      },
+      "id": "c1ddd8ba-622c-4662-a996-9ce3b426732a",
+      "name": "Process with ChatGPT1",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        3184,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-5.4-2026-03-05",
+          "mode": "list",
+          "cachedResultName": "gpt-5.4-2026-03-05"
+        },
+        "builtInTools": {
+          "webSearch": {
+            "searchContextSize": "medium"
+          }
+        },
+        "options": {}
+      },
+      "id": "d7b7ab14-9dcf-4746-989c-685667f84102",
+      "name": "OpenAI Chat Model1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        3136,
+        912
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "ApCOgk0JIYzKqez1",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"title\": { \"type\": \"string\" },\n    \"company\": { \"type\": \"string\" },\n    \"datePosted\": { \"type\": \"string\" },\n    \"location\": { \"type\": \"string\" },\n    \"output\": {\n      \"type\": \"object\",\n      \"properties\": {\n        \"Candidate Search Boolean\": { \"type\": \"string\" },\n        \"Hiring Manager Search Boolean\": { \"type\": \"string\" },\n        \"Hiring Manager Name\": { \"type\": \"string\" },\n        \"Outreach 1\": { \"type\": \"string\" },\n        \"Outreach 2\": { \"type\": \"string\" },\n        \"Outreach 3\": { \"type\": \"string\" },\n        \"Outreach 4\": { \"type\": \"string\" },\n        \"Outreach 5\": { \"type\": \"string\" }\n      },\n      \"required\": [\n        \"Candidate Search Boolean\",\n        \"Hiring Manager Search Boolean\",\n        \"Hiring Manager Name\",\n        \"Outreach 1\",\n        \"Outreach 2\",\n        \"Outreach 3\",\n        \"Outreach 4\",\n        \"Outreach 5\"\n      ],\n      \"additionalProperties\": false\n    }\n  },\n  \"required\": [\"title\", \"company\", \"datePosted\", \"location\", \"output\"],\n  \"additionalProperties\": false\n}"
+      },
+      "id": "aee5fea7-84b5-4346-9fd7-7736f37a38fc",
+      "name": "Structured Output Parser1",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        3360,
+        912
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function decodeHtmlEntities(s) {\n  return String(s)\n    .replace(/&amp;/g, \"&\")\n    .replace(/&lt;/g, \"<\")\n    .replace(/&gt;/g, \">\")\n    .replace(/&quot;/g, '\"')\n    .replace(/&#39;/g, \"'\");\n}\n\nfunction cleanForEmail(v) {\n  if (v === null || v === undefined) return \"\";\n  let s = String(v);\n\n  s = s.replace(/\\\\\\\\r\\\\\\\\n/g, \"\\n\")\n       .replace(/\\\\\\\\n/g, \"\\n\")\n       .replace(/\\\\\\\\r/g, \"\\n\")\n       .replace(/\\\\r\\\\n/g, \"\\n\")\n       .replace(/\\\\n/g, \"\\n\")\n       .replace(/\\\\r/g, \"\\n\");\n\n  s = s.replace(/\\r\\n/g, \"\\n\")\n       .replace(/\\r/g, \"\\n\")\n       .replace(/[ \\t]+\\n/g, \"\\n\")\n       .replace(/\\n{3,}/g, \"\\n\\n\")\n       .trim();\n\n  return decodeHtmlEntities(s);\n}\n\nfunction pick(obj, keys) {\n  for (const k of keys) {\n    const v = obj && obj[k];\n    if (v !== undefined && v !== null && String(v).trim() !== \"\") return v;\n  }\n  return \"\";\n}\n\nreturn items.map(item => {\n  const json = item.json || {};\n\n  const sourceMeta = $item(0).$node[\"Code in JavaScript1\"].json || {};\n\n  let aiRoot = json;\n  if (\n    json.output &&\n    typeof json.output === \"object\" &&\n    !Array.isArray(json.output)\n  ) {\n    aiRoot = json.output;\n  }\n\n  let ai = aiRoot.output || {};\n  if (typeof ai === \"string\") {\n    try {\n      ai = JSON.parse(ai);\n    } catch (e) {\n      ai = {};\n    }\n  }\n\n  return {\n    json: {\n      \"Company\": cleanForEmail(sourceMeta.company || \"\"),\n      \"Job title\": cleanForEmail(sourceMeta.title || \"\"),\n      \"Location\": cleanForEmail(sourceMeta.location || \"\"),\n      \"Date posted\": cleanForEmail(sourceMeta.datePosted || \"\"),\n\n      \"Candidate Search Boolean\": cleanForEmail(pick(ai, [\"Candidate Search Boolean\"])),\n      \"Hiring Manager Search Boolean\": cleanForEmail(pick(ai, [\"Hiring Manager Search Boolean\"])),\n      \"Hiring Manager Name\": cleanForEmail(pick(ai, [\"Hiring Manager Name\"])),\n\n      \"Outreach 1\": cleanForEmail(pick(ai, [\"Outreach 1\"])),\n      \"Outreach 2\": cleanForEmail(pick(ai, [\"Outreach 2\"])),\n      \"Outreach 3\": cleanForEmail(pick(ai, [\"Outreach 3\"])),\n      \"Outreach 4\": cleanForEmail(pick(ai, [\"Outreach 4\"])),\n      \"Outreach 5\": cleanForEmail(pick(ai, [\"Outreach 5\"])),\n\n      \"outputChatId\": $item(0).$node[\"Code in JavaScript1\"].json.outputChatId || \"\",\n      \"userName\": $item(0).$node[\"Code in JavaScript1\"].json.userName || \"\"\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3488,
+        672
+      ],
+      "id": "24be510c-26f7-4c6e-a6cd-bf0618f0cb94",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const d = item.json;\n\n  const safe = (value) => {\n    if (value === undefined || value === null || value === '') return 'Not provided';\n    return String(value)\n      .replace(/&/g, '&amp;')\n      .replace(/</g, '&lt;')\n      .replace(/>/g, '&gt;');\n  };\n\n  const formatLongDate = (date) => {\n    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];\n    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];\n\n    const dayName = days[date.getDay()];\n    const day = date.getDate();\n    const month = months[date.getMonth()];\n    const year = date.getFullYear();\n\n    const getOrdinal = (n) => {\n      if (n >= 11 && n <= 13) return `${n}th`;\n      const lastDigit = n % 10;\n      if (lastDigit === 1) return `${n}st`;\n      if (lastDigit === 2) return `${n}nd`;\n      if (lastDigit === 3) return `${n}rd`;\n      return `${n}th`;\n    };\n\n    return `${dayName} ${getOrdinal(day)} ${month} ${year}`;\n  };\n\n  const now = new Date();\n  const createdDate = formatLongDate(now);\n\n  const spacer = '<p>&nbsp;</p>';\n  const divider = '<hr style=\"border:0;border-top:1px solid #cccccc;margin:16px 0;\">';\n\n  item.json.teamsMessage = `\n<h2 style=\"font-size:28px; line-height:1.2;\">New Five Step Campaign - ${safe(createdDate)}</h2>\n${divider}\n\n<h3>Company Details</h3>\n<p><strong>Company:</strong> ${safe(d[\"Company\"])}</p>\n<p><strong>Job title:</strong> ${safe(d[\"Job title\"])}</p>\n<p><strong>Location:</strong> ${safe(d[\"Location\"])}</p>\n<p><strong>Date Posted:</strong> ${safe(d[\"Date posted\"])}</p>\n${divider}\n\n<h3>Hiring Manager</h3>\n<p><strong>Hiring Manager Name:</strong><br>${safe(d[\"Hiring Manager Name\"])}</p>\n${divider}\n\n<h3>Outreach 1</h3>\n<p>${safe(d[\"Outreach 1\"]).replace(/\\n/g, '<br>')}</p>\n${divider}\n\n<h3>Outreach 2</h3>\n<p>${safe(d[\"Outreach 2\"]).replace(/\\n/g, '<br>')}</p>\n${divider}\n\n<h3>Outreach 3</h3>\n<p>${safe(d[\"Outreach 3\"]).replace(/\\n/g, '<br>')}</p>\n${divider}\n\n<h3>Outreach 4</h3>\n<p>${safe(d[\"Outreach 4\"]).replace(/\\n/g, '<br>')}</p>\n${divider}\n\n<h3>Outreach 5</h3>\n<p>${safe(d[\"Outreach 5\"]).replace(/\\n/g, '<br>')}</p>\n${spacer}\n\n<p>Best,<br>${safe(d.userName || 'Antony')}</p>\n`.trim();\n\n  item.json.outputChatId = d.outputChatId || '';\n  item.json.userName = d.userName || '';\n  return item;\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3712,
+        672
+      ],
+      "id": "a1b180db-17da-4c45-8fd6-94550c676231",
+      "name": "Code in JavaScript5"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw",
+          "mode": "list",
+          "cachedResultName": "fuck_vacancysoft",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Queue",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "queue_id": "={{ $item(0).$node['Take oldest pending1'].json['queue_id'] }}",
+            "jobRef": "={{ $item(0).$node['Take oldest pending1'].json['jobRef'] }}",
+            "receivedAt": "={{ $item(0).$node['Take oldest pending1'].json['receivedAt'] }}",
+            "status": "processed",
+            "source": "={{ $item(0).$node['Take oldest pending1'].json['source'] || 'teams' }}",
+            "error": "={{ '' }}",
+            "userKey": "={{ $item(0).$node['Take oldest pending1'].json['userKey'] }}",
+            "queueKey": "={{ $item(0).$node['Take oldest pending1'].json['queueKey'] || '' }}"
+          },
+          "matchingColumns": [
+            "queue_id"
+          ],
+          "schema": [
+            {
+              "id": "queue_id",
+              "displayName": "queue_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "jobRef",
+              "displayName": "jobRef",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "receivedAt",
+              "displayName": "receivedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "error",
+              "displayName": "error",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "userKey",
+              "displayName": "userKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            },
+            {
+              "id": "queueKey",
+              "displayName": "queueKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "d42819f2-2ea3-4b20-9334-5378d240b66b",
+      "name": "Mark processed1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4112,
+        672
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yXZppibUV1e9fFir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://antonyberou.app.n8n.cloud/webhook/job-queue-drain",
+        "options": {
+          "timeout": 3000
+        }
+      },
+      "id": "a7bd91dd-1a3d-45ea-848e-903133cc31d0",
+      "name": "Trigger next queue item1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        4336,
+        672
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "resource": "chatMessage",
+        "chatId": "={{ $json.outputChatId || '19:meeting_MzE0YmE1OWEtN2IyZi00MDlmLTlhYzItZjYyZTk0MzdlY2Q3@thread.v2' }}",
+        "message": "={{ $json[\"teamsMessage\"] }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftTeams",
+      "typeVersion": 2,
+      "position": [
+        3904,
+        672
+      ],
+      "id": "5c6078a6-e206-4e66-8f0c-0d49428c0bde",
+      "name": "Create chat message1",
+      "webhookId": "100f38bc-dd00-4c82-a927-c3655ba0d2c5",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "mewGldgiXaXkwm7z",
+          "name": "Microsoft Teams"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw",
+          "mode": "list",
+          "cachedResultName": "fuck_vacancysoft",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Users",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "240bff15-f0f7-4ba5-896a-258400d53c0d",
+      "name": "Read Users1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        4208,
+        0
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yXZppibUV1e9fFir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const userKey = String(\n  $item(0).$node['Take oldest pending1'].json['userKey'] || ''\n).trim();\n\nconst users = items.map(i => i.json);\nconst match = users.find(u => {\n  const k = String(u.userKey || u['userKey '] || u['UserKey'] || '').trim();\n  return k === userKey;\n});\n\nif (match) {\n  return [{ json: match }];\n}\nreturn [{ json: { userKey, outputChatId: '', customPrompt: '', name: '' } }];"
+      },
+      "id": "c5a0d827-61d5-4de2-9180-585536005ddc",
+      "name": "Find matching user1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4432,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Queue drain webhook1": {
+      "main": [
+        [
+          {
+            "node": "Get queue rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get queue rows1": {
+      "main": [
+        [
+          {
+            "node": "Filter pending1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter pending1": {
+      "main": [
+        [
+          {
+            "node": "Take oldest pending1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Take oldest pending1": {
+      "main": [
+        [
+          {
+            "node": "Mark processing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark processing1": {
+      "main": [
+        [
+          {
+            "node": "Read Users1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Job Lead1": {
+      "main": [
+        [
+          {
+            "node": "Find matching job1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find matching job1": {
+      "main": [
+        [
+          {
+            "node": "Take first match1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Take first match1": {
+      "main": [
+        [
+          {
+            "node": "Upsert Job List1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Job List1": {
+      "main": [
+        [
+          {
+            "node": "fetch rendered page via browseless1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "fetch rendered page via browseless1": {
+      "main": [
+        [
+          {
+            "node": "Combine lead and scrape1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine lead and scrape1": {
+      "main": [
+        [
+          {
+            "node": "Write Description to Job List1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Process with ChatGPT1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process with ChatGPT1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Process with ChatGPT1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Process with ChatGPT1",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        [
+          {
+            "node": "Create chat message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark processed1": {
+      "main": [
+        [
+          {
+            "node": "Trigger next queue item1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create chat message1": {
+      "main": [
+        [
+          {
+            "node": "Mark processed1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Users1": {
+      "main": [
+        [
+          {
+            "node": "Find matching user1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find matching user1": {
+      "main": [
+        [
+          {
+            "node": "Read Job Lead1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "9d213f1f-b8f4-491b-a100-aa1ec26cf10a",
+  "meta": {
+    "instanceId": "56051bb04f7a2e887ca3ddb180af0435881e8c9b52d04db8fad02d4fe908d32b"
+  },
+  "id": "YviiAY3P675GZYNL",
+  "tags": []
+}

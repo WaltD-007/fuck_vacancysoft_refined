@@ -32,6 +32,7 @@ alembic/env
 
 # Build artifacts
 src/*.egg-info/
+node_modules/
 
 # Audit output / data files
 *.xlsx

@@ -28,6 +28,7 @@ def load_generic_browser_boards(repo_root: Path) -> list[dict]:
         raise RuntimeError(f"Could not load config module from: {config_path}")
 
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
 
     boards = getattr(module, "GENERIC_BROWSER_BOARDS", None)
@@ -153,6 +154,69 @@ async def main() -> None:
         counts[row["verdict"]] = counts.get(row["verdict"], 0) + 1
 
     console.print(f"\n[bold]Verdict counts:[/bold] {counts}")
+
+    # Export to Excel
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from datetime import datetime
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Access Check"
+
+        headers = ["Company", "Verdict", "HTTP Status", "Title", "URL", "Final URL", "Body Sample"]
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        for col_idx, header in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col_idx, value=header)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center")
+
+        verdict_fills = {
+            "ok": PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
+            "403": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
+            "401": PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"),
+            "blocked": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
+            "error": PatternFill(start_color="E4AAFF", end_color="E4AAFF", fill_type="solid"),
+        }
+
+        for row_idx, row in enumerate(results, 2):
+            ws.cell(row=row_idx, column=1, value=row["company"])
+            verdict_cell = ws.cell(row=row_idx, column=2, value=row["verdict"])
+            verdict_cell.fill = verdict_fills.get(row["verdict"], PatternFill())
+            ws.cell(row=row_idx, column=3, value=row["status"])
+            ws.cell(row=row_idx, column=4, value=row["title"])
+            ws.cell(row=row_idx, column=5, value=row["url"])
+            ws.cell(row=row_idx, column=6, value=row["final_url"])
+            ws.cell(row=row_idx, column=7, value=row["body_sample"])
+
+        # Auto-fit column widths (approximate)
+        col_widths = {"A": 30, "B": 12, "C": 12, "D": 50, "E": 60, "F": 60, "G": 80}
+        for col_letter, width in col_widths.items():
+            ws.column_dimensions[col_letter].width = width
+
+        # Add verdict summary sheet
+        ws2 = wb.create_sheet("Summary")
+        ws2.cell(row=1, column=1, value="Verdict").font = Font(bold=True)
+        ws2.cell(row=1, column=2, value="Count").font = Font(bold=True)
+        for i, (verdict, count) in enumerate(sorted(counts.items()), 2):
+            ws2.cell(row=i, column=1, value=verdict)
+            ws2.cell(row=i, column=2, value=count)
+        ws2.cell(row=len(counts) + 3, column=1, value="Total").font = Font(bold=True)
+        ws2.cell(row=len(counts) + 3, column=2, value=len(results)).font = Font(bold=True)
+
+        # Add autofilter to main sheet
+        ws.auto_filter.ref = f"A1:G{len(results) + 1}"
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_path = repo_root / f"generic_access_check_{timestamp}.xlsx"
+        wb.save(out_path)
+        console.print(f"\n[bold green]Report saved to:[/bold green] {out_path}")
+
+    except ImportError:
+        console.print("\n[yellow]openpyxl not installed — skipping Excel export. pip install openpyxl[/yellow]")
 
 
 if __name__ == "__main__":

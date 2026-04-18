@@ -1,0 +1,2499 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prospero — Intelligence Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: #12121a;
+  --bg-card: #16161f;
+  --bg-card-hover: #1a1a25;
+  --bg-elevated: #1e1e2a;
+  --border: #2a2a3a;
+  --border-subtle: #1f1f2f;
+  --text-primary: #e8e8f0;
+  --text-secondary: #8888a0;
+  --text-muted: #555570;
+  --accent: #6c5ce7;
+  --accent-light: #a29bfe;
+  --accent-glow: rgba(108, 92, 231, 0.15);
+  --green: #00d2a0;
+  --green-bg: rgba(0, 210, 160, 0.08);
+  --green-border: rgba(0, 210, 160, 0.2);
+  --red: #ff6b6b;
+  --red-bg: rgba(255, 107, 107, 0.08);
+  --red-border: rgba(255, 107, 107, 0.2);
+  --amber: #ffd93d;
+  --amber-bg: rgba(255, 217, 61, 0.08);
+  --blue: #4dabf7;
+  --blue-bg: rgba(77, 171, 247, 0.08);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 6px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
+  --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg-primary); color: var(--text-primary); overflow-x: hidden; }
+
+/* ── Sidebar ─────────────────────────────────────────── */
+.sidebar {
+  position: fixed; left: 0; top: 0; bottom: 0; width: 240px;
+  background: var(--bg-secondary); border-right: 1px solid var(--border-subtle);
+  display: flex; flex-direction: column; z-index: 100;
+}
+.sidebar-logo {
+  padding: 24px 20px; display: flex; align-items: center; gap: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.sidebar-logo .logo-mark {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), #a29bfe);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 18px; color: white;
+}
+.sidebar-logo .logo-text { font-weight: 700; font-size: 18px; letter-spacing: -0.5px; }
+.sidebar-logo .logo-badge {
+  font-size: 9px; font-weight: 600; background: var(--accent);
+  color: white; padding: 2px 6px; border-radius: 4px; margin-left: auto;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+
+.sidebar-nav { padding: 16px 12px; flex: 1; }
+.nav-section { margin-bottom: 24px; }
+.nav-section-label {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 1.2px; color: var(--text-muted); padding: 0 8px; margin-bottom: 8px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  border-radius: var(--radius-sm); color: var(--text-secondary);
+  cursor: pointer; transition: var(--transition); font-size: 13.5px; font-weight: 500;
+  text-decoration: none; position: relative;
+}
+.nav-item:hover { background: var(--bg-card); color: var(--text-primary); }
+.nav-item.active {
+  background: var(--accent-glow); color: var(--accent-light);
+  border: 1px solid rgba(108, 92, 231, 0.2);
+}
+.nav-item .nav-icon { width: 18px; text-align: center; font-size: 15px; }
+.nav-item .badge {
+  margin-left: auto; background: var(--accent); color: white;
+  font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 10px;
+}
+.nav-item .badge.green { background: var(--green); color: #000; }
+.nav-item .badge.amber { background: var(--amber); color: #000; }
+
+.sidebar-footer {
+  padding: 16px; border-top: 1px solid var(--border-subtle);
+  display: flex; align-items: center; gap: 10px;
+}
+.avatar {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: linear-gradient(135deg, #6c5ce7, #fd79a8);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 12px; color: white;
+}
+.sidebar-footer .user-info { flex: 1; }
+.sidebar-footer .user-name { font-size: 13px; font-weight: 600; }
+.sidebar-footer .user-plan { font-size: 11px; color: var(--text-muted); }
+
+/* ── Main ─────────────────────────────────────────── */
+.main { margin-left: 240px; min-height: 100vh; }
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(10, 10, 15, 0.8); backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 32px; height: 56px; display: flex; align-items: center; gap: 16px;
+}
+.topbar-title { font-weight: 700; font-size: 16px; }
+.topbar-search {
+  margin-left: auto; display: flex; align-items: center; gap: 8px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 7px 14px; color: var(--text-muted); font-size: 13px; cursor: pointer;
+  transition: var(--transition); min-width: 240px;
+}
+.topbar-search:hover { border-color: var(--accent); }
+.topbar-search kbd {
+  margin-left: auto; font-family: 'Inter'; font-size: 10px;
+  background: var(--bg-elevated); padding: 2px 6px; border-radius: 4px;
+  border: 1px solid var(--border); color: var(--text-muted);
+}
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+.topbar-btn {
+  width: 36px; height: 36px; border-radius: var(--radius-sm);
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-secondary); display: flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: var(--transition); font-size: 15px;
+}
+.topbar-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.topbar-btn.has-notif::after {
+  content: ''; position: absolute; top: 6px; right: 6px; width: 7px; height: 7px;
+  background: var(--red); border-radius: 50%; border: 2px solid var(--bg-primary);
+}
+.topbar-btn { position: relative; }
+
+/* ── Content ─────────────────────────────────────────── */
+.content { padding: 28px 32px; }
+
+/* ── Page tabs ─────────────────────────────────────────── */
+.page-tabs {
+  display: flex; gap: 0; margin-bottom: 28px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.page-tab {
+  padding: 10px 20px; font-size: 13.5px; font-weight: 500;
+  color: var(--text-muted); cursor: pointer; transition: var(--transition);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.page-tab:hover { color: var(--text-secondary); }
+.page-tab.active { color: var(--accent-light); border-bottom-color: var(--accent); }
+
+/* ── Stat Cards ─────────────────────────────────────────── */
+.stats-grid {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 28px;
+}
+.stat-card {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); padding: 20px;
+  transition: var(--transition);
+}
+.stat-card:hover { border-color: var(--border); transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.stat-label { font-size: 12px; color: var(--text-muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+.stat-value { font-size: 28px; font-weight: 800; letter-spacing: -1px; }
+.stat-value.green { color: var(--green); }
+.stat-value.accent { color: var(--accent-light); }
+.stat-value.amber { color: var(--amber); }
+.stat-change { font-size: 12px; margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+.stat-change.up { color: var(--green); }
+.stat-change.down { color: var(--red); }
+
+/* ── Charts Row ─────────────────────────────────────────── */
+.charts-row { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 28px; }
+.chart-card {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); padding: 20px;
+}
+.chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.chart-title { font-size: 14px; font-weight: 600; }
+.chart-subtitle { font-size: 12px; color: var(--text-muted); }
+.chart-actions { display: flex; gap: 4px; }
+.chart-period {
+  padding: 4px 10px; font-size: 11px; font-weight: 500; border-radius: 6px;
+  background: transparent; color: var(--text-muted); border: 1px solid transparent;
+  cursor: pointer; transition: var(--transition);
+}
+.chart-period.active { background: var(--accent-glow); color: var(--accent-light); border-color: rgba(108,92,231,0.2); }
+
+/* Fake chart area */
+.chart-area {
+  height: 200px; display: flex; align-items: flex-end; gap: 3px; padding: 0 4px;
+}
+.chart-bar {
+  flex: 1; border-radius: 3px 3px 0 0; transition: var(--transition);
+  cursor: pointer; min-width: 4px;
+}
+.chart-bar:hover { opacity: 0.8; filter: brightness(1.2); }
+
+/* Category breakdown */
+.category-list { display: flex; flex-direction: column; gap: 10px; }
+.category-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border-radius: var(--radius-sm);
+  background: var(--bg-primary); border: 1px solid var(--border-subtle);
+}
+.category-dot { width: 10px; height: 10px; border-radius: 3px; }
+.category-name { flex: 1; font-size: 13px; font-weight: 500; }
+.category-count { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 500; }
+.category-bar-wrap { width: 80px; height: 4px; background: var(--bg-elevated); border-radius: 2px; }
+.category-bar { height: 100%; border-radius: 2px; }
+
+/* ── Live Feed ─────────────────────────────────────────── */
+.two-col { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+.feed-card {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); overflow: hidden;
+}
+.feed-header {
+  padding: 16px 20px; border-bottom: 1px solid var(--border-subtle);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.feed-title { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.feed-title .live-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--green);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.feed-filter {
+  font-size: 12px; color: var(--text-muted); cursor: pointer;
+  padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+  transition: var(--transition);
+}
+.feed-filter:hover { border-color: var(--accent); color: var(--text-secondary); }
+
+.feed-list { max-height: 420px; overflow-y: auto; }
+.feed-list::-webkit-scrollbar { width: 4px; }
+.feed-list::-webkit-scrollbar-track { background: transparent; }
+.feed-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.feed-item {
+  padding: 14px 20px; border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer; transition: var(--transition);
+}
+.feed-item:hover { background: var(--bg-card-hover); }
+.feed-item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
+.feed-item-title { font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.feed-item-score {
+  font-family: 'JetBrains Mono'; font-size: 11px; font-weight: 600;
+  padding: 2px 8px; border-radius: 6px; white-space: nowrap;
+}
+.score-high { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+.score-med { background: var(--amber-bg); color: var(--amber); border: 1px solid rgba(255,217,61,0.2); }
+.score-low { background: var(--bg-elevated); color: var(--text-muted); border: 1px solid var(--border); }
+.feed-item-meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 12px; align-items: center; }
+.feed-item-actions { display: flex; gap: 6px; margin-top: 8px; }
+.feed-action {
+  padding: 4px 10px; border-radius: 5px; font-size: 10px; font-weight: 600;
+  cursor: pointer; transition: var(--transition); border: none; font-family: inherit;
+}
+.feed-action-view {
+  background: var(--bg-elevated); color: var(--text-secondary); border: 1px solid var(--border);
+}
+.feed-action-view:hover { border-color: var(--accent); color: var(--accent-light); }
+.feed-action-queue {
+  background: linear-gradient(135deg, var(--accent), #8b7cf7); color: white;
+}
+.feed-action-queue:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(108,92,231,0.3); }
+.feed-action-queued {
+  background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border);
+  cursor: default;
+}
+.feed-item-tag {
+  font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 4px;
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.tag-risk { background: rgba(108,92,231,0.15); color: var(--accent-light); }
+.tag-quant { background: rgba(77,171,247,0.15); color: var(--blue); }
+.tag-compliance { background: rgba(0,210,160,0.15); color: var(--green); }
+.tag-cyber { background: rgba(255,107,107,0.15); color: var(--red); }
+.tag-audit { background: rgba(255,217,61,0.15); color: var(--amber); }
+.tag-legal { background: rgba(253,121,168,0.15); color: #fd79a8; }
+.tag-fo { background: rgba(255,165,0,0.15); color: #ffa500; }
+
+/* ── Source Health ─────────────────────────────────────────── */
+.source-item {
+  padding: 12px 20px; border-bottom: 1px solid var(--border-subtle);
+  display: flex; align-items: center; gap: 12px;
+}
+.source-status { width: 8px; height: 8px; border-radius: 50%; }
+.source-status.ok { background: var(--green); }
+.source-status.fail { background: var(--red); }
+.source-status.partial { background: var(--amber); }
+.source-name { flex: 1; font-size: 13px; font-weight: 500; }
+.source-adapter {
+  font-family: 'JetBrains Mono'; font-size: 11px; color: var(--text-muted);
+  background: var(--bg-primary); padding: 2px 8px; border-radius: 4px;
+}
+.source-count { font-family: 'JetBrains Mono'; font-size: 12px; font-weight: 500; min-width: 50px; text-align: right; }
+.source-time { font-size: 11px; color: var(--text-muted); min-width: 40px; text-align: right; }
+
+/* ── Buttons ─────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: var(--radius-sm);
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: var(--transition); border: none;
+}
+.btn-primary {
+  background: linear-gradient(135deg, var(--accent), #8b7cf7);
+  color: white; box-shadow: 0 2px 12px rgba(108,92,231,0.3);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(108,92,231,0.4); }
+.btn-ghost {
+  background: transparent; color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--bg-card); color: var(--text-primary); }
+
+/* ── Hidden pages ─────────────────────────────────────────── */
+.page { display: none; }
+.page.active { display: block; }
+
+/* ── Leads Table ─────────────────────────────────────────── */
+.table-wrapper {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); overflow: hidden;
+}
+.table-toolbar {
+  padding: 16px 20px; border-bottom: 1px solid var(--border-subtle);
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 20px; font-size: 12px; font-weight: 500;
+  background: var(--bg-elevated); border: 1px solid var(--border);
+  color: var(--text-secondary); cursor: pointer; transition: var(--transition);
+}
+.filter-chip:hover { border-color: var(--accent); color: var(--accent-light); }
+.filter-chip.active { background: var(--accent-glow); border-color: rgba(108,92,231,0.3); color: var(--accent-light); }
+
+table {
+  width: 100%; border-collapse: collapse;
+}
+thead th {
+  padding: 10px 16px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.8px; color: var(--text-muted); text-align: left;
+  border-bottom: 1px solid var(--border-subtle); background: var(--bg-secondary);
+}
+tbody td {
+  padding: 12px 16px; font-size: 13px; border-bottom: 1px solid var(--border-subtle);
+}
+tbody tr { transition: var(--transition); cursor: pointer; }
+tbody tr:hover { background: var(--bg-card-hover); }
+.td-title { font-weight: 600; max-width: 280px; }
+.td-company { color: var(--text-secondary); }
+.td-location { color: var(--text-secondary); font-size: 12px; }
+.td-score { font-family: 'JetBrains Mono'; font-weight: 600; }
+
+/* ── Source Management ─────────────────────────────────────────── */
+.source-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 20px; }
+.source-card {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); padding: 16px; transition: var(--transition);
+}
+.source-card:hover { border-color: var(--border); }
+.source-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+.source-card-name { font-size: 14px; font-weight: 600; }
+.source-card-platform {
+  font-family: 'JetBrains Mono'; font-size: 10px; font-weight: 500;
+  padding: 3px 8px; border-radius: 4px; background: var(--bg-elevated);
+  color: var(--text-muted); text-transform: uppercase;
+}
+.source-card-stats { display: flex; gap: 16px; }
+.source-card-stat { }
+.source-card-stat-value { font-size: 18px; font-weight: 700; }
+.source-card-stat-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* ── Campaign Builder ─────────────────────────────────────────── */
+.campaign-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+.campaign-panel {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius); padding: 20px;
+}
+.campaign-panel-title { font-size: 14px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.email-preview {
+  background: var(--bg-primary); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); padding: 16px; font-size: 13px; line-height: 1.7;
+  color: var(--text-secondary);
+}
+.email-preview .subject { font-weight: 600; color: var(--text-primary); margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle); }
+.email-var { color: var(--accent-light); font-weight: 600; }
+.sequence-step {
+  display: flex; align-items: center; gap: 12px; padding: 12px;
+  background: var(--bg-primary); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); margin-bottom: 8px;
+}
+.step-num {
+  width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+}
+.step-num.active { background: var(--accent); color: white; }
+.step-num.pending { background: var(--bg-elevated); color: var(--text-muted); border: 1px solid var(--border); }
+.step-info { flex: 1; }
+.step-title { font-size: 13px; font-weight: 600; }
+.step-meta { font-size: 11px; color: var(--text-muted); }
+.step-stats { text-align: right; }
+.step-stat { font-family: 'JetBrains Mono'; font-size: 12px; font-weight: 500; }
+
+/* ── Lead Status Badges ─────────────────────────────────────────── */
+.lead-status {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 5px;
+  white-space: nowrap;
+}
+.status-queued { background: var(--amber-bg); color: var(--amber); border: 1px solid rgba(255,217,61,0.2); }
+.status-generating { background: var(--accent-glow); color: var(--accent-light); border: 1px solid rgba(108,92,231,0.2); }
+.status-ready { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+.status-campaigning { background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(77,171,247,0.2); }
+.spinner {
+  width: 10px; height: 10px; border: 2px solid rgba(108,92,231,0.2);
+  border-top-color: var(--accent-light); border-radius: 50%;
+  animation: spin 0.8s linear infinite; display: inline-block;
+}
+
+/* ── Advert Modal ─────────────────────────────────────────── */
+.advert-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+  z-index: 1000; display: flex; align-items: center; justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+}
+.advert-modal {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); width: 680px; max-height: 85vh;
+  display: flex; flex-direction: column; box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+}
+.advert-modal-header {
+  padding: 16px 20px; border-bottom: 1px solid var(--border-subtle);
+  display: flex; align-items: flex-start; justify-content: space-between; flex-shrink: 0;
+}
+.advert-modal-body {
+  padding: 20px; overflow-y: auto; flex: 1;
+}
+.advert-modal-body::-webkit-scrollbar { width: 4px; }
+.advert-modal-body::-webkit-scrollbar-track { background: transparent; }
+.advert-modal-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.advert-modal-footer {
+  padding: 12px 20px; border-top: 1px solid var(--border-subtle);
+  display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0;
+}
+.advert-close {
+  background: none; border: none; color: var(--text-muted); font-size: 20px;
+  cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: var(--transition);
+}
+.advert-close:hover { color: var(--text-primary); background: var(--bg-elevated); }
+.advert-section-title {
+  font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--accent-light); margin: 16px 0 8px; padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+.advert-section-title:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+.advert-body-text { font-size: 13px; line-height: 1.8; color: var(--text-secondary); }
+.advert-body-text ul { margin: 8px 0; padding-left: 20px; }
+.advert-body-text li { margin-bottom: 4px; }
+.advert-meta-row { display: flex; gap: 20px; margin-bottom: 4px; }
+.advert-meta-label { font-size: 11px; color: var(--text-muted); min-width: 70px; }
+.advert-meta-value { font-size: 12px; color: var(--text-primary); font-weight: 500; }
+
+/* ── Dossier Panel ─────────────────────────────────────────── */
+.dossier-panel {
+  background: var(--bg-primary); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); margin: 8px 12px 12px; padding: 20px;
+  animation: fadeIn 0.25s ease-out;
+}
+.dossier-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border-subtle);
+}
+.dossier-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.dossier-section {
+  background: var(--bg-card); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); padding: 14px;
+}
+.dossier-section-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.8px; color: var(--accent-light); margin-bottom: 8px;
+}
+.dossier-text { font-size: 12px; line-height: 1.7; color: var(--text-secondary); }
+.dossier-gap-table { display: flex; flex-direction: column; gap: 1px; background: var(--border-subtle); border-radius: var(--radius-xs); overflow: hidden; }
+.gap-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; }
+.gap-row > div { background: var(--bg-primary); padding: 8px 10px; font-size: 11px; color: var(--text-secondary); }
+.gap-row.gap-header > div { background: var(--bg-elevated); font-weight: 600; color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+.dossier-risk-items { display: flex; flex-direction: column; gap: 8px; }
+.risk-item { font-size: 11px; color: var(--text-secondary); display: flex; align-items: flex-start; gap: 8px; }
+.risk-badge {
+  font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px;
+  text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; margin-top: 1px;
+}
+.risk-badge.high { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-border); }
+.risk-badge.med { background: var(--amber-bg); color: var(--amber); border: 1px solid rgba(255,217,61,0.2); }
+.risk-badge.low { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-border); }
+.dossier-hm-cards { display: flex; flex-direction: column; gap: 6px; }
+.hm-card {
+  background: var(--bg-primary); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs); padding: 8px 10px;
+}
+tr.dossier-row:hover { background: transparent !important; }
+tr[onclick]:hover { background: var(--bg-card-hover); }
+
+/* Animations */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+.stat-card, .feed-item, .source-item { animation: fadeIn 0.3s ease-out; }
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ──────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">P</div>
+    <span class="logo-text">Prospero</span>
+    <span class="logo-badge">Beta</span>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">
+      <div class="nav-section-label">Overview</div>
+      <a class="nav-item active" onclick="showPage('dashboard')">
+        <span class="nav-icon">&#9635;</span> Dashboard
+      </a>
+      <a class="nav-item" onclick="showPage('leads')">
+        <span class="nav-icon">&#9733;</span> Lead List
+        <span class="badge green">2,847</span>
+      </a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-label">Pipeline</div>
+      <a class="nav-item" onclick="showPage('sources')">
+        <span class="nav-icon">&#9881;</span> Sources
+        <span class="badge">738</span>
+      </a>
+      <a class="nav-item" onclick="showPage('campaigns')">
+        <span class="nav-icon">&#9993;</span> Campaigns
+        <span class="badge amber">47</span>
+      </a>
+      <a class="nav-item" onclick="showPage('builder')">
+        <span class="nav-icon">&#9998;</span> Campaign Builder
+      </a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-label">Settings</div>
+      <a class="nav-item">
+        <span class="nav-icon">&#9881;</span> Scoring Rules
+      </a>
+      <a class="nav-item">
+        <span class="nav-icon">&#8694;</span> Integrations
+      </a>
+      <a class="nav-item">
+        <span class="nav-icon">&#9783;</span> Team
+      </a>
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="avatar">AB</div>
+    <div class="user-info">
+      <div class="user-name">Antony B.</div>
+      <div class="user-plan">Pro Plan</div>
+    </div>
+  </div>
+</aside>
+
+<!-- ── Main ──────────────────────────────────────── -->
+<div class="main">
+  <div class="topbar">
+    <div class="topbar-title" id="topbar-title">Dashboard</div>
+    <div class="topbar-search">
+      <span>&#128269;</span> Search leads, sources, campaigns...
+      <kbd>&#8984;K</kbd>
+    </div>
+    <div class="topbar-actions">
+      <div class="topbar-btn has-notif">&#128276;</div>
+      <div class="topbar-btn">&#9881;</div>
+    </div>
+  </div>
+
+  <!-- ════════════════ DASHBOARD ════════════════ -->
+  <div class="page active" id="page-dashboard">
+    <div class="content">
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Leads</div>
+          <div class="stat-value">18,642</div>
+          <div class="stat-change up">&#9650; 1,247 today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Scored &amp; Qualified</div>
+          <div class="stat-value accent">2,847</div>
+          <div class="stat-change up">&#9650; 312 today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Sources Active</div>
+          <div class="stat-value green">714</div>
+          <div class="stat-change"><span style="color:var(--red)">24 failing</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Campaigns Active</div>
+          <div class="stat-value amber">3</div>
+          <div class="stat-change up">68% open rate</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Avg Score</div>
+          <div class="stat-value">7.4</div>
+          <div class="stat-change up">&#9650; 0.3 vs last week</div>
+        </div>
+      </div>
+
+      <div class="charts-row">
+        <div class="chart-card">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">Leads Discovered</div>
+              <div class="chart-subtitle">Daily discovery volume across all sources</div>
+            </div>
+            <div class="chart-actions">
+              <span class="chart-period">7D</span>
+              <span class="chart-period active">30D</span>
+              <span class="chart-period">90D</span>
+            </div>
+          </div>
+          <div class="chart-area" id="leads-chart"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">By Category</div>
+              <div class="chart-subtitle">Qualified leads breakdown</div>
+            </div>
+          </div>
+          <div class="category-list">
+            <div class="category-item">
+              <div class="category-dot" style="background:var(--accent-light)"></div>
+              <div class="category-name">Risk</div>
+              <div class="category-count">847</div>
+              <div class="category-bar-wrap"><div class="category-bar" style="width:100%;background:var(--accent-light)"></div></div>
+            </div>
+            <div class="category-item">
+              <div class="category-dot" style="background:var(--blue)"></div>
+              <div class="category-name">Quant</div>
+              <div class="category-count">623</div>
+              <div class="category-bar-wrap"><div class="category-bar" style="width:74%;background:var(--blue)"></div></div>
+            </div>
+            <div class="category-item">
+              <div class="category-dot" style="background:var(--green)"></div>
+              <div class="category-name">Compliance</div>
+              <div class="category-count">512</div>
+              <div class="category-bar-wrap"><div class="category-bar" style="width:60%;background:var(--green)"></div></div>
+            </div>
+            <div class="category-item">
+              <div class="category-dot" style="background:var(--amber)"></div>
+              <div class="category-name">Audit</div>
+              <div class="category-count">389</div>
+              <div class="category-bar-wrap"><div class="category-bar" style="width:46%;background:var(--amber)"></div></div>
+            </div>
+            <div class="category-item">
+              <div class="category-dot" style="background:var(--red)"></div>
+              <div class="category-name">Cyber</div>
+              <div class="category-count">234</div>
+              <div class="category-bar-wrap"><div class="category-bar" style="width:28%;background:var(--red)"></div></div>
+            </div>
+            <div class="category-item">
+              <div class="category-dot" style="background:#fd79a8"></div>
+              <div class="category-name">Legal</div>
+              <div class="category-count">156</div>
+              <div class="category-bar-wrap"><div class="category-bar" style="width:18%;background:#fd79a8"></div></div>
+            </div>
+            <div class="category-item">
+              <div class="category-dot" style="background:#ffa500"></div>
+              <div class="category-name">Front Office</div>
+              <div class="category-count">86</div>
+              <div class="category-bar-wrap"><div class="category-bar" style="width:10%;background:#ffa500"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="feed-card">
+          <div class="feed-header">
+            <div class="feed-title"><span class="live-dot"></span> Live Feed</div>
+            <div class="feed-filter">All Categories &#9662;</div>
+          </div>
+          <div class="feed-list">
+            <div class="feed-item">
+              <div class="feed-item-header">
+                <div class="feed-item-title">VP, Market Risk Analytics</div>
+                <div class="feed-item-score score-high">9.2</div>
+              </div>
+              <div class="feed-item-meta">
+                <span>Goldman Sachs</span> &middot; <span>London, UK</span> &middot;
+                <span class="feed-item-tag tag-risk">Risk</span>
+                <span style="margin-left:auto">2m ago</span>
+              </div>
+              <div class="feed-item-actions">
+                <button class="feed-action feed-action-view" onclick="event.stopPropagation();openAdvert(this)">&#128196; View Advert</button>
+                <button class="feed-action feed-action-queue" onclick="queueCampaign(this)">&#9993; Queue Campaign</button>
+              </div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-item-header">
+                <div class="feed-item-title">Quantitative Analyst, Derivatives Pricing</div>
+                <div class="feed-item-score score-high">9.0</div>
+              </div>
+              <div class="feed-item-meta">
+                <span>Citadel</span> &middot; <span>New York, USA</span> &middot;
+                <span class="feed-item-tag tag-quant">Quant</span>
+                <span style="margin-left:auto">4m ago</span>
+              </div>
+              <div class="feed-item-actions">
+                <button class="feed-action feed-action-view" onclick="event.stopPropagation();openAdvert(this)">&#128196; View Advert</button>
+                <button class="feed-action feed-action-queue" onclick="queueCampaign(this)">&#9993; Queue Campaign</button>
+              </div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-item-header">
+                <div class="feed-item-title">Head of Compliance, EMEA</div>
+                <div class="feed-item-score score-high">8.7</div>
+              </div>
+              <div class="feed-item-meta">
+                <span>Barclays</span> &middot; <span>London, UK</span> &middot;
+                <span class="feed-item-tag tag-compliance">Compliance</span>
+                <span style="margin-left:auto">8m ago</span>
+              </div>
+              <div class="feed-item-actions">
+                <button class="feed-action feed-action-view" onclick="event.stopPropagation();openAdvert(this)">&#128196; View Advert</button>
+                <button class="feed-action feed-action-queued" disabled>&#10003; Queued</button>
+              </div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-item-header">
+                <div class="feed-item-title">Senior Cyber Security Engineer</div>
+                <div class="feed-item-score score-med">7.4</div>
+              </div>
+              <div class="feed-item-meta">
+                <span>HSBC</span> &middot; <span>Birmingham, UK</span> &middot;
+                <span class="feed-item-tag tag-cyber">Cyber</span>
+                <span style="margin-left:auto">12m ago</span>
+              </div>
+              <div class="feed-item-actions">
+                <button class="feed-action feed-action-view" onclick="event.stopPropagation();openAdvert(this)">&#128196; View Advert</button>
+                <button class="feed-action feed-action-queue" onclick="queueCampaign(this)">&#9993; Queue Campaign</button>
+              </div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-item-header">
+                <div class="feed-item-title">Trader, Rates Desk</div>
+                <div class="feed-item-score score-high">8.9</div>
+              </div>
+              <div class="feed-item-meta">
+                <span>Marathon Asset Management</span> &middot; <span>New York, USA</span> &middot;
+                <span class="feed-item-tag tag-fo">Front Office</span>
+                <span style="margin-left:auto">15m ago</span>
+              </div>
+              <div class="feed-item-actions">
+                <button class="feed-action feed-action-view" onclick="event.stopPropagation();openAdvert(this)">&#128196; View Advert</button>
+                <button class="feed-action feed-action-queue" onclick="queueCampaign(this)">&#9993; Queue Campaign</button>
+              </div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-item-header">
+                <div class="feed-item-title">Internal Audit Manager, Technology</div>
+                <div class="feed-item-score score-med">7.1</div>
+              </div>
+              <div class="feed-item-meta">
+                <span>Deutsche Bank</span> &middot; <span>Frankfurt, Germany</span> &middot;
+                <span class="feed-item-tag tag-audit">Audit</span>
+                <span style="margin-left:auto">18m ago</span>
+              </div>
+              <div class="feed-item-actions">
+                <button class="feed-action feed-action-view" onclick="event.stopPropagation();openAdvert(this)">&#128196; View Advert</button>
+                <button class="feed-action feed-action-queue" onclick="queueCampaign(this)">&#9993; Queue Campaign</button>
+              </div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-item-header">
+                <div class="feed-item-title">Legal Counsel, Structured Finance</div>
+                <div class="feed-item-score score-med">7.6</div>
+              </div>
+              <div class="feed-item-meta">
+                <span>BNP Paribas</span> &middot; <span>Paris, France</span> &middot;
+                <span class="feed-item-tag tag-legal">Legal</span>
+                <span style="margin-left:auto">22m ago</span>
+              </div>
+              <div class="feed-item-actions">
+                <button class="feed-action feed-action-view" onclick="event.stopPropagation();openAdvert(this)">&#128196; View Advert</button>
+                <button class="feed-action feed-action-queue" onclick="queueCampaign(this)">&#9993; Queue Campaign</button>
+              </div>
+            </div>
+            <div class="feed-item">
+              <div class="feed-item-header">
+                <div class="feed-item-title">Quantitative Risk Analyst</div>
+                <div class="feed-item-score score-high">9.4</div>
+              </div>
+              <div class="feed-item-meta">
+                <span>Man Group</span> &middot; <span>London, UK</span> &middot;
+                <span class="feed-item-tag tag-quant">Quant Risk</span>
+                <span style="margin-left:auto">25m ago</span>
+              </div>
+              <div class="feed-item-actions">
+                <button class="feed-action feed-action-view" onclick="event.stopPropagation();openAdvert(this)">&#128196; View Advert</button>
+                <button class="feed-action feed-action-queued" disabled>&#10003; Queued</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="feed-card">
+          <div class="feed-header">
+            <div class="feed-title">Source Health</div>
+            <div class="feed-filter">Show Failing &#9662;</div>
+          </div>
+          <div class="feed-list">
+            <div class="source-item"><div class="source-status ok"></div><div class="source-name">Goldman Sachs</div><div class="source-adapter">workday</div><div class="source-count">847</div><div class="source-time">2.1s</div></div>
+            <div class="source-item"><div class="source-status ok"></div><div class="source-name">Citadel</div><div class="source-adapter">generic</div><div class="source-count">10</div><div class="source-time">4.8s</div></div>
+            <div class="source-item"><div class="source-status ok"></div><div class="source-name">Barclays</div><div class="source-adapter">workday</div><div class="source-count">1,204</div><div class="source-time">3.2s</div></div>
+            <div class="source-item"><div class="source-status ok"></div><div class="source-name">Man Group</div><div class="source-adapter">greenhouse</div><div class="source-count">57</div><div class="source-time">0.8s</div></div>
+            <div class="source-item"><div class="source-status ok"></div><div class="source-name">Stripe</div><div class="source-adapter">greenhouse</div><div class="source-count">485</div><div class="source-time">1.1s</div></div>
+            <div class="source-item"><div class="source-status fail"></div><div class="source-name">BGL Group</div><div class="source-adapter">generic</div><div class="source-count">0</div><div class="source-time">45s</div></div>
+            <div class="source-item"><div class="source-status partial"></div><div class="source-name">Adzuna</div><div class="source-adapter">adzuna</div><div class="source-count">13,639</div><div class="source-time">600s</div></div>
+            <div class="source-item"><div class="source-status ok"></div><div class="source-name">Marathon AM</div><div class="source-adapter">icims</div><div class="source-count">18</div><div class="source-time">0.9s</div></div>
+            <div class="source-item"><div class="source-status ok"></div><div class="source-name">KKR</div><div class="source-adapter">greenhouse</div><div class="source-count">115</div><div class="source-time">1.3s</div></div>
+            <div class="source-item"><div class="source-status fail"></div><div class="source-name">Dudley BS</div><div class="source-adapter">generic</div><div class="source-count">0</div><div class="source-time">timeout</div></div>
+            <div class="source-item"><div class="source-status ok"></div><div class="source-name">Coinbase</div><div class="source-adapter">greenhouse</div><div class="source-count">161</div><div class="source-time">1.0s</div></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════ LEAD LIST ════════════════ -->
+  <div class="page" id="page-leads">
+    <div class="content">
+      <div class="table-wrapper">
+        <div class="table-toolbar">
+          <span class="filter-chip active">All (2,847)</span>
+          <span class="filter-chip">Risk (847)</span>
+          <span class="filter-chip">Quant (623)</span>
+          <span class="filter-chip">Compliance (512)</span>
+          <span class="filter-chip">Audit (389)</span>
+          <span class="filter-chip">Cyber (234)</span>
+          <span class="filter-chip">Legal (156)</span>
+          <span class="filter-chip">Front Office (86)</span>
+          <span style="margin-left:auto"></span>
+          <button class="btn btn-ghost">&#8681; Export</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Title</th>
+              <th>Company</th>
+              <th>Location</th>
+              <th>Category</th>
+              <th>Score</th>
+              <th>Found</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr onclick="toggleDossier(this)" style="cursor:pointer"><td><span class="lead-status status-ready">&#10003; Ready</span></td><td class="td-title">VP, Market Risk Analytics</td><td class="td-company">Goldman Sachs</td><td class="td-location">London, UK</td><td><span class="feed-item-tag tag-risk">Risk</span></td><td class="td-score" style="color:var(--green)">9.2</td><td style="color:var(--text-muted);font-size:12px">2m ago</td></tr>
+            <tr class="dossier-row" style="display:none"><td colspan="9" style="padding:0;border:none">
+              <div class="dossier-panel">
+                <div class="dossier-header">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="font-size:15px;font-weight:700">Intelligence Report</div>
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);border:1px solid rgba(108,92,231,0.2)">AI Generated</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost" style="padding:5px 12px;font-size:11px">&#128196; Export PDF</button>
+                    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px">&#9993; Create Campaign</button>
+                  </div>
+                </div>
+
+                <div class="dossier-grid">
+                  <!-- Left column: Company Context + Business Problem -->
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Company &amp; Market Context</div>
+                    <div class="dossier-text">Goldman Sachs is expanding its second-line market risk function in London ahead of Basel 3.1 implementation deadlines. The FRTB programme is creating demand for quantitative risk professionals who can bridge the gap between front-office pricing models and regulatory capital calculations. Recent FCA commentary on model risk management has added pressure to build out independent validation capabilities.</div>
+
+                    <div class="dossier-section-title" style="margin-top:16px">The Core Business Problem</div>
+                    <div class="dossier-text">The role sits at the intersection of regulatory compliance and trading desk profitability. GS needs someone who can challenge front-office VaR models while maintaining the trust of the trading desk. If this hire is delayed, the firm risks regulatory scrutiny on its internal model approval under the new framework. The real cost is not the salary but the capital add-on from falling back to the standardised approach.</div>
+                  </div>
+
+                  <!-- Right column: Gap Analysis + Candidate Profiles -->
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Stated Need vs Actual Need</div>
+                    <div class="dossier-gap-table">
+                      <div class="gap-row gap-header"><div>What the JD Asks For</div><div>What They Likely Need</div></div>
+                      <div class="gap-row"><div>10+ years market risk experience</div><div>Someone who has lived through at least one model approval cycle with a regulator</div></div>
+                      <div class="gap-row"><div>PhD in quantitative discipline</div><div>Strong enough quant skills to challenge a desk, but commercial enough to negotiate</div></div>
+                      <div class="gap-row"><div>Experience with VaR, stress testing, Greeks</div><div>Specific FRTB/IMA experience, particularly P&amp;L attribution and backtesting</div></div>
+                    </div>
+
+                    <div class="dossier-section-title" style="margin-top:16px">Ideal Candidate Profiles</div>
+                    <div class="dossier-text" style="margin-bottom:6px"><span style="color:var(--accent-light);font-weight:600">Profile A:</span> Senior market risk quant from a Tier 1 bank (JPM, Citi, Barclays) who has been through FRTB desk-level implementation. Currently a VP looking for a step up.</div>
+                    <div class="dossier-text"><span style="color:var(--blue);font-weight:600">Profile B:</span> Ex-front-office quant (structuring/pricing) who moved into risk. Rare but highly valued because they understand the models they are validating.</div>
+                  </div>
+                </div>
+
+                <!-- Hiring Manager + Spec Risk in bottom row -->
+                <div class="dossier-grid" style="margin-top:12px">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Specification Risk</div>
+                    <div class="dossier-risk-items">
+                      <div class="risk-item"><span class="risk-badge high">High</span> Over-specified: PhD requirement eliminates 70% of viable candidates with equivalent experience</div>
+                      <div class="risk-item"><span class="risk-badge med">Med</span> Pay vs market: VP-level risk quants at GS are well-compensated but the role may require ED-level talent</div>
+                      <div class="risk-item"><span class="risk-badge low">Low</span> Location: London is the natural hub for this function; no relocation friction expected</div>
+                    </div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Likely Hiring Manager</div>
+                    <div class="dossier-hm-cards">
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">Sarah Chen</div><div style="font-size:11px;color:var(--text-muted)">MD, Head of Market Risk Analytics</div></div>
+                          <span style="font-size:10px;color:var(--green)">92%</span>
+                        </div>
+                      </div>
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">Michael Torres</div><div style="font-size:11px;color:var(--text-muted)">MD, Risk Model Validation</div></div>
+                          <span style="font-size:10px;color:var(--amber)">74%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:12px">Lead Score</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:28px;font-weight:800;color:var(--green)">4.2<span style="font-size:14px;color:var(--text-muted);font-weight:400"> / 5</span></div>
+                      <div style="font-size:11px;color:var(--text-muted);flex:1">High-value mandate. GS brand attracts candidates but FRTB specialism narrows the field. Recruiter who understands the regulatory context will differentiate.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+            <tr onclick="toggleDossier(this)" style="cursor:pointer"><td><span class="lead-status status-generating"><span class="spinner"></span> Generating</span></td><td class="td-title">Quantitative Risk Analyst</td><td class="td-company">Man Group</td><td class="td-location">London, UK</td><td><span class="feed-item-tag tag-quant">Quant Risk</span></td><td class="td-score" style="color:var(--green)">9.4</td><td style="color:var(--text-muted);font-size:12px">25m ago</td></tr>
+            <tr class="dossier-row" style="display:none"><td colspan="9" style="padding:0;border:none">
+              <div class="dossier-panel">
+                <div class="dossier-header">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="font-size:15px;font-weight:700">Intelligence Report</div>
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);border:1px solid rgba(108,92,231,0.2)">AI Generated</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost" style="padding:5px 12px;font-size:11px">&#128196; Export PDF</button>
+                    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px">&#9993; Create Campaign</button>
+                  </div>
+                </div>
+                <div class="dossier-grid">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Company &amp; Market Context</div>
+                    <div class="dossier-text">Man Group is one of the largest publicly listed hedge fund managers globally, with approximately $175bn in AUM. The firm operates primarily through its systematic arm, AHL, and its discretionary division, GLG. Revenue is driven by management fees and performance fees tied to quantitative strategy returns. Man Group is listed on the LSE and recently expanded its quant research headcount following strong AHL performance in 2025. The hire likely reflects a push to build out second-line risk analytics to keep pace with strategy complexity.</div>
+                    <div class="dossier-section-title" style="margin-top:16px">The Core Business Problem</div>
+                    <div class="dossier-text">As AHL strategies become more complex and the firm adds alternative data sources, the independent risk function needs quants who can genuinely challenge the front-office models rather than just run reports. Without this hire, risk oversight becomes a rubber stamp, which is a regulatory and investor relations concern for a publicly listed manager.</div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Stated Need vs Actual Need</div>
+                    <div class="dossier-gap-table">
+                      <div class="gap-row gap-header"><div>What the JD Asks For</div><div>What They Likely Need</div></div>
+                      <div class="gap-row"><div>Strong quantitative background with risk experience</div><div>Someone who can code in Python/C++ and independently replicate front-office factor models</div></div>
+                      <div class="gap-row"><div>Experience with market risk metrics</div><div>Deep understanding of systematic strategy risk, not just vanilla VaR</div></div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:16px">Ideal Candidate Profiles</div>
+                    <div class="dossier-text" style="margin-bottom:6px"><span style="color:var(--accent-light);font-weight:600">Profile A:</span> Risk quant from a systematic fund (Winton, Marshall Wace, Aspect Capital) who understands factor-based strategies and can challenge portfolio construction decisions.</div>
+                    <div class="dossier-text"><span style="color:var(--blue);font-weight:600">Profile B:</span> Ex-sell-side quant (rates or equities) who moved into model validation at a bank and wants to return to the buy-side in a more intellectually stimulating role.</div>
+                  </div>
+                </div>
+                <div class="dossier-grid" style="margin-top:12px">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Specification Risk</div>
+                    <div class="dossier-risk-items">
+                      <div class="risk-item"><span class="risk-badge med">Med</span> Compensation: Man Group pays well but systematic fund risk quants are scarce and command a premium</div>
+                      <div class="risk-item"><span class="risk-badge low">Low</span> Location: London HQ is attractive for this profile; no friction</div>
+                    </div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Likely Hiring Manager</div>
+                    <div class="dossier-hm-cards">
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">Sandy Sherkov</div><div style="font-size:11px;color:var(--text-muted)">CRO, Man Group</div></div>
+                          <span style="font-size:10px;color:var(--green)">88%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:12px">Lead Score</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:28px;font-weight:800;color:var(--green)">4.5<span style="font-size:14px;color:var(--text-muted);font-weight:400"> / 5</span></div>
+                      <div style="font-size:11px;color:var(--text-muted);flex:1">Strong mandate. Systematic risk quants are a very shallow talent pool. Man Group brand helps but the role specificity means most generalist risk recruiters will struggle.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+
+            <tr onclick="toggleDossier(this)" style="cursor:pointer"><td><span class="lead-status status-ready">&#10003; Ready</span></td><td class="td-title">Quantitative Analyst, Derivatives</td><td class="td-company">Citadel</td><td class="td-location">New York, USA</td><td><span class="feed-item-tag tag-quant">Quant</span></td><td class="td-score" style="color:var(--green)">9.0</td><td style="color:var(--text-muted);font-size:12px">4m ago</td></tr>
+            <tr class="dossier-row" style="display:none"><td colspan="9" style="padding:0;border:none">
+              <div class="dossier-panel">
+                <div class="dossier-header">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="font-size:15px;font-weight:700">Intelligence Report</div>
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);border:1px solid rgba(108,92,231,0.2)">AI Generated</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost" style="padding:5px 12px;font-size:11px">&#128196; Export PDF</button>
+                    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px">&#9993; Create Campaign</button>
+                  </div>
+                </div>
+                <div class="dossier-grid">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Company &amp; Market Context</div>
+                    <div class="dossier-text">Citadel is one of the world's largest and most profitable multi-strategy hedge funds, managing over $60bn. The derivatives desk is a core revenue engine across equities, rates, and credit. Citadel's quantitative infrastructure is considered best-in-class, and the firm has been aggressively expanding its London and New York quant teams. The hire likely signals either a new strategy launch or replacement of a departure in a high-performing team.</div>
+                    <div class="dossier-section-title" style="margin-top:16px">The Core Business Problem</div>
+                    <div class="dossier-text">Derivatives quants at Citadel are expected to generate alpha, not just support traders. The gap between a mediocre and excellent quant in this seat is measured in tens of millions of P&L. Speed matters because unfilled seats directly reduce strategy capacity and revenue.</div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Stated Need vs Actual Need</div>
+                    <div class="dossier-gap-table">
+                      <div class="gap-row gap-header"><div>What the JD Asks For</div><div>What They Likely Need</div></div>
+                      <div class="gap-row"><div>PhD in a quantitative discipline</div><div>Someone who can build and ship production models, not just write papers</div></div>
+                      <div class="gap-row"><div>Experience with derivatives pricing</div><div>Ability to identify and exploit pricing inefficiencies across vol surfaces</div></div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:16px">Ideal Candidate Profiles</div>
+                    <div class="dossier-text" style="margin-bottom:6px"><span style="color:var(--accent-light);font-weight:600">Profile A:</span> Quant researcher at a competing multi-strat (Millennium, Point72, Balyasny) looking for a better capital allocation and infrastructure. Currently running a live book.</div>
+                    <div class="dossier-text"><span style="color:var(--blue);font-weight:600">Profile B:</span> Sell-side exotic derivatives quant (JPM, GS, Barclays) who has published and wants to move to the buy-side for greater autonomy and direct P&L attribution.</div>
+                  </div>
+                </div>
+                <div class="dossier-grid" style="margin-top:12px">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Specification Risk</div>
+                    <div class="dossier-risk-items">
+                      <div class="risk-item"><span class="risk-badge high">High</span> Competition: Citadel is simultaneously competing with every other top fund for the same 50 people globally</div>
+                      <div class="risk-item"><span class="risk-badge med">Med</span> PhD requirement is not negotiable here, which limits the pool but is standard for this level</div>
+                    </div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Likely Hiring Manager</div>
+                    <div class="dossier-hm-cards">
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">Pablo Salame</div><div style="font-size:11px;color:var(--text-muted)">Global Head of Equities, Citadel</div></div>
+                          <span style="font-size:10px;color:var(--amber)">65%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:12px">Lead Score</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:28px;font-weight:800;color:var(--green)">3.8<span style="font-size:14px;color:var(--text-muted);font-weight:400"> / 5</span></div>
+                      <div style="font-size:11px;color:var(--text-muted);flex:1">Prestigious but extremely difficult to place. Citadel runs its own sourcing machine. The recruiter opportunity exists only if internal sourcing fails, which does happen for niche vol profiles.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+
+            <tr onclick="toggleDossier(this)" style="cursor:pointer"><td><span class="lead-status status-campaigning"><span class="live-dot" style="width:6px;height:6px"></span> Live</span></td><td class="td-title">Head of Compliance, EMEA</td><td class="td-company">Barclays</td><td class="td-location">London, UK</td><td><span class="feed-item-tag tag-compliance">Compliance</span></td><td class="td-score" style="color:var(--green)">8.7</td><td style="color:var(--text-muted);font-size:12px">8m ago</td></tr>
+            <tr class="dossier-row" style="display:none"><td colspan="9" style="padding:0;border:none">
+              <div class="dossier-panel">
+                <div class="dossier-header">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="font-size:15px;font-weight:700">Intelligence Report</div>
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);border:1px solid rgba(108,92,231,0.2)">AI Generated</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost" style="padding:5px 12px;font-size:11px">&#128196; Export PDF</button>
+                    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px">&#9993; Create Campaign</button>
+                  </div>
+                </div>
+                <div class="dossier-grid">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Company &amp; Market Context</div>
+                    <div class="dossier-text">Barclays operates across retail, corporate and investment banking. Following a series of FCA enforcement actions and the Consumer Duty rollout, the bank has been bolstering its compliance function across EMEA. The Head of Compliance EMEA role sits at a critical juncture: managing regulatory relationships across multiple jurisdictions while the FCA intensifies scrutiny on financial crime controls and cross-border transaction monitoring. Recent board-level commentary suggests compliance is a top-three priority for 2026.</div>
+                    <div class="dossier-section-title" style="margin-top:16px">The Core Business Problem</div>
+                    <div class="dossier-text">Barclays needs a senior compliance leader who can manage multi-jurisdictional regulatory risk without slowing down the investment banking franchise. The real tension is between revenue-generating activity and regulatory constraint. A vacancy at this level creates immediate exposure to regulatory criticism and weakens the bank's negotiating position with the FCA.</div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Stated Need vs Actual Need</div>
+                    <div class="dossier-gap-table">
+                      <div class="gap-row gap-header"><div>What the JD Asks For</div><div>What They Likely Need</div></div>
+                      <div class="gap-row"><div>15+ years compliance experience</div><div>Someone who has personally managed an FCA or PRA investigation to resolution</div></div>
+                      <div class="gap-row"><div>Knowledge of MiFID, MAR, AML regulations</div><div>Political operator who can influence the business without formal authority</div></div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:16px">Ideal Candidate Profiles</div>
+                    <div class="dossier-text" style="margin-bottom:6px"><span style="color:var(--accent-light);font-weight:600">Profile A:</span> Head of Compliance at a mid-tier bank (Standard Chartered, Societe Generale) who wants a step up to a Tier 1 franchise and has direct regulatory engagement experience.</div>
+                    <div class="dossier-text"><span style="color:var(--blue);font-weight:600">Profile B:</span> Senior FCA supervisor who has moved into industry. Rare but highly valued for their understanding of how the regulator thinks internally.</div>
+                  </div>
+                </div>
+                <div class="dossier-grid" style="margin-top:12px">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Specification Risk</div>
+                    <div class="dossier-risk-items">
+                      <div class="risk-item"><span class="risk-badge high">High</span> Internal politics: this role historically has a high turnover rate at Barclays, which deters top candidates</div>
+                      <div class="risk-item"><span class="risk-badge med">Med</span> Compensation: Barclays pays competitively but not at the top of the market for this level</div>
+                    </div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Likely Hiring Manager</div>
+                    <div class="dossier-hm-cards">
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">Paul Compton</div><div style="font-size:11px;color:var(--text-muted)">Group Chief Operating Officer</div></div>
+                          <span style="font-size:10px;color:var(--amber)">72%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:12px">Lead Score</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:28px;font-weight:800;color:var(--green)">4.0<span style="font-size:14px;color:var(--text-muted);font-weight:400"> / 5</span></div>
+                      <div style="font-size:11px;color:var(--text-muted);flex:1">High-value mandate. Senior compliance hires at Tier 1 banks are difficult and often stall after initial internal attempts fail. The recruiter window typically opens 8-12 weeks into the search.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+
+            <tr onclick="toggleDossier(this)" style="cursor:pointer"><td><span class="lead-status status-generating"><span class="spinner"></span> Generating</span></td><td class="td-title">Trader, Rates Desk</td><td class="td-company">Marathon AM</td><td class="td-location">New York, USA</td><td><span class="feed-item-tag tag-fo">Front Office</span></td><td class="td-score" style="color:var(--green)">8.9</td><td style="color:var(--text-muted);font-size:12px">15m ago</td></tr>
+            <tr class="dossier-row" style="display:none"><td colspan="9" style="padding:0;border:none">
+              <div class="dossier-panel">
+                <div class="dossier-header">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="font-size:15px;font-weight:700">Intelligence Report</div>
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);border:1px solid rgba(108,92,231,0.2)">AI Generated</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost" style="padding:5px 12px;font-size:11px">&#128196; Export PDF</button>
+                    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px">&#9993; Create Campaign</button>
+                  </div>
+                </div>
+                <div class="dossier-grid">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Company &amp; Market Context</div>
+                    <div class="dossier-text">Marathon Asset Management is a credit-focused alternative investment firm managing approximately $23bn. The firm has historically been a distressed and high-yield specialist but has expanded into structured credit and direct lending. The rates desk is a newer addition, reflecting Marathon's strategy to diversify away from pure credit into macro-adjacent strategies. This hire suggests the desk is being built out or a key trader has departed.</div>
+                    <div class="dossier-section-title" style="margin-top:16px">The Core Business Problem</div>
+                    <div class="dossier-text">A rates desk without a trader is a desk without revenue. Every week this seat is empty, Marathon is paying for infrastructure and risk systems that generate nothing. The urgency is compounded by the current rates environment, which presents significant trading opportunities that require someone in the seat to capture.</div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Stated Need vs Actual Need</div>
+                    <div class="dossier-gap-table">
+                      <div class="gap-row gap-header"><div>What the JD Asks For</div><div>What They Likely Need</div></div>
+                      <div class="gap-row"><div>Rates trading experience</div><div>Someone who can trade rates with a credit lens, understanding how macro moves affect Marathon's core book</div></div>
+                      <div class="gap-row"><div>Strong risk management skills</div><div>A trader comfortable with lower leverage and longer hold periods than a bank prop desk</div></div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:16px">Ideal Candidate Profiles</div>
+                    <div class="dossier-text" style="margin-bottom:6px"><span style="color:var(--accent-light);font-weight:600">Profile A:</span> VP-level rates trader from a bank (Citi, BofA, Barclays) who wants the autonomy and economics of a hedge fund seat. Needs to be comfortable with illiquidity.</div>
+                    <div class="dossier-text"><span style="color:var(--blue);font-weight:600">Profile B:</span> Rates trader from a macro fund (Brevan Howard, Rokos) who wants exposure to credit-adjacent strategies and a more collaborative team environment.</div>
+                  </div>
+                </div>
+                <div class="dossier-grid" style="margin-top:12px">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Specification Risk</div>
+                    <div class="dossier-risk-items">
+                      <div class="risk-item"><span class="risk-badge high">High</span> Compensation: top rates traders can command $1m+ packages, and Marathon's AUM may not support a guaranteed year-one payout at that level</div>
+                      <div class="risk-item"><span class="risk-badge med">Med</span> Cultural fit: Marathon is a credit shop at heart; a pure rates trader may feel like an outsider</div>
+                    </div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Likely Hiring Manager</div>
+                    <div class="dossier-hm-cards">
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">Bruce Richards</div><div style="font-size:11px;color:var(--text-muted)">CEO &amp; CIO, Marathon Asset Management</div></div>
+                          <span style="font-size:10px;color:var(--green)">80%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:12px">Lead Score</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:28px;font-weight:800;color:var(--green)">4.3<span style="font-size:14px;color:var(--text-muted);font-weight:400"> / 5</span></div>
+                      <div style="font-size:11px;color:var(--text-muted);flex:1">Excellent opportunity. Front-office hires at this level almost always involve recruiters. Marathon's brand is strong but niche, meaning they will struggle to attract passive candidates without help.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+
+            <tr onclick="toggleDossier(this)" style="cursor:pointer"><td><span class="lead-status status-queued">&#9201; Queued</span></td><td class="td-title">Senior Cyber Security Engineer</td><td class="td-company">HSBC</td><td class="td-location">Birmingham, UK</td><td><span class="feed-item-tag tag-cyber">Cyber</span></td><td class="td-score" style="color:var(--amber)">7.4</td><td style="color:var(--text-muted);font-size:12px">12m ago</td></tr>
+            <tr class="dossier-row" style="display:none"><td colspan="9" style="padding:0;border:none">
+              <div class="dossier-panel">
+                <div class="dossier-header">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="font-size:15px;font-weight:700">Intelligence Report</div>
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);border:1px solid rgba(108,92,231,0.2)">AI Generated</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost" style="padding:5px 12px;font-size:11px">&#128196; Export PDF</button>
+                    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px">&#9993; Create Campaign</button>
+                  </div>
+                </div>
+                <div class="dossier-grid">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Company &amp; Market Context</div>
+                    <div class="dossier-text">HSBC is one of the world's largest banks with significant exposure to cyber threats given its scale, geographic spread, and SWIFT transaction volumes. The Birmingham technology hub has been expanding as HSBC consolidates UK technology operations outside London. DORA compliance deadlines and recent FCA commentary on operational resilience are driving investment in security engineering headcount across the sector.</div>
+                    <div class="dossier-section-title" style="margin-top:16px">The Core Business Problem</div>
+                    <div class="dossier-text">The bank needs engineers who can build security tooling at scale, not just run scans and write reports. The real gap is between the security team's ambition (shift-left, DevSecOps, automated threat detection) and its current engineering capability. Without this hire, the team continues to rely on expensive third-party tools and consultants.</div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Stated Need vs Actual Need</div>
+                    <div class="dossier-gap-table">
+                      <div class="gap-row gap-header"><div>What the JD Asks For</div><div>What They Likely Need</div></div>
+                      <div class="gap-row"><div>5+ years security engineering experience</div><div>Someone who has built security tooling in a regulated environment, not just configured off-the-shelf products</div></div>
+                      <div class="gap-row"><div>CISSP or equivalent certification</div><div>Hands-on engineering ability matters more than certifications at this level</div></div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:16px">Ideal Candidate Profiles</div>
+                    <div class="dossier-text" style="margin-bottom:6px"><span style="color:var(--accent-light);font-weight:600">Profile A:</span> Security engineer from a Big Tech firm (Google, Microsoft, AWS) who wants to move into financial services and is attracted by the complexity of banking infrastructure.</div>
+                    <div class="dossier-text"><span style="color:var(--blue);font-weight:600">Profile B:</span> Senior security consultant (NCC Group, Mandiant, CrowdStrike) who wants to go in-house and build rather than advise.</div>
+                  </div>
+                </div>
+                <div class="dossier-grid" style="margin-top:12px">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Specification Risk</div>
+                    <div class="dossier-risk-items">
+                      <div class="risk-item"><span class="risk-badge high">High</span> Location: Birmingham is a hard sell for London-based security engineers; limits the talent pool significantly</div>
+                      <div class="risk-item"><span class="risk-badge med">Med</span> Compensation: HSBC pays below Big Tech for equivalent engineering talent</div>
+                    </div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Likely Hiring Manager</div>
+                    <div class="dossier-hm-cards">
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">David Codd</div><div style="font-size:11px;color:var(--text-muted)">Group CISO, HSBC</div></div>
+                          <span style="font-size:10px;color:var(--amber)">70%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:12px">Lead Score</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:28px;font-weight:800;color:var(--amber)">3.2<span style="font-size:14px;color:var(--text-muted);font-weight:400"> / 5</span></div>
+                      <div style="font-size:11px;color:var(--text-muted);flex:1">Moderate opportunity. HSBC hires a lot of security engineers and has strong internal sourcing. The Birmingham location is the main lever for a recruiter, as it significantly reduces the applicant pool.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+
+            <tr onclick="toggleDossier(this)" style="cursor:pointer"><td><span class="lead-status status-ready">&#10003; Ready</span></td><td class="td-title">Legal Counsel, Structured Finance</td><td class="td-company">BNP Paribas</td><td class="td-location">Paris, France</td><td><span class="feed-item-tag tag-legal">Legal</span></td><td class="td-score" style="color:var(--amber)">7.6</td><td style="color:var(--text-muted);font-size:12px">22m ago</td></tr>
+            <tr class="dossier-row" style="display:none"><td colspan="9" style="padding:0;border:none">
+              <div class="dossier-panel">
+                <div class="dossier-header">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="font-size:15px;font-weight:700">Intelligence Report</div>
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);border:1px solid rgba(108,92,231,0.2)">AI Generated</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost" style="padding:5px 12px;font-size:11px">&#128196; Export PDF</button>
+                    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px">&#9993; Create Campaign</button>
+                  </div>
+                </div>
+                <div class="dossier-grid">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Company &amp; Market Context</div>
+                    <div class="dossier-text">BNP Paribas is Europe's largest bank by assets and a leading arranger of structured finance transactions globally. The firm's structured finance legal team supports securitisation, CLO, and asset-backed lending across multiple jurisdictions. BNP has been gaining market share in European CLO issuance and the legal function needs to scale to match origination volume.</div>
+                    <div class="dossier-section-title" style="margin-top:16px">The Core Business Problem</div>
+                    <div class="dossier-text">Structured finance transactions are documentation-heavy and time-sensitive. Without adequate legal support, deals slow down, syndication windows close, and the bank loses competitive mandates. The cost of an unfilled legal seat is measured in delayed deal flow, not just legal fees.</div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Stated Need vs Actual Need</div>
+                    <div class="dossier-gap-table">
+                      <div class="gap-row gap-header"><div>What the JD Asks For</div><div>What They Likely Need</div></div>
+                      <div class="gap-row"><div>Qualified lawyer with structured finance experience</div><div>Someone who can negotiate ISDA/CSA documentation and understands credit tranching at a commercial level</div></div>
+                      <div class="gap-row"><div>French and English language skills</div><div>Bilingual capability is essential for the Paris seat, which eliminates most London-based candidates</div></div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:16px">Ideal Candidate Profiles</div>
+                    <div class="dossier-text" style="margin-bottom:6px"><span style="color:var(--accent-light);font-weight:600">Profile A:</span> 5-8 PQE structured finance lawyer from a Magic Circle or US firm (Clifford Chance, Latham) who wants to move in-house for better work-life balance and deal exposure.</div>
+                    <div class="dossier-text"><span style="color:var(--blue);font-weight:600">Profile B:</span> In-house structured finance lawyer at a competing French bank (SocGen, Credit Agricole) looking for a step up and a broader mandate.</div>
+                  </div>
+                </div>
+                <div class="dossier-grid" style="margin-top:12px">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Specification Risk</div>
+                    <div class="dossier-risk-items">
+                      <div class="risk-item"><span class="risk-badge high">High</span> Language requirement: bilingual French/English structured finance lawyers are an extremely narrow pool</div>
+                      <div class="risk-item"><span class="risk-badge low">Low</span> BNP brand is strong in Paris; this is a desirable in-house move for the right candidate</div>
+                    </div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Likely Hiring Manager</div>
+                    <div class="dossier-hm-cards">
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">Pierre Valentin</div><div style="font-size:11px;color:var(--text-muted)">General Counsel, Global Markets</div></div>
+                          <span style="font-size:10px;color:var(--amber)">68%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:12px">Lead Score</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:28px;font-weight:800;color:var(--amber)">3.5<span style="font-size:14px;color:var(--text-muted);font-weight:400"> / 5</span></div>
+                      <div style="font-size:11px;color:var(--text-muted);flex:1">Moderate opportunity. The bilingual requirement is both the challenge and the recruiter's edge. Whoever can source from the French legal market will win this.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+
+            <tr onclick="toggleDossier(this)" style="cursor:pointer"><td><span class="lead-status status-campaigning"><span class="live-dot" style="width:6px;height:6px"></span> Live</span></td><td class="td-title">Internal Audit Manager</td><td class="td-company">Deutsche Bank</td><td class="td-location">Frankfurt, DE</td><td><span class="feed-item-tag tag-audit">Audit</span></td><td class="td-score" style="color:var(--amber)">7.1</td><td style="color:var(--text-muted);font-size:12px">18m ago</td></tr>
+            <tr class="dossier-row" style="display:none"><td colspan="9" style="padding:0;border:none">
+              <div class="dossier-panel">
+                <div class="dossier-header">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="font-size:15px;font-weight:700">Intelligence Report</div>
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);border:1px solid rgba(108,92,231,0.2)">AI Generated</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost" style="padding:5px 12px;font-size:11px">&#128196; Export PDF</button>
+                    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px">&#9993; Create Campaign</button>
+                  </div>
+                </div>
+                <div class="dossier-grid">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Company &amp; Market Context</div>
+                    <div class="dossier-text">Deutsche Bank has been through a multi-year restructuring, shedding unprofitable divisions and investing in technology and controls. The internal audit function has been under particular scrutiny following ECB findings and consent orders related to AML controls. The bank's audit committee has publicly committed to strengthening the third line of defence, and this hire is likely part of that remediation programme.</div>
+                    <div class="dossier-section-title" style="margin-top:16px">The Core Business Problem</div>
+                    <div class="dossier-text">The audit function at DB needs experienced auditors who can navigate both the legacy technology estate and the new platform migration. Regulatory expectations for internal audit are rising across the sector, and DB's specific history of compliance failures means the bar is even higher. A gap at audit manager level slows down the audit cycle and risks missing regulatory commitments.</div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Stated Need vs Actual Need</div>
+                    <div class="dossier-gap-table">
+                      <div class="gap-row gap-header"><div>What the JD Asks For</div><div>What They Likely Need</div></div>
+                      <div class="gap-row"><div>Banking audit experience</div><div>Someone who has audited investment banking operations and understands trading floor risk</div></div>
+                      <div class="gap-row"><div>Professional audit qualification (CIA, CISA)</div><div>Practical experience with data analytics and continuous auditing is more valuable than certifications</div></div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:16px">Ideal Candidate Profiles</div>
+                    <div class="dossier-text" style="margin-bottom:6px"><span style="color:var(--accent-light);font-weight:600">Profile A:</span> Audit manager from a Big 4 firm (Deloitte, PwC) with FS audit experience who wants to move in-house for career progression and deeper business exposure.</div>
+                    <div class="dossier-text"><span style="color:var(--blue);font-weight:600">Profile B:</span> Internal auditor from a competing bank (UBS, Credit Suisse legacy) who is looking for a fresh start and is attracted by DB's transformation story.</div>
+                  </div>
+                </div>
+                <div class="dossier-grid" style="margin-top:12px">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Specification Risk</div>
+                    <div class="dossier-risk-items">
+                      <div class="risk-item"><span class="risk-badge med">Med</span> Reputation: DB's regulatory history is a double-edged sword, attracts some candidates and deters others</div>
+                      <div class="risk-item"><span class="risk-badge med">Med</span> Location: Frankfurt is less attractive than London for many senior audit professionals</div>
+                    </div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Likely Hiring Manager</div>
+                    <div class="dossier-hm-cards">
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">Mark Gruenberg</div><div style="font-size:11px;color:var(--text-muted)">Group Chief Audit Executive, Deutsche Bank</div></div>
+                          <span style="font-size:10px;color:var(--green)">85%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:12px">Lead Score</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:28px;font-weight:800;color:var(--amber)">3.4<span style="font-size:14px;color:var(--text-muted);font-weight:400"> / 5</span></div>
+                      <div style="font-size:11px;color:var(--text-muted);flex:1">Moderate. DB hires a lot of auditors and the Big 4 pipeline is well-trodden. The recruiter opportunity is in finding candidates with specific investment banking audit experience, which is a narrower pool.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+
+            <tr onclick="toggleDossier(this)" style="cursor:pointer"><td><span class="lead-status status-ready">&#10003; Ready</span></td><td class="td-title">Compliance Senior VP</td><td class="td-company">Marathon AM</td><td class="td-location">New York, USA</td><td><span class="feed-item-tag tag-compliance">Compliance</span></td><td class="td-score" style="color:var(--green)">8.4</td><td style="color:var(--text-muted);font-size:12px">30m ago</td></tr>
+            <tr class="dossier-row" style="display:none"><td colspan="9" style="padding:0;border:none">
+              <div class="dossier-panel">
+                <div class="dossier-header">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="font-size:15px;font-weight:700">Intelligence Report</div>
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);border:1px solid rgba(108,92,231,0.2)">AI Generated</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost" style="padding:5px 12px;font-size:11px">&#128196; Export PDF</button>
+                    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px">&#9993; Create Campaign</button>
+                  </div>
+                </div>
+                <div class="dossier-grid">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Company &amp; Market Context</div>
+                    <div class="dossier-text">Marathon Asset Management is a $23bn credit-focused alternative investment manager. As the firm has grown and expanded into regulated fund structures (CLOs, BDCs), the compliance burden has increased significantly. SEC scrutiny of private credit managers has intensified, and Marathon needs senior compliance professionals who understand both the investment strategy and the regulatory framework around it.</div>
+                    <div class="dossier-section-title" style="margin-top:16px">The Core Business Problem</div>
+                    <div class="dossier-text">The compliance function at a fund of this size is critical for investor confidence and regulatory standing. A Senior VP vacancy creates risk around SEC exam readiness, investor due diligence responses, and ongoing monitoring of personal trading and conflicts. The real cost is reputational: one compliance failure at this level can freeze fundraising.</div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Stated Need vs Actual Need</div>
+                    <div class="dossier-gap-table">
+                      <div class="gap-row gap-header"><div>What the JD Asks For</div><div>What They Likely Need</div></div>
+                      <div class="gap-row"><div>10+ years compliance experience in asset management</div><div>Someone who has been through an SEC exam at a credit-focused manager and can run the programme independently</div></div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:16px">Ideal Candidate Profiles</div>
+                    <div class="dossier-text" style="margin-bottom:6px"><span style="color:var(--accent-light);font-weight:600">Profile A:</span> CCO or Deputy CCO at a smaller credit fund ($5-10bn) who wants a step up in AUM and complexity.</div>
+                    <div class="dossier-text"><span style="color:var(--blue);font-weight:600">Profile B:</span> Senior compliance professional from a large asset manager (BlackRock, PIMCO) who wants a more senior, hands-on role at a smaller firm.</div>
+                  </div>
+                </div>
+                <div class="dossier-grid" style="margin-top:12px">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Specification Risk</div>
+                    <div class="dossier-risk-items">
+                      <div class="risk-item"><span class="risk-badge med">Med</span> Niche requirement: credit-specific compliance experience in alternatives is a narrow pool</div>
+                      <div class="risk-item"><span class="risk-badge low">Low</span> Marathon brand is well-regarded in the alternatives space; attractive to the right candidate</div>
+                    </div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Likely Hiring Manager</div>
+                    <div class="dossier-hm-cards">
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">Louis Hanover</div><div style="font-size:11px;color:var(--text-muted)">Co-Managing Partner, Marathon AM</div></div>
+                          <span style="font-size:10px;color:var(--amber)">75%</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:12px">Lead Score</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:28px;font-weight:800;color:var(--green)">4.1<span style="font-size:14px;color:var(--text-muted);font-weight:400"> / 5</span></div>
+                      <div style="font-size:11px;color:var(--text-muted);flex:1">Strong opportunity. Alternative credit compliance is a small world. The right recruiter with a genuine network in this space will be welcomed. Marathon is unlikely to find this person through job ads.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+
+            <tr onclick="toggleDossier(this)" style="cursor:pointer"><td><span class="lead-status status-queued">&#9201; Queued</span></td><td class="td-title">Credit Risk Modeller</td><td class="td-company">Santander</td><td class="td-location">Milton Keynes, UK</td><td><span class="feed-item-tag tag-risk">Risk</span></td><td class="td-score" style="color:var(--green)">8.1</td><td style="color:var(--text-muted);font-size:12px">35m ago</td></tr>
+            <tr class="dossier-row" style="display:none"><td colspan="9" style="padding:0;border:none">
+              <div class="dossier-panel">
+                <div class="dossier-header">
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <div style="font-size:15px;font-weight:700">Intelligence Report</div>
+                    <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);border:1px solid rgba(108,92,231,0.2)">AI Generated</span>
+                  </div>
+                  <div style="display:flex;gap:6px">
+                    <button class="btn btn-ghost" style="padding:5px 12px;font-size:11px">&#128196; Export PDF</button>
+                    <button class="btn btn-primary" style="padding:5px 12px;font-size:11px">&#9993; Create Campaign</button>
+                  </div>
+                </div>
+                <div class="dossier-grid">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Company &amp; Market Context</div>
+                    <div class="dossier-text">Santander UK is a major retail and commercial bank operating from its Milton Keynes headquarters. The bank's credit risk modelling function is critical for IRB (Internal Ratings Based) approach compliance under Basel 3.1. PRA model review cycles have been intensifying, and Santander UK has been rebuilding its credit risk modelling team after a period of underinvestment. The hire is likely driven by PRA model remediation requirements or the need to rebuild PD/LGD/EAD models under the new regulatory framework.</div>
+                    <div class="dossier-section-title" style="margin-top:16px">The Core Business Problem</div>
+                    <div class="dossier-text">If credit risk models are not up to PRA standards, the bank faces capital add-ons under the standardised approach, which directly increases the cost of lending and erodes profitability. Every month without a modeller in this seat delays the remediation timeline and increases regulatory risk.</div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Stated Need vs Actual Need</div>
+                    <div class="dossier-gap-table">
+                      <div class="gap-row gap-header"><div>What the JD Asks For</div><div>What They Likely Need</div></div>
+                      <div class="gap-row"><div>Experience with credit risk models</div><div>Someone who has built PD/LGD models from scratch and defended them to the PRA, not just maintained existing models</div></div>
+                      <div class="gap-row"><div>Statistical/quantitative background</div><div>Practical SAS/Python modelling skills combined with regulatory knowledge of SS11/16 and CP16/22</div></div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:16px">Ideal Candidate Profiles</div>
+                    <div class="dossier-text" style="margin-bottom:6px"><span style="color:var(--accent-light);font-weight:600">Profile A:</span> Credit risk modeller from a UK retail bank (Lloyds, NatWest, Nationwide) who has been through a PRA model review cycle and wants a change of environment.</div>
+                    <div class="dossier-text"><span style="color:var(--blue);font-weight:600">Profile B:</span> Big 4 model risk consultant (EY, Deloitte) who wants to move to first-line model development for better career progression and hands-on building.</div>
+                  </div>
+                </div>
+                <div class="dossier-grid" style="margin-top:12px">
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Specification Risk</div>
+                    <div class="dossier-risk-items">
+                      <div class="risk-item"><span class="risk-badge high">High</span> Location: Milton Keynes is a significant deterrent for London-based credit risk modellers, severely limiting the talent pool</div>
+                      <div class="risk-item"><span class="risk-badge med">Med</span> Compensation: Santander UK typically pays below Tier 1 banks for equivalent modelling roles</div>
+                    </div>
+                  </div>
+                  <div class="dossier-section">
+                    <div class="dossier-section-title">Likely Hiring Manager</div>
+                    <div class="dossier-hm-cards">
+                      <div class="hm-card">
+                        <div style="display:flex;justify-content:space-between;align-items:center">
+                          <div><div style="font-weight:600;font-size:13px">Ana Botin</div><div style="font-size:11px;color:var(--text-muted)">Group Executive Chairman (unlikely direct HM)</div></div>
+                          <span style="font-size:10px;color:var(--text-muted)">Low</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="dossier-section-title" style="margin-top:12px">Lead Score</div>
+                    <div style="display:flex;align-items:center;gap:10px">
+                      <div style="font-size:28px;font-weight:800;color:var(--green)">4.0<span style="font-size:14px;color:var(--text-muted);font-weight:400"> / 5</span></div>
+                      <div style="font-size:11px;color:var(--text-muted);flex:1">Strong opportunity. Milton Keynes location means Santander will almost certainly need recruiter help. Credit risk modellers with PRA experience are in high demand across the UK banking sector.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════ SOURCES ════════════════ -->
+  <div class="page" id="page-sources">
+    <div class="content">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <div>
+          <div style="font-size:20px;font-weight:700">Sources</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-top:4px">738 boards across 29 adapters &middot; Last run: 2 hours ago</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost">&#8635; Run Now</button>
+          <button class="btn btn-primary" onclick="toggleAddSource()">+ Add Source</button>
+        </div>
+      </div>
+
+      <!-- Add Source Panel (hidden by default) -->
+      <div id="add-source-panel" style="display:none;margin-bottom:20px;animation:fadeIn 0.3s ease-out">
+        <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:24px;position:relative">
+          <button onclick="toggleAddSource()" style="position:absolute;top:12px;right:16px;background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;padding:4px 8px;border-radius:4px;transition:all 0.15s" onmouseover="this.style.color='var(--text-primary)'" onmouseout="this.style.color='var(--text-muted)'">&times;</button>
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px">Add a New Source</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Paste any careers page URL &mdash; we'll auto-detect the platform and validate it</div>
+
+          <!-- URL input row -->
+          <div style="display:flex;gap:10px;margin-bottom:16px">
+            <div style="flex:1;position:relative">
+              <input type="text" id="source-url-input" placeholder="https://boards.greenhouse.io/robinhood" style="width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px 16px;color:var(--text-primary);font-size:14px;font-family:inherit;outline:none;transition:border-color 0.15s" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+            </div>
+            <button class="btn btn-primary" onclick="detectSource()" id="detect-btn" style="white-space:nowrap;padding:11px 24px">Detect &amp; Validate</button>
+          </div>
+
+          <!-- Detection result (hidden until detect is clicked) -->
+          <div id="detect-result" style="display:none">
+            <!-- Loading state -->
+            <div id="detect-loading" style="display:none;padding:20px;text-align:center">
+              <div style="display:inline-flex;align-items:center;gap:10px;color:var(--text-secondary);font-size:13px">
+                <div style="width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></div>
+                Analysing URL&hellip;
+              </div>
+            </div>
+
+            <!-- Success state -->
+            <div id="detect-success" style="display:none;background:var(--bg-primary);border:1px solid var(--green-border);border-radius:var(--radius-sm);padding:16px">
+              <div style="display:flex;align-items:flex-start;gap:16px">
+                <div style="width:40px;height:40px;border-radius:10px;background:var(--green-bg);border:1px solid var(--green-border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">&#10003;</div>
+                <div style="flex:1">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                    <span style="font-size:15px;font-weight:700" id="detect-company">Robinhood</span>
+                    <span style="font-family:'JetBrains Mono';font-size:10px;font-weight:600;padding:3px 8px;border-radius:4px;background:var(--accent-glow);color:var(--accent-light);text-transform:uppercase;letter-spacing:0.5px;border:1px solid rgba(108,92,231,0.2)" id="detect-adapter">greenhouse</span>
+                  </div>
+                  <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px" id="detect-meta">143 jobs found &middot; Board is active and responding</div>
+
+                  <!-- Editable fields -->
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                    <div>
+                      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Company Name</div>
+                      <input type="text" id="detect-company-input" value="Robinhood" style="width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xs);padding:7px 10px;color:var(--text-primary);font-size:13px;font-family:inherit;outline:none">
+                    </div>
+                    <div>
+                      <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">Platform</div>
+                      <input type="text" value="Greenhouse" disabled style="width:100%;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:var(--radius-xs);padding:7px 10px;color:var(--text-muted);font-size:13px;font-family:inherit">
+                    </div>
+                  </div>
+
+                  <div style="display:flex;gap:8px;margin-top:14px">
+                    <button class="btn btn-primary" onclick="addSourceConfirm()">Add to Sources</button>
+                    <button class="btn btn-ghost" onclick="toggleAddSource()">Cancel</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Error state -->
+            <div id="detect-error" style="display:none;background:var(--bg-primary);border:1px solid var(--red-border);border-radius:var(--radius-sm);padding:16px">
+              <div style="display:flex;align-items:flex-start;gap:16px">
+                <div style="width:40px;height:40px;border-radius:10px;background:var(--red-bg);border:1px solid var(--red-border);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0">&#10007;</div>
+                <div style="flex:1">
+                  <div style="font-size:14px;font-weight:600;color:var(--red);margin-bottom:4px" id="detect-error-title">Board not found</div>
+                  <div style="font-size:12px;color:var(--text-muted)" id="detect-error-msg">Greenhouse board 'fakeboard12345' returned 404. Check the URL and try again.</div>
+                  <button class="btn btn-ghost" style="margin-top:10px" onclick="document.getElementById('detect-result').style.display='none'">Try Again</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Added confirmation -->
+            <div id="detect-added" style="display:none;background:var(--bg-primary);border:1px solid var(--green-border);border-radius:var(--radius-sm);padding:20px;text-align:center">
+              <div style="font-size:24px;margin-bottom:8px">&#10003;</div>
+              <div style="font-size:15px;font-weight:700;color:var(--green)">Source Added</div>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:4px" id="detect-added-msg">Robinhood (Greenhouse) will be included in the next pipeline run</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px">
+        <div class="stat-card"><div class="stat-label">Active</div><div class="stat-value green">714</div></div>
+        <div class="stat-card"><div class="stat-label">Failing</div><div class="stat-value" style="color:var(--red)">24</div></div>
+        <div class="stat-card"><div class="stat-label">Adapters</div><div class="stat-value">29</div></div>
+        <div class="stat-card"><div class="stat-label">Avg Response</div><div class="stat-value">2.4s</div></div>
+      </div>
+
+      <div class="source-grid">
+        <div class="source-card">
+          <div class="source-card-header">
+            <div class="source-card-name">Goldman Sachs</div>
+            <div class="source-card-platform">workday</div>
+          </div>
+          <div class="source-card-stats">
+            <div class="source-card-stat"><div class="source-card-stat-value" style="color:var(--green)">847</div><div class="source-card-stat-label">Jobs</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">214</div><div class="source-card-stat-label">Qualified</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">2.1s</div><div class="source-card-stat-label">Latency</div></div>
+          </div>
+        </div>
+        <div class="source-card">
+          <div class="source-card-header">
+            <div class="source-card-name">Citadel</div>
+            <div class="source-card-platform">generic</div>
+          </div>
+          <div class="source-card-stats">
+            <div class="source-card-stat"><div class="source-card-stat-value" style="color:var(--green)">10</div><div class="source-card-stat-label">Jobs</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">8</div><div class="source-card-stat-label">Qualified</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">4.8s</div><div class="source-card-stat-label">Latency</div></div>
+          </div>
+        </div>
+        <div class="source-card">
+          <div class="source-card-header">
+            <div class="source-card-name">Stripe</div>
+            <div class="source-card-platform">greenhouse</div>
+          </div>
+          <div class="source-card-stats">
+            <div class="source-card-stat"><div class="source-card-stat-value" style="color:var(--green)">485</div><div class="source-card-stat-label">Jobs</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">90</div><div class="source-card-stat-label">Qualified</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">1.1s</div><div class="source-card-stat-label">Latency</div></div>
+          </div>
+        </div>
+        <div class="source-card" style="border-color:var(--red-border)">
+          <div class="source-card-header">
+            <div class="source-card-name" style="color:var(--red)">BGL Group</div>
+            <div class="source-card-platform">generic</div>
+          </div>
+          <div class="source-card-stats">
+            <div class="source-card-stat"><div class="source-card-stat-value" style="color:var(--red)">0</div><div class="source-card-stat-label">Jobs</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value" style="color:var(--red)">FAIL</div><div class="source-card-stat-label">Status</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">45s</div><div class="source-card-stat-label">Latency</div></div>
+          </div>
+        </div>
+        <div class="source-card">
+          <div class="source-card-header">
+            <div class="source-card-name">Marathon AM</div>
+            <div class="source-card-platform">icims</div>
+          </div>
+          <div class="source-card-stats">
+            <div class="source-card-stat"><div class="source-card-stat-value" style="color:var(--green)">18</div><div class="source-card-stat-label">Jobs</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">12</div><div class="source-card-stat-label">Qualified</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">0.9s</div><div class="source-card-stat-label">Latency</div></div>
+          </div>
+        </div>
+        <div class="source-card">
+          <div class="source-card-header">
+            <div class="source-card-name">Adzuna</div>
+            <div class="source-card-platform">aggregator</div>
+          </div>
+          <div class="source-card-stats">
+            <div class="source-card-stat"><div class="source-card-stat-value" style="color:var(--green)">13,639</div><div class="source-card-stat-label">Jobs</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">2,104</div><div class="source-card-stat-label">Qualified</div></div>
+            <div class="source-card-stat"><div class="source-card-stat-value">840s</div><div class="source-card-stat-label">Latency</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════ CAMPAIGNS ════════════════ -->
+  <div class="page" id="page-campaigns">
+    <div class="content">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <div>
+          <div style="font-size:20px;font-weight:700">Campaigns</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-top:4px">5 campaigns &middot; 1,247 contacts enrolled &middot; 68% avg open rate</div>
+        </div>
+        <button class="btn btn-primary">+ New Campaign</button>
+      </div>
+
+      <!-- ── Campaign Summary Stats ── -->
+      <div class="stats-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:24px">
+        <div class="stat-card"><div class="stat-label">Emails Sent</div><div class="stat-value">4,812</div><div class="stat-change up">&#9650; 342 today</div></div>
+        <div class="stat-card"><div class="stat-label">Open Rate</div><div class="stat-value green">68.4%</div><div class="stat-change up">&#9650; 2.1% vs last week</div></div>
+        <div class="stat-card"><div class="stat-label">Reply Rate</div><div class="stat-value accent">14.2%</div><div class="stat-change up">&#9650; 1.8% vs last week</div></div>
+        <div class="stat-card"><div class="stat-label">Meetings Booked</div><div class="stat-value amber">37</div><div class="stat-change up">&#9650; 8 this week</div></div>
+        <div class="stat-card"><div class="stat-label">Bounce Rate</div><div class="stat-value" style="color:var(--text-secondary)">2.1%</div><div class="stat-change" style="color:var(--green)">&#9660; 0.3%</div></div>
+      </div>
+
+      <!-- ── Active Leads Table ── -->
+      <div class="table-wrapper" style="margin-bottom:24px">
+        <div class="table-toolbar">
+          <span class="filter-chip active">All (47)</span>
+          <span class="filter-chip">In Sequence (32)</span>
+          <span class="filter-chip">Replied (8)</span>
+          <span class="filter-chip">Meeting Booked (4)</span>
+          <span class="filter-chip">No Response (3)</span>
+          <span style="margin-left:auto"></span>
+          <button class="btn btn-ghost">&#8681; Export</button>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:30px"><input type="checkbox"></th>
+              <th>Company</th>
+              <th>Job Title</th>
+              <th>Hiring Manager</th>
+              <th>Category</th>
+              <th>Step</th>
+              <th>Status</th>
+              <th>Opens</th>
+              <th>Last Activity</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr onclick="showCampaignDetail('risk')" style="cursor:pointer">
+              <td><input type="checkbox"></td>
+              <td style="font-weight:600">Goldman Sachs</td>
+              <td class="td-title">VP, Market Risk Analytics</td>
+              <td style="font-size:12px"><div style="font-weight:500">Sarah Chen</div><div style="color:var(--text-muted)">sarah.chen@gs.com</div></td>
+              <td><span class="feed-item-tag tag-risk">Risk</span></td>
+              <td><span style="font-size:11px;background:var(--bg-elevated);padding:3px 8px;border-radius:4px;color:var(--text-secondary)">4 of 5</span></td>
+              <td><span style="display:inline-flex;align-items:center;gap:5px;color:var(--green);font-size:12px;font-weight:600"><span class="live-dot" style="width:6px;height:6px"></span> Opened</span></td>
+              <td><span style="font-family:'JetBrains Mono';font-size:12px;font-weight:600;color:var(--green)">4/4</span></td>
+              <td style="font-size:12px;color:var(--text-muted)">2h ago</td>
+            </tr>
+            <tr onclick="showCampaignDetail('risk')" style="cursor:pointer">
+              <td><input type="checkbox"></td>
+              <td style="font-weight:600">Barclays</td>
+              <td class="td-title">Head of Compliance, EMEA</td>
+              <td style="font-size:12px"><div style="font-weight:500">James Wright</div><div style="color:var(--text-muted)">j.wright@barclays.com</div></td>
+              <td><span class="feed-item-tag tag-compliance">Compliance</span></td>
+              <td><span style="font-size:11px;background:var(--bg-elevated);padding:3px 8px;border-radius:4px;color:var(--text-secondary)">3 of 5</span></td>
+              <td><span style="color:var(--blue);font-size:12px;font-weight:600">&#9993; Replied</span></td>
+              <td><span style="font-family:'JetBrains Mono';font-size:12px;font-weight:600;color:var(--green)">3/3</span></td>
+              <td style="font-size:12px;color:var(--text-muted)">4h ago</td>
+            </tr>
+            <tr onclick="showCampaignDetail('quant')" style="cursor:pointer">
+              <td><input type="checkbox"></td>
+              <td style="font-weight:600">Citadel</td>
+              <td class="td-title">Quantitative Analyst, Derivatives</td>
+              <td style="font-size:12px"><div style="font-weight:500">David Kim</div><div style="color:var(--text-muted)">d.kim@citadel.com</div></td>
+              <td><span class="feed-item-tag tag-quant">Quant</span></td>
+              <td><span style="font-size:11px;background:var(--bg-elevated);padding:3px 8px;border-radius:4px;color:var(--text-secondary)">2 of 5</span></td>
+              <td><span style="display:inline-flex;align-items:center;gap:5px;color:var(--green);font-size:12px;font-weight:600"><span class="live-dot" style="width:6px;height:6px"></span> Opened</span></td>
+              <td><span style="font-family:'JetBrains Mono';font-size:12px;font-weight:600;color:var(--green)">2/2</span></td>
+              <td style="font-size:12px;color:var(--text-muted)">6h ago</td>
+            </tr>
+            <tr>
+              <td><input type="checkbox"></td>
+              <td style="font-weight:600">HSBC</td>
+              <td class="td-title">Senior Cyber Security Engineer</td>
+              <td style="font-size:12px"><div style="font-weight:500">Rachel Patel</div><div style="color:var(--text-muted)">rachel.patel@hsbc.com</div></td>
+              <td><span class="feed-item-tag tag-cyber">Cyber</span></td>
+              <td><span style="font-size:11px;background:var(--amber-bg);padding:3px 8px;border-radius:4px;color:var(--amber)">5 of 5</span></td>
+              <td><span style="color:var(--text-muted);font-size:12px;font-weight:600">No response</span></td>
+              <td><span style="font-family:'JetBrains Mono';font-size:12px;font-weight:600;color:var(--text-muted)">0/5</span></td>
+              <td style="font-size:12px;color:var(--text-muted)">3d ago</td>
+            </tr>
+            <tr onclick="showCampaignDetail('risk')" style="cursor:pointer">
+              <td><input type="checkbox"></td>
+              <td style="font-weight:600">Man Group</td>
+              <td class="td-title">Quantitative Risk Analyst</td>
+              <td style="font-size:12px"><div style="font-weight:500">Tom Harding</div><div style="color:var(--text-muted)">t.harding@man.com</div></td>
+              <td><span class="feed-item-tag tag-quant">Quant Risk</span></td>
+              <td><span style="font-size:11px;background:var(--bg-elevated);padding:3px 8px;border-radius:4px;color:var(--text-secondary)">1 of 5</span></td>
+              <td><span style="display:inline-flex;align-items:center;gap:5px;color:var(--green);font-size:12px;font-weight:600"><span class="live-dot" style="width:6px;height:6px"></span> Sent</span></td>
+              <td><span style="font-family:'JetBrains Mono';font-size:12px;font-weight:600;color:var(--text-muted)">0/1</span></td>
+              <td style="font-size:12px;color:var(--text-muted)">12m ago</td>
+            </tr>
+            <tr>
+              <td><input type="checkbox"></td>
+              <td style="font-weight:600">Marathon AM</td>
+              <td class="td-title">Compliance Senior VP</td>
+              <td style="font-size:12px"><div style="font-weight:500">Lisa Morgan</div><div style="color:var(--text-muted)">l.morgan@marathonfund.com</div></td>
+              <td><span class="feed-item-tag tag-compliance">Compliance</span></td>
+              <td><span style="font-size:11px;background:var(--bg-elevated);padding:3px 8px;border-radius:4px;color:var(--text-secondary)">3 of 5</span></td>
+              <td><span style="color:var(--amber);font-size:12px;font-weight:600">&#128197; Meeting</span></td>
+              <td><span style="font-family:'JetBrains Mono';font-size:12px;font-weight:600;color:var(--green)">3/3</span></td>
+              <td style="font-size:12px;color:var(--text-muted)">1d ago</td>
+            </tr>
+            <tr>
+              <td><input type="checkbox"></td>
+              <td style="font-weight:600">Deutsche Bank</td>
+              <td class="td-title">Internal Audit Manager, Tech</td>
+              <td style="font-size:12px"><div style="font-weight:500">Klaus Weber</div><div style="color:var(--text-muted)">klaus.weber@db.com</div></td>
+              <td><span class="feed-item-tag tag-audit">Audit</span></td>
+              <td><span style="font-size:11px;background:var(--bg-elevated);padding:3px 8px;border-radius:4px;color:var(--text-secondary)">2 of 5</span></td>
+              <td><span style="display:inline-flex;align-items:center;gap:5px;color:var(--green);font-size:12px;font-weight:600"><span class="live-dot" style="width:6px;height:6px"></span> Opened</span></td>
+              <td><span style="font-family:'JetBrains Mono';font-size:12px;font-weight:600;color:var(--green)">1/2</span></td>
+              <td style="font-size:12px;color:var(--text-muted)">8h ago</td>
+            </tr>
+            <tr>
+              <td><input type="checkbox"></td>
+              <td style="font-weight:600">BNP Paribas</td>
+              <td class="td-title">Legal Counsel, Structured Finance</td>
+              <td style="font-size:12px"><div style="font-weight:500">Marie Dupont</div><div style="color:var(--text-muted)">m.dupont@bnpparibas.com</div></td>
+              <td><span class="feed-item-tag tag-legal">Legal</span></td>
+              <td><span style="font-size:11px;background:var(--bg-elevated);padding:3px 8px;border-radius:4px;color:var(--text-secondary)">3 of 5</span></td>
+              <td><span style="color:var(--blue);font-size:12px;font-weight:600">&#9993; Replied</span></td>
+              <td><span style="font-family:'JetBrains Mono';font-size:12px;font-weight:600;color:var(--green)">3/3</span></td>
+              <td style="font-size:12px;color:var(--text-muted)">5h ago</td>
+            </tr>
+            <tr>
+              <td><input type="checkbox"></td>
+              <td style="font-weight:600">Santander</td>
+              <td class="td-title">Credit Risk Modeller</td>
+              <td style="font-size:12px"><div style="font-weight:500">Andrew Mills</div><div style="color:var(--text-muted)">a.mills@santander.co.uk</div></td>
+              <td><span class="feed-item-tag tag-risk">Risk</span></td>
+              <td><span style="font-size:11px;background:var(--bg-elevated);padding:3px 8px;border-radius:4px;color:var(--text-secondary)">1 of 5</span></td>
+              <td><span style="display:inline-flex;align-items:center;gap:5px;color:var(--green);font-size:12px;font-weight:600"><span class="live-dot" style="width:6px;height:6px"></span> Sent</span></td>
+              <td><span style="font-family:'JetBrains Mono';font-size:12px;font-weight:600;color:var(--text-muted)">0/1</span></td>
+              <td style="font-size:12px;color:var(--text-muted)">25m ago</td>
+            </tr>
+            <tr>
+              <td><input type="checkbox"></td>
+              <td style="font-weight:600">Stripe</td>
+              <td class="td-title">Head of FP&amp;A</td>
+              <td style="font-size:12px"><div style="font-weight:500">Emma Liu</div><div style="color:var(--text-muted)">e.liu@stripe.com</div></td>
+              <td><span class="feed-item-tag tag-fo">Front Office</span></td>
+              <td><span style="font-size:11px;background:var(--bg-elevated);padding:3px 8px;border-radius:4px;color:var(--text-secondary)">4 of 5</span></td>
+              <td><span style="color:var(--amber);font-size:12px;font-weight:600">&#128197; Meeting</span></td>
+              <td><span style="font-family:'JetBrains Mono';font-size:12px;font-weight:600;color:var(--green)">4/4</span></td>
+              <td style="font-size:12px;color:var(--text-muted)">1d ago</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════ CAMPAIGN BUILDER ════════════════ -->
+  <div class="page" id="page-builder">
+    <div class="content">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <div>
+          <div style="font-size:20px;font-weight:700">Campaign Builder</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-top:4px">Design your outreach sequence, choose tone per step, preview with merge variables</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost">Save Draft</button>
+          <button class="btn btn-primary">Launch Campaign</button>
+        </div>
+      </div>
+
+      <!-- Campaign settings bar -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px">
+        <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:16px">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">Campaign Name</div>
+          <input type="text" value="Risk Managers Q2" style="width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xs);padding:8px 12px;color:var(--text-primary);font-size:14px;font-weight:600;font-family:inherit;outline:none">
+        </div>
+        <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:16px">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">Target Category</div>
+          <select style="width:100%;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xs);padding:8px 12px;color:var(--text-primary);font-size:13px;font-family:inherit;outline:none;cursor:pointer">
+            <option>Risk</option><option>Quant</option><option>Quant Risk</option><option>Compliance</option><option>Audit</option><option>Cyber</option><option>Legal</option><option>Front Office</option><option>All Categories</option>
+          </select>
+        </div>
+        <div style="background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:var(--radius);padding:16px">
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px">Min Score Threshold</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <input type="range" min="1" max="10" value="7" style="flex:1;accent-color:var(--accent)" oninput="this.nextElementSibling.textContent=this.value+'.0'">
+            <span style="font-family:'JetBrains Mono';font-size:16px;font-weight:700;color:var(--accent-light);min-width:30px">7.0</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sequence builder -->
+      <div class="campaign-layout">
+        <div class="campaign-panel" style="max-height:none">
+          <div class="campaign-panel-title" style="margin-bottom:20px">&#9993; Sequence Steps <span style="font-size:11px;color:var(--text-muted);font-weight:400;margin-left:8px">Click a step to preview &amp; edit</span></div>
+
+          <div class="sequence-step" style="cursor:pointer;border:2px solid var(--accent)" onclick="previewStep(1);highlightStep(this)">
+            <div class="step-num active">1</div>
+            <div class="step-info" style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="step-title">Initial Outreach</div>
+                <select class="tone-select" style="background:var(--accent-glow);border:1px solid rgba(108,92,231,0.3);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;color:var(--accent-light);font-family:inherit;outline:none;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px" onclick="event.stopPropagation()">
+                  <option>Formal</option><option>Informal</option><option>Technical</option><option selected>Candidate Spec</option><option>Consultative</option><option>Direct</option>
+                </select>
+              </div>
+              <div class="step-meta">Sent immediately on lead discovery</div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted)">Day 0</div>
+          </div>
+
+          <div style="display:flex;align-items:center;padding:4px 0 4px 14px"><div style="width:1px;height:20px;background:var(--border)"></div><span style="font-size:10px;color:var(--text-muted);margin-left:12px">Wait <select style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-size:10px;color:var(--accent-light);font-family:inherit;outline:none;cursor:pointer" onclick="event.stopPropagation()"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>7</option><option>10</option><option>14</option><option>21</option><option>30</option></select> days &middot; if no reply</span></div>
+
+          <div class="sequence-step" style="cursor:pointer" onclick="previewStep(2);highlightStep(this)">
+            <div class="step-num active">2</div>
+            <div class="step-info" style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="step-title">Follow-up + Value Add</div>
+                <select class="tone-select" style="background:var(--accent-glow);border:1px solid rgba(108,92,231,0.3);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;color:var(--accent-light);font-family:inherit;outline:none;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px" onclick="event.stopPropagation()">
+                  <option selected>Formal</option><option>Informal</option><option>Technical</option><option>Candidate Spec</option><option>Consultative</option><option>Direct</option>
+                </select>
+              </div>
+              <div class="step-meta">Day 3 &middot; Reference value proposition</div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted)">Day 3</div>
+          </div>
+
+          <div style="display:flex;align-items:center;padding:4px 0 4px 14px"><div style="width:1px;height:20px;background:var(--border)"></div><span style="font-size:10px;color:var(--text-muted);margin-left:12px">Wait <select style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-size:10px;color:var(--accent-light);font-family:inherit;outline:none;cursor:pointer" onclick="event.stopPropagation()"><option>1</option><option>2</option><option>3</option><option selected>4</option><option>5</option><option>7</option><option>10</option><option>14</option><option>21</option><option>30</option></select> days &middot; if no reply</span></div>
+
+          <div class="sequence-step" style="cursor:pointer" onclick="previewStep(3);highlightStep(this)">
+            <div class="step-num active">3</div>
+            <div class="step-info" style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="step-title">Case Study + Social Proof</div>
+                <select class="tone-select" style="background:var(--accent-glow);border:1px solid rgba(108,92,231,0.3);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;color:var(--accent-light);font-family:inherit;outline:none;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px" onclick="event.stopPropagation()">
+                  <option>Formal</option><option>Informal</option><option selected>Technical</option><option>Candidate Spec</option><option>Consultative</option><option>Direct</option>
+                </select>
+              </div>
+              <div class="step-meta">Day 7 &middot; Share relevant placement story</div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted)">Day 7</div>
+          </div>
+
+          <div style="display:flex;align-items:center;padding:4px 0 4px 14px"><div style="width:1px;height:20px;background:var(--border)"></div><span style="font-size:10px;color:var(--text-muted);margin-left:12px">Wait <select style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-size:10px;color:var(--accent-light);font-family:inherit;outline:none;cursor:pointer" onclick="event.stopPropagation()"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option selected>7</option><option>10</option><option>14</option><option>21</option><option>30</option></select> days &middot; if no reply</span></div>
+
+          <div class="sequence-step" style="cursor:pointer" onclick="previewStep(4);highlightStep(this)">
+            <div class="step-num active">4</div>
+            <div class="step-info" style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="step-title">Breakup Email</div>
+                <select class="tone-select" style="background:var(--accent-glow);border:1px solid rgba(108,92,231,0.3);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;color:var(--accent-light);font-family:inherit;outline:none;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px" onclick="event.stopPropagation()">
+                  <option>Formal</option><option selected>Informal</option><option>Technical</option><option>Candidate Spec</option><option>Consultative</option><option>Direct</option>
+                </select>
+              </div>
+              <div class="step-meta">Day 14 &middot; Low-pressure close</div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted)">Day 14</div>
+          </div>
+
+          <div style="display:flex;align-items:center;padding:4px 0 4px 14px"><div style="width:1px;height:20px;background:var(--border)"></div><span style="font-size:10px;color:var(--text-muted);margin-left:12px">Wait <select style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:4px;padding:1px 4px;font-size:10px;color:var(--accent-light);font-family:inherit;outline:none;cursor:pointer" onclick="event.stopPropagation()"><option>7</option><option>10</option><option>14</option><option selected>16</option><option>21</option><option>30</option><option>45</option><option>60</option></select> days &middot; if no reply &amp; role still open</span></div>
+
+          <div class="sequence-step" style="cursor:pointer" onclick="previewStep(5);highlightStep(this)">
+            <div class="step-num pending">5</div>
+            <div class="step-info" style="flex:1">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div class="step-title">Re-engagement &mdash; New Angle</div>
+                <select class="tone-select" style="background:var(--accent-glow);border:1px solid rgba(108,92,231,0.3);border-radius:6px;padding:3px 8px;font-size:10px;font-weight:600;color:var(--accent-light);font-family:inherit;outline:none;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px" onclick="event.stopPropagation()">
+                  <option>Formal</option><option>Informal</option><option>Technical</option><option selected>Candidate Spec</option><option>Consultative</option><option>Direct</option>
+                </select>
+              </div>
+              <div class="step-meta">Day 30 &middot; Fresh approach, new candidates</div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted)">Day 30</div>
+          </div>
+
+          <div style="margin-top:16px;text-align:center">
+            <button class="btn btn-ghost" style="width:100%">+ Add Step</button>
+          </div>
+        </div>
+
+        <div class="campaign-panel">
+          <div class="campaign-panel-title">&#128196; Preview &mdash; <span id="preview-step-label">Step 1</span></div>
+          <div class="email-preview" id="email-preview-content">
+            <div class="subject">Re: <span class="email-var">{job_title}</span> role at <span class="email-var">{company}</span></div>
+            Hi <span class="email-var">{hiring_manager}</span>,<br><br>
+            I noticed <span class="email-var">{company}</span> is hiring a <span class="email-var">{job_title}</span> in <span class="email-var">{location}</span>. I specialise in placing senior <span class="email-var">{category}</span> professionals into firms like yours.<br><br>
+            I have a shortlist of 3 candidates who closely match the requirements &mdash; all with <span class="email-var">{category}</span> experience at top-tier institutions.<br><br>
+            Would you be open to a quick 10-minute call this week?<br><br>
+            Best,<br>
+            <span class="email-var">{sender_name}</span><br>
+            <span style="color:var(--text-muted);font-size:12px"><span class="email-var">{sender_company}</span> &middot; <span class="email-var">{sender_phone}</span></span>
+          </div>
+
+          <!-- Hiring Manager Selector -->
+          <div style="margin-top:16px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px">Default Hiring Manager Source</div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-card);border:2px solid var(--accent);border-radius:var(--radius-sm);cursor:pointer">
+                <input type="radio" name="hm-source" checked style="accent-color:var(--accent)">
+                <div>
+                  <div style="font-size:13px;font-weight:600">AI Auto-Match</div>
+                  <div style="font-size:11px;color:var(--text-muted)">Automatically find up to 3 hiring managers per lead &middot; Manual override per lead</div>
+                </div>
+                <div style="margin-left:auto;font-size:10px;color:var(--accent-light);background:var(--accent-glow);padding:2px 8px;border-radius:4px;border:1px solid rgba(108,92,231,0.2)">Recommended</div>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-card);border:2px solid var(--border-subtle);border-radius:var(--radius-sm);cursor:pointer">
+                <input type="radio" name="hm-source" style="accent-color:var(--accent)">
+                <div>
+                  <div style="font-size:13px;font-weight:600">Manual Only</div>
+                  <div style="font-size:11px;color:var(--text-muted)">You enter hiring manager details for each lead before sending</div>
+                </div>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-card);border:2px solid var(--border-subtle);border-radius:var(--radius-sm);cursor:pointer">
+                <input type="radio" name="hm-source" style="accent-color:var(--accent)">
+                <div style="flex:1">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <div style="font-size:13px;font-weight:600">Bullhorn CRM</div>
+                    <span style="font-size:9px;font-weight:600;padding:2px 6px;border-radius:3px;background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)">CONNECTED</span>
+                  </div>
+                  <div style="font-size:11px;color:var(--text-muted)">Match hiring managers from your Bullhorn contacts by company name &amp; job title</div>
+                </div>
+                <div style="margin-left:auto">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="opacity:0.5"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15l-5-5 1.41-1.41L11 14.17l7.59-7.59L20 8l-9 9z" fill="var(--green)"/></svg>
+                </div>
+              </label>
+              <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-card);border:2px solid var(--border-subtle);border-radius:var(--radius-sm);cursor:pointer">
+                <input type="radio" name="hm-source" style="accent-color:var(--accent)">
+                <div>
+                  <div style="font-size:13px;font-weight:600">CSV Upload</div>
+                  <div style="font-size:11px;color:var(--text-muted)">Bulk import contact list with company, name, email columns</div>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div style="margin-top:12px;display:flex;gap:8px">
+            <button class="btn btn-ghost" style="flex:1">&#9998; Edit Template</button>
+            <button class="btn btn-ghost" style="flex:1">&#128065; Send Test</button>
+            <button class="btn btn-primary" style="flex:1">Launch Campaign</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="campaign-detail" style="display:none">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+          <button class="btn btn-ghost" onclick="document.getElementById('campaign-detail').style.display='none'" style="padding:6px 10px">&#8592; Back</button>
+          <div style="font-size:18px;font-weight:700" id="campaign-detail-title">Risk Managers Q2</div>
+          <span style="display:inline-flex;align-items:center;gap:5px;color:var(--green);font-size:12px;font-weight:600;margin-left:8px"><span class="live-dot" style="width:6px;height:6px"></span> Active</span>
+          <div style="margin-left:auto;display:flex;gap:8px">
+            <button class="btn btn-ghost">&#10074;&#10074; Pause</button>
+            <button class="btn btn-ghost">&#9998; Edit</button>
+            <button class="btn btn-primary">+ Add Leads</button>
+          </div>
+        </div>
+
+        <!-- Funnel metrics -->
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:2px;margin-bottom:24px;background:var(--border-subtle);border-radius:var(--radius);overflow:hidden">
+          <div style="background:var(--bg-card);padding:16px;text-align:center">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Enrolled</div>
+            <div style="font-size:24px;font-weight:800">412</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:4px">100%</div>
+          </div>
+          <div style="background:var(--bg-card);padding:16px;text-align:center">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Opened</div>
+            <div style="font-size:24px;font-weight:800;color:var(--green)">297</div>
+            <div style="font-size:11px;color:var(--green);margin-top:4px">72.1%</div>
+          </div>
+          <div style="background:var(--bg-card);padding:16px;text-align:center">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Replied</div>
+            <div style="font-size:24px;font-weight:800;color:var(--blue)">76</div>
+            <div style="font-size:11px;color:var(--blue);margin-top:4px">18.4%</div>
+          </div>
+          <div style="background:var(--bg-card);padding:16px;text-align:center">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Interested</div>
+            <div style="font-size:24px;font-weight:800;color:var(--accent-light)">31</div>
+            <div style="font-size:11px;color:var(--accent-light);margin-top:4px">7.5%</div>
+          </div>
+          <div style="background:var(--bg-card);padding:16px;text-align:center">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px">Meetings</div>
+            <div style="font-size:24px;font-weight:800;color:var(--amber)">14</div>
+            <div style="font-size:11px;color:var(--amber);margin-top:4px">3.4%</div>
+          </div>
+        </div>
+
+        <div class="campaign-layout">
+          <div class="campaign-panel">
+            <div class="campaign-panel-title">&#9993; Sequence Steps</div>
+            <div class="sequence-step" style="cursor:pointer" onclick="previewStep(1)">
+              <div class="step-num active">1</div>
+              <div class="step-info">
+                <div class="step-title">Initial Outreach</div>
+                <div class="step-meta">Sent immediately &middot; 412 sent</div>
+              </div>
+              <div class="step-stats">
+                <div class="step-stat" style="color:var(--green)">72% open</div>
+                <div class="step-stat" style="color:var(--blue)">18% reply</div>
+              </div>
+            </div>
+            <div class="sequence-step" style="cursor:pointer" onclick="previewStep(2)">
+              <div class="step-num active">2</div>
+              <div class="step-info">
+                <div class="step-title">Follow-up + Value Add</div>
+                <div class="step-meta">Day 3 &middot; 336 sent</div>
+              </div>
+              <div class="step-stats">
+                <div class="step-stat" style="color:var(--green)">65% open</div>
+                <div class="step-stat" style="color:var(--blue)">12% reply</div>
+              </div>
+            </div>
+            <div class="sequence-step" style="cursor:pointer" onclick="previewStep(3)">
+              <div class="step-num active">3</div>
+              <div class="step-info">
+                <div class="step-title">Case Study + Social Proof</div>
+                <div class="step-meta">Day 7 &middot; 284 sent</div>
+              </div>
+              <div class="step-stats">
+                <div class="step-stat" style="color:var(--green)">58% open</div>
+                <div class="step-stat" style="color:var(--blue)">9% reply</div>
+              </div>
+            </div>
+            <div class="sequence-step" style="cursor:pointer" onclick="previewStep(4)">
+              <div class="step-num active">4</div>
+              <div class="step-info">
+                <div class="step-title">Breakup Email</div>
+                <div class="step-meta">Day 14 &middot; 241 sent</div>
+              </div>
+              <div class="step-stats">
+                <div class="step-stat" style="color:var(--green)">51% open</div>
+                <div class="step-stat" style="color:var(--blue)">6% reply</div>
+              </div>
+            </div>
+            <div class="sequence-step" style="cursor:pointer" onclick="previewStep(5)">
+              <div class="step-num pending">5</div>
+              <div class="step-info">
+                <div class="step-title">Re-engagement &mdash; New Angle</div>
+                <div class="step-meta">Day 30 &middot; 47 queued</div>
+              </div>
+              <div class="step-stats">
+                <div class="step-stat" style="color:var(--text-muted)">pending</div>
+              </div>
+            </div>
+
+            <!-- Recent activity -->
+            <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border-subtle)">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px">Recent Activity</div>
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+                  <span style="color:var(--blue)">&#9993;</span>
+                  <span><b>Sarah Chen</b> replied &mdash; Goldman Sachs, VP Risk</span>
+                  <span style="margin-left:auto;color:var(--text-muted)">12m ago</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+                  <span style="color:var(--green)">&#128065;</span>
+                  <span><b>James Wright</b> opened Step 3 &mdash; Barclays, Head of Risk</span>
+                  <span style="margin-left:auto;color:var(--text-muted)">28m ago</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+                  <span style="color:var(--amber)">&#128197;</span>
+                  <span><b>Maria Lopez</b> booked meeting &mdash; HSBC, CRO</span>
+                  <span style="margin-left:auto;color:var(--text-muted)">1h ago</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+                  <span style="color:var(--blue)">&#9993;</span>
+                  <span><b>David Park</b> replied &mdash; Citi, Risk Analytics</span>
+                  <span style="margin-left:auto;color:var(--text-muted)">2h ago</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;font-size:12px">
+                  <span style="color:var(--red)">&#10005;</span>
+                  <span><b>Tom Richards</b> unsubscribed &mdash; Deutsche Bank</span>
+                  <span style="margin-left:auto;color:var(--text-muted)">3h ago</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="campaign-panel">
+            <div class="campaign-panel-title">&#128196; Preview &mdash; <span id="preview-step-label">Step 1</span></div>
+            <div class="email-preview" id="email-preview-content">
+              <div class="subject">Re: <span class="email-var">{job_title}</span> role at <span class="email-var">{company}</span></div>
+              Hi <span class="email-var">{hiring_manager}</span>,<br><br>
+              I noticed <span class="email-var">{company}</span> is hiring a <span class="email-var">{job_title}</span> in <span class="email-var">{location}</span>. I specialise in placing senior <span class="email-var">{category}</span> professionals into firms like yours.<br><br>
+              I have a shortlist of 3 candidates who closely match the requirements &mdash; all with <span class="email-var">{category}</span> experience at top-tier institutions.<br><br>
+              Would you be open to a quick 10-minute call this week?<br><br>
+              Best,<br>
+              <span class="email-var">{sender_name}</span><br>
+              <span style="color:var(--text-muted);font-size:12px"><span class="email-var">{sender_company}</span> &middot; <span class="email-var">{sender_phone}</span></span>
+            </div>
+            <!-- Hiring Manager Selector -->
+            <div style="margin-top:16px;background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:16px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px">Hiring Manager</div>
+                <div style="font-size:10px;color:var(--accent-light);background:var(--accent-glow);padding:2px 8px;border-radius:4px;border:1px solid rgba(108,92,231,0.2)">AI Matched</div>
+              </div>
+
+              <!-- AI suggestions -->
+              <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px">
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-card);border:2px solid var(--accent);border-radius:var(--radius-sm);cursor:pointer;transition:all 0.15s ease" onclick="selectHM(this)">
+                  <input type="radio" name="hm" checked style="accent-color:var(--accent)">
+                  <div style="flex:1">
+                    <div style="font-size:13px;font-weight:600">Sarah Chen</div>
+                    <div style="font-size:11px;color:var(--text-muted)">VP, Market Risk &middot; Goldman Sachs</div>
+                  </div>
+                  <div style="text-align:right">
+                    <div style="font-size:11px;color:var(--text-muted)">sarah.chen@gs.com</div>
+                    <div style="font-size:10px;color:var(--green)">92% confidence</div>
+                  </div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-card);border:2px solid var(--border-subtle);border-radius:var(--radius-sm);cursor:pointer;transition:all 0.15s ease" onclick="selectHM(this)">
+                  <input type="radio" name="hm" style="accent-color:var(--accent)">
+                  <div style="flex:1">
+                    <div style="font-size:13px;font-weight:600">Michael Torres</div>
+                    <div style="font-size:11px;color:var(--text-muted)">MD, Risk Analytics &middot; Goldman Sachs</div>
+                  </div>
+                  <div style="text-align:right">
+                    <div style="font-size:11px;color:var(--text-muted)">m.torres@gs.com</div>
+                    <div style="font-size:10px;color:var(--amber)">74% confidence</div>
+                  </div>
+                </label>
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-card);border:2px solid var(--border-subtle);border-radius:var(--radius-sm);cursor:pointer;transition:all 0.15s ease" onclick="selectHM(this)">
+                  <input type="radio" name="hm" style="accent-color:var(--accent)">
+                  <div style="flex:1">
+                    <div style="font-size:13px;font-weight:600">Rachel Nguyen</div>
+                    <div style="font-size:11px;color:var(--text-muted)">Director, Enterprise Risk &middot; Goldman Sachs</div>
+                  </div>
+                  <div style="text-align:right">
+                    <div style="font-size:11px;color:var(--text-muted)">r.nguyen@gs.com</div>
+                    <div style="font-size:10px;color:var(--amber)">61% confidence</div>
+                  </div>
+                </label>
+              </div>
+
+              <!-- Manual entry toggle -->
+              <div style="border-top:1px solid var(--border-subtle);padding-top:12px">
+                <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-card);border:2px solid var(--border-subtle);border-radius:var(--radius-sm);cursor:pointer;margin-bottom:8px" onclick="selectHM(this);document.getElementById('manual-hm').style.display='grid'">
+                  <input type="radio" name="hm" style="accent-color:var(--accent)">
+                  <div style="flex:1">
+                    <div style="font-size:13px;font-weight:600;color:var(--text-secondary)">&#9998; Enter manually</div>
+                    <div style="font-size:11px;color:var(--text-muted)">Override AI suggestion with your own contact</div>
+                  </div>
+                </label>
+                <div id="manual-hm" style="display:none;grid-template-columns:1fr 1fr;gap:8px;padding:0 4px">
+                  <input type="text" placeholder="First name" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xs);padding:8px 12px;color:var(--text-primary);font-size:13px;font-family:inherit;outline:none">
+                  <input type="text" placeholder="Last name" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xs);padding:8px 12px;color:var(--text-primary);font-size:13px;font-family:inherit;outline:none">
+                  <input type="text" placeholder="Job title" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xs);padding:8px 12px;color:var(--text-primary);font-size:13px;font-family:inherit;outline:none">
+                  <input type="email" placeholder="Email address" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xs);padding:8px 12px;color:var(--text-primary);font-size:13px;font-family:inherit;outline:none">
+                  <input type="tel" placeholder="Phone (optional)" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xs);padding:8px 12px;color:var(--text-primary);font-size:13px;font-family:inherit;outline:none">
+                  <input type="text" placeholder="LinkedIn URL (optional)" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-xs);padding:8px 12px;color:var(--text-primary);font-size:13px;font-family:inherit;outline:none">
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:12px;display:flex;gap:8px">
+              <button class="btn btn-ghost" style="flex:1">&#9998; Edit Template</button>
+              <button class="btn btn-ghost" style="flex:1">&#128065; Send Test</button>
+              <button class="btn btn-primary" style="flex:1">Send to 47 Leads</button>
+            </div>
+
+            <!-- Per-step breakdown -->
+            <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border-subtle)">
+              <div style="font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:12px">Step Performance</div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div style="background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:12px;text-align:center">
+                  <div style="font-size:22px;font-weight:800;color:var(--green)">72.1%</div>
+                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px">Open Rate</div>
+                </div>
+                <div style="background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:12px;text-align:center">
+                  <div style="font-size:22px;font-weight:800;color:var(--blue)">18.4%</div>
+                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px">Reply Rate</div>
+                </div>
+                <div style="background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:12px;text-align:center">
+                  <div style="font-size:22px;font-weight:800;color:var(--red)">1.2%</div>
+                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px">Bounce Rate</div>
+                </div>
+                <div style="background:var(--bg-primary);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);padding:12px;text-align:center">
+                  <div style="font-size:22px;font-weight:800;color:var(--text-secondary)">0.5%</div>
+                  <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-top:4px">Unsubscribe</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Page navigation
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+  const titles = { dashboard: 'Dashboard', leads: 'Lead List', sources: 'Sources', campaigns: 'Campaigns', builder: 'Campaign Builder' };
+  if (name === 'campaigns') document.getElementById('campaign-detail').style.display = 'none';
+  document.getElementById('topbar-title').textContent = titles[name] || name;
+}
+
+// Generate fake chart bars
+const chart = document.getElementById('leads-chart');
+if (chart) {
+  const days = 30;
+  const colors = ['var(--accent)', 'var(--accent-light)', 'var(--blue)'];
+  for (let i = 0; i < days; i++) {
+    const bar = document.createElement('div');
+    bar.className = 'chart-bar';
+    const base = 40 + Math.random() * 45;
+    const trend = (i / days) * 20;
+    const h = Math.min(base + trend + (Math.random() - 0.5) * 30, 100);
+    bar.style.height = h + '%';
+    bar.style.background = `linear-gradient(to top, var(--accent), var(--accent-light))`;
+    bar.style.opacity = 0.6 + (i / days) * 0.4;
+    chart.appendChild(bar);
+  }
+}
+
+// Campaign detail
+function showCampaignDetail(type) {
+  document.getElementById('campaign-detail').style.display = 'block';
+  const names = { risk: 'Risk Managers Q2', quant: 'Quant Desk Hiring', compliance: 'Compliance & Reg' };
+  document.getElementById('campaign-detail-title').textContent = names[type] || type;
+  document.getElementById('campaign-detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Step preview
+const stepEmails = {
+  1: { label: 'Step 1 — Initial Outreach', subject: 'Re: <span class="email-var">{job_title}</span> role at <span class="email-var">{company}</span>', body: 'Hi <span class="email-var">{hiring_manager}</span>,<br><br>I noticed <span class="email-var">{company}</span> is hiring a <span class="email-var">{job_title}</span> in <span class="email-var">{location}</span>. I specialise in placing senior <span class="email-var">{category}</span> professionals into firms like yours.<br><br>I have a shortlist of 3 candidates who closely match the requirements &mdash; all with <span class="email-var">{category}</span> experience at top-tier institutions.<br><br>Would you be open to a quick 10-minute call this week?' },
+  2: { label: 'Step 2 — Follow-up', subject: 'Re: <span class="email-var">{job_title}</span> at <span class="email-var">{company}</span> — quick thought', body: 'Hi <span class="email-var">{hiring_manager}</span>,<br><br>Just circling back on my note about the <span class="email-var">{job_title}</span> position. I placed a similar profile at <span class="email-var">{similar_company}</span> last quarter &mdash; they went from shortlist to offer in 3 weeks.<br><br>Happy to share their background if useful. No pressure either way.' },
+  3: { label: 'Step 3 — Case Study', subject: 'How <span class="email-var">{similar_company}</span> filled their <span class="email-var">{category}</span> role in 18 days', body: 'Hi <span class="email-var">{hiring_manager}</span>,<br><br>Thought this might be relevant &mdash; we recently helped <span class="email-var">{similar_company}</span> fill a senior <span class="email-var">{category}</span> role. The hiring manager said it was the strongest shortlist they\'d seen.<br><br>The brief was almost identical to your <span class="email-var">{job_title}</span> opening. Would a 10-minute call be worthwhile to see if we could do the same for you?' },
+  4: { label: 'Step 4 — Breakup', subject: 'Closing the loop on <span class="email-var">{job_title}</span>', body: 'Hi <span class="email-var">{hiring_manager}</span>,<br><br>I\'ve reached out a couple of times about the <span class="email-var">{job_title}</span> role &mdash; completely understand if the timing isn\'t right or you\'ve got it covered internally.<br><br>I\'ll leave it here, but if the search is still open in a few weeks, I\'m always happy to help. Just hit reply.' },
+  5: { label: 'Step 5 — Re-engagement', subject: 'Still looking for a <span class="email-var">{job_title}</span>?', body: 'Hi <span class="email-var">{hiring_manager}</span>,<br><br>It\'s been a month since we last connected. If the <span class="email-var">{job_title}</span> position is still open (or if anything new has come up on the <span class="email-var">{category}</span> side), I\'ve recently worked with a couple of excellent candidates who could be a strong fit.<br><br>Worth a quick conversation?' }
+};
+// ── Add Source panel ──
+function toggleAddSource() {
+  const panel = document.getElementById('add-source-panel');
+  if (panel.style.display === 'none') {
+    panel.style.display = 'block';
+    document.getElementById('source-url-input').focus();
+    document.getElementById('detect-result').style.display = 'none';
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+// Simulated detection with realistic fake data
+const fakeDetections = {
+  'greenhouse': { company: 'Robinhood', adapter: 'Greenhouse', jobs: 143, ok: true },
+  'icims': { company: 'Marathon Asset Management', adapter: 'iCIMS', jobs: 18, ok: true },
+  'workday': { company: 'Goldman Sachs', adapter: 'Workday', jobs: 847, ok: true },
+  'lever': { company: 'Anchorage Digital', adapter: 'Lever', jobs: 24, ok: true },
+  'ashby': { company: 'Clear Street', adapter: 'Ashby', jobs: 31, ok: true },
+  'smartrecruiters': { company: 'Zurich Insurance', adapter: 'SmartRecruiters', jobs: 89, ok: true },
+  'generic': { company: '', adapter: 'Generic Browser', jobs: null, ok: true },
+};
+
+function detectSource() {
+  const url = document.getElementById('source-url-input').value.trim();
+  if (!url) return;
+
+  // Show loading
+  const result = document.getElementById('detect-result');
+  result.style.display = 'block';
+  document.getElementById('detect-loading').style.display = 'block';
+  document.getElementById('detect-success').style.display = 'none';
+  document.getElementById('detect-error').style.display = 'none';
+  document.getElementById('detect-added').style.display = 'none';
+
+  // Simulate async detection
+  setTimeout(() => {
+    document.getElementById('detect-loading').style.display = 'none';
+
+    // Detect platform from URL
+    let platform = 'generic';
+    if (url.includes('greenhouse.io')) platform = 'greenhouse';
+    else if (url.includes('icims.com')) platform = 'icims';
+    else if (url.includes('myworkdayjobs.com')) platform = 'workday';
+    else if (url.includes('lever.co')) platform = 'lever';
+    else if (url.includes('ashbyhq.com')) platform = 'ashby';
+    else if (url.includes('smartrecruiters.com')) platform = 'smartrecruiters';
+
+    // Check for fake 404
+    if (url.includes('fakeboard') || url.includes('notreal')) {
+      document.getElementById('detect-error').style.display = 'block';
+      document.getElementById('detect-error-title').textContent = 'Board not found';
+      document.getElementById('detect-error-msg').textContent = 'The URL returned a 404. Check the address and try again.';
+      return;
+    }
+
+    const d = fakeDetections[platform];
+    // Extract company from URL slug if generic
+    let company = d.company;
+    if (!company) {
+      try {
+        const parts = new URL(url.startsWith('http') ? url : 'https://'+url).hostname.replace('www.','').split('.');
+        company = parts[0].replace(/-/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+      } catch(e) { company = 'Unknown'; }
+    }
+
+    document.getElementById('detect-success').style.display = 'block';
+    document.getElementById('detect-company').textContent = company;
+    document.getElementById('detect-adapter').textContent = d.adapter.toLowerCase();
+    document.getElementById('detect-company-input').value = company;
+    document.getElementById('detect-success').querySelector('input[disabled]').value = d.adapter;
+
+    if (d.jobs !== null) {
+      document.getElementById('detect-meta').textContent = d.jobs + ' jobs found \u00b7 Board is active and responding';
+    } else {
+      document.getElementById('detect-meta').textContent = 'URL is reachable \u00b7 Will use browser scraper to discover jobs';
+    }
+  }, 1500);
+}
+
+function addSourceConfirm() {
+  const company = document.getElementById('detect-company-input').value;
+  const adapter = document.getElementById('detect-success').querySelector('input[disabled]').value;
+  document.getElementById('detect-success').style.display = 'none';
+  document.getElementById('detect-added').style.display = 'block';
+  document.getElementById('detect-added-msg').textContent = company + ' (' + adapter + ') will be included in the next pipeline run';
+
+  // Auto-hide after 3s
+  setTimeout(() => {
+    document.getElementById('add-source-panel').style.display = 'none';
+  }, 3000);
+}
+
+// ── Advert modal ──
+const advertData = {
+  'VP, Market Risk Analytics': {
+    company: 'Goldman Sachs', location: 'London, UK', posted: '10 April 2026', source: 'Workday', url: 'https://goldmansachs.wd1.myworkdayjobs.com/en-US/GS-Careers/job/...',
+    body: `<div class="advert-section-title" style="margin-top:0;padding-top:0;border-top:none">About the Role</div><div class="advert-body-text">We are seeking a Vice President to join our Market Risk Analytics team in London. This role sits within the second line of defence and is responsible for the independent oversight and challenge of market risk models used across the Securities Division.</div><div class="advert-section-title">Key Responsibilities</div><div class="advert-body-text"><ul><li>Lead the independent validation and ongoing monitoring of VaR, Stressed VaR, and IRC models across rates, credit, and equity asset classes</li><li>Support the FRTB/IMA implementation programme, with particular focus on P&L attribution testing and backtesting frameworks</li><li>Develop and maintain quantitative tools for model risk assessment, including sensitivity analysis and benchmarking</li><li>Present findings and recommendations to senior risk committees and regulators</li><li>Collaborate with front-office quants and technology teams to ensure model governance standards are met</li><li>Contribute to the firm's regulatory engagement on model approval submissions under the new framework</li></ul></div><div class="advert-section-title">Requirements</div><div class="advert-body-text"><ul><li>PhD or Master's degree in a quantitative discipline (Mathematics, Physics, Statistics, Financial Engineering)</li><li>10+ years of experience in market risk, model validation, or quantitative risk management at a global financial institution</li><li>Deep knowledge of VaR methodologies, stress testing frameworks, and Greeks-based risk measures</li><li>Experience with FRTB regulations and internal model approval processes</li><li>Strong programming skills in Python, with experience in statistical and numerical libraries</li><li>Excellent communication skills with the ability to explain complex quantitative concepts to senior stakeholders</li><li>FRM or PRM certification preferred</li></ul></div><div class="advert-section-title">About Goldman Sachs</div><div class="advert-body-text">At Goldman Sachs, we commit our people, capital and ideas to help our clients, shareholders and the communities we serve to grow. We are a leading global investment banking, securities and investment management firm.</div>`
+  },
+  'Quantitative Analyst, Derivatives Pricing': {
+    company: 'Citadel', location: 'New York, USA', posted: '9 April 2026', source: 'Generic Browser', url: 'https://www.citadel.com/careers/details/quantitative-analyst-derivatives/',
+    body: `<div class="advert-section-title" style="margin-top:0;padding-top:0;border-top:none">About the Role</div><div class="advert-body-text">Citadel is looking for a Quantitative Analyst to join our derivatives pricing team. You will work directly with portfolio managers and traders to develop and refine pricing models for exotic and structured products across multiple asset classes.</div><div class="advert-section-title">What You Will Do</div><div class="advert-body-text"><ul><li>Design, implement, and calibrate pricing models for exotic derivatives including barrier options, autocallables, and variance products</li><li>Develop Monte Carlo and PDE-based pricing engines with focus on computational efficiency</li><li>Research and implement new approaches to volatility surface modelling and smile dynamics</li><li>Work closely with the trading desk to ensure models are fit for purpose in live trading environments</li><li>Analyse model risk and contribute to model governance processes</li></ul></div><div class="advert-section-title">Requirements</div><div class="advert-body-text"><ul><li>PhD in Mathematics, Physics, Computer Science, or a related quantitative field</li><li>3+ years of experience in derivatives pricing or quantitative research</li><li>Expert-level C++ and Python programming skills</li><li>Deep understanding of stochastic calculus, numerical methods, and probability theory</li><li>Experience with real-time pricing systems and market data feeds preferred</li></ul></div>`
+  },
+  'Head of Compliance, EMEA': {
+    company: 'Barclays', location: 'London, UK', posted: '8 April 2026', source: 'Workday', url: 'https://barclays.wd3.myworkdayjobs.com/en-US/Barclays-Careers/job/...',
+    body: `<div class="advert-section-title" style="margin-top:0;padding-top:0;border-top:none">About the Role</div><div class="advert-body-text">Barclays is seeking a Head of Compliance for the EMEA region, based in London. This is a senior leadership role responsible for overseeing the compliance framework across our Investment Bank and Corporate Bank operations in Europe, the Middle East, and Africa.</div><div class="advert-section-title">Key Responsibilities</div><div class="advert-body-text"><ul><li>Lead a team of 40+ compliance professionals across multiple EMEA jurisdictions</li><li>Serve as the primary point of contact for the FCA, PRA, and European regulators on compliance matters</li><li>Oversee the implementation of MiFID II, MAR, and EMIR compliance programmes</li><li>Advise senior management and the Board on regulatory developments and their business impact</li><li>Drive the compliance monitoring and surveillance programme across EMEA trading activities</li><li>Manage regulatory examinations, inspections, and enforcement actions</li></ul></div><div class="advert-section-title">Requirements</div><div class="advert-body-text"><ul><li>15+ years of compliance experience within a global bank or financial institution</li><li>Deep expertise in FCA/PRA regulatory requirements and European financial regulation</li><li>Proven track record of leading large compliance teams across multiple jurisdictions</li><li>Experience managing regulatory relationships at a senior level</li><li>Strong understanding of investment banking products and market conduct risks</li><li>Law degree or professional compliance qualification preferred</li></ul></div>`
+  },
+};
+
+// Fallback for adverts without specific data
+const defaultAdvert = {
+  body: `<div class="advert-section-title" style="margin-top:0;padding-top:0;border-top:none">About the Role</div><div class="advert-body-text">This is a senior position within a leading financial institution. The successful candidate will bring deep domain expertise and a track record of delivery in a fast-paced environment.</div><div class="advert-section-title">Key Responsibilities</div><div class="advert-body-text"><ul><li>Lead strategic initiatives within the function</li><li>Manage and develop a team of professionals</li><li>Engage with senior stakeholders across the business</li><li>Drive continuous improvement in processes and controls</li></ul></div><div class="advert-section-title">Requirements</div><div class="advert-body-text"><ul><li>Significant experience in a relevant role at a financial institution</li><li>Strong analytical and communication skills</li><li>Ability to operate in a complex, regulated environment</li><li>Relevant professional qualifications preferred</li></ul></div>`
+};
+
+function openAdvert(btn) {
+  const feedItem = btn.closest('.feed-item');
+  const title = feedItem.querySelector('.feed-item-title').textContent;
+  const meta = feedItem.querySelector('.feed-item-meta');
+  const spans = meta.querySelectorAll('span:not(.feed-item-tag)');
+  const company = spans[0] ? spans[0].textContent : '';
+  const location = spans[1] ? spans[1].textContent : '';
+  const tag = feedItem.querySelector('.feed-item-tag');
+  const category = tag ? tag.textContent : '';
+
+  const ad = advertData[title] || { company, location, posted: 'Recently', source: 'Unknown', url: '#', body: defaultAdvert.body };
+
+  const overlay = document.createElement('div');
+  overlay.className = 'advert-overlay';
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `
+    <div class="advert-modal">
+      <div class="advert-modal-header">
+        <div>
+          <div style="font-size:17px;font-weight:700;margin-bottom:6px">${title}</div>
+          <div class="advert-meta-row"><span class="advert-meta-label">Company</span><span class="advert-meta-value">${ad.company || company}</span></div>
+          <div class="advert-meta-row"><span class="advert-meta-label">Location</span><span class="advert-meta-value">${ad.location || location}</span></div>
+          <div class="advert-meta-row"><span class="advert-meta-label">Posted</span><span class="advert-meta-value">${ad.posted || 'Recently'}</span></div>
+          <div class="advert-meta-row"><span class="advert-meta-label">Source</span><span class="advert-meta-value" style="font-family:'JetBrains Mono';font-size:11px">${ad.source || 'Unknown'}</span></div>
+        </div>
+        <button class="advert-close" onclick="this.closest('.advert-overlay').remove()">&times;</button>
+      </div>
+      <div class="advert-modal-body">${ad.body}</div>
+      <div class="advert-modal-footer">
+        <button class="btn btn-ghost" onclick="this.closest('.advert-overlay').remove()">Close</button>
+        <a href="${ad.url}" target="_blank" class="btn btn-ghost" style="text-decoration:none">&#8599; Open Original</a>
+        <button class="btn btn-primary" onclick="this.closest('.advert-overlay').remove()">&#9993; Queue Campaign</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function queueCampaign(btn) {
+  btn.disabled = true;
+  btn.textContent = '\u23F3 Generating...';
+  btn.className = 'feed-action feed-action-view';
+  btn.style.color = 'var(--amber)';
+  setTimeout(() => {
+    btn.textContent = '\u2713 Queued';
+    btn.className = 'feed-action feed-action-queued';
+    btn.style.color = '';
+  }, 1500);
+}
+
+function toggleDossier(row) {
+  const next = row.nextElementSibling;
+  if (next && next.classList.contains('dossier-row')) {
+    next.style.display = next.style.display === 'none' ? 'table-row' : 'none';
+  }
+}
+
+function highlightStep(el) {
+  el.closest('.campaign-panel').querySelectorAll('.sequence-step').forEach(s => s.style.borderColor = 'var(--border-subtle)');
+  el.style.borderColor = 'var(--accent)';
+}
+
+function selectHM(el) {
+  el.closest('[style*="flex-direction:column"], [style*="border-top"]').parentElement
+    .querySelectorAll('label').forEach(l => l.style.borderColor = 'var(--border-subtle)');
+  el.style.borderColor = 'var(--accent)';
+  // Hide manual fields unless manual option selected
+  if (!el.querySelector('[placeholder="First name"]')) {
+    document.getElementById('manual-hm').style.display = 'none';
+  }
+}
+
+function previewStep(n) {
+  const s = stepEmails[n];
+  document.getElementById('preview-step-label').textContent = s.label;
+  document.getElementById('email-preview-content').innerHTML = '<div class="subject">' + s.subject + '</div>' + s.body + '<br><br>Best,<br><span class="email-var">{sender_name}</span><br><span style="color:var(--text-muted);font-size:12px"><span class="email-var">{sender_company}</span> &middot; <span class="email-var">{sender_phone}</span></span>';
+}
+</script>
+</body>
+</html>

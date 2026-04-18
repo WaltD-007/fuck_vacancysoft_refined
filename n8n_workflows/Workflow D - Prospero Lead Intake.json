@@ -1,0 +1,110 @@
+{
+  "name": "Workflow D - Prospero Lead Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "prospero-lead-intake",
+        "options": {},
+        "responseMode": "onReceived"
+      },
+      "id": "webhook-intake",
+      "name": "Receive Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [400, 300],
+      "webhookId": "prospero-lead-intake"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten the incoming data — handle both direct JSON and nested body\nconst raw = $input.first().json;\nconst data = raw.body || raw;\n\nreturn [{\n  json: {\n    'Job URL': data['Job URL'] || '',\n    'Job Title': data['Job Title'] || '',\n    'Job Ref': data['Job Ref'] || '',\n    'Category': data['Category'] || '',\n    'Sub Specialism': data['Sub Specialism'] || '',\n    'Company': data['Company'] || '',\n    'Location': data['Location'] || '',\n    'Country': data['Country'] || '',\n    'Salary': data['Salary'] || '',\n    'Contract Type': data['Contract Type'] || '',\n    'Date Posted': data['Date Posted'] || '',\n    'Job Board URL': data['Job Board URL'] || '',\n    'Platform': data['Platform'] || '',\n    'Date Scraped': data['Date Scraped'] || ''\n  }\n}];"
+      },
+      "id": "code-flatten",
+      "name": "Flatten Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [620, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw",
+          "mode": "list",
+          "cachedResultName": "fuck_vacancysoft",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=127942527",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Job URL": "={{ $json['Job URL'] }}",
+            "Job Title": "={{ $json['Job Title'] }}",
+            "Job Ref": "={{ $json['Job Ref'] }}",
+            "Category": "={{ $json['Category'] }}",
+            "Sub Specialism": "={{ $json['Sub Specialism'] }}",
+            "Company": "={{ $json['Company'] }}",
+            "Location": "={{ $json['Location'] }}",
+            "Country": "={{ $json['Country'] }}",
+            "Salary": "={{ $json['Salary'] }}",
+            "Contract Type": "={{ $json['Contract Type'] }}",
+            "Date Posted": "={{ $json['Date Posted'] }}",
+            "Job Board URL": "={{ $json['Job Board URL'] }}",
+            "Platform": "={{ $json['Platform'] }}",
+            "Date Scraped": "={{ $json['Date Scraped'] }}"
+          },
+          "schema": [
+            {"id": "Job URL", "displayName": "Job URL", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Job Title", "displayName": "Job Title", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Job Ref", "displayName": "Job Ref", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Category", "displayName": "Category", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Sub Specialism", "displayName": "Sub Specialism", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Company", "displayName": "Company", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Location", "displayName": "Location", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Country", "displayName": "Country", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Salary", "displayName": "Salary", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Contract Type", "displayName": "Contract Type", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Date Posted", "displayName": "Date Posted", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Job Board URL", "displayName": "Job Board URL", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Platform", "displayName": "Platform", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false},
+            {"id": "Date Scraped", "displayName": "Date Scraped", "required": false, "defaultMatch": false, "display": true, "type": "string", "canBeUsedToMatch": false}
+          ]
+        }
+      },
+      "id": "sheets-append",
+      "name": "Append to Job Lead Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [840, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yXZppibUV1e9fFir",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive Lead": {
+      "main": [
+        [{"node": "Flatten Data", "type": "main", "index": 0}]
+      ]
+    },
+    "Flatten Data": {
+      "main": [
+        [{"node": "Append to Job Lead Sheet", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {"executionOrder": "v1"},
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-04-15T00:00:00.000Z",
+  "versionId": "3"
+}

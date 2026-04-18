@@ -1,0 +1,535 @@
+{
+  "name": "Workflow A - Fuck Vacancysoft",
+  "nodes": [
+    {
+      "parameters": {
+        "multipleMethods": true,
+        "httpMethod": [
+          "POST"
+        ],
+        "path": "fuck_vacancysoft",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        912,
+        3264
+      ],
+      "id": "98835e28-8878-4c57-98ec-e76b662d1ffa",
+      "name": "Webhook",
+      "webhookId": "260e4dfc-7bb0-4e2e-854b-462c4e04e795",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ !!$json.body?.[0] }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "id": "31e3bacf-f0da-43d0-988b-423cb6cfcf31"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "010b31c6-c6f1-42f0-9706-1ddc9167bfb4",
+      "name": "Filter valid rows1",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        1152,
+        3280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function clean(value) {\n  return String(value ?? '').trim();\n}\n\nfunction slug(value, max = 24) {\n  return clean(value)\n    .toLowerCase()\n    .replace(/&/g, ' and ')\n    .replace(/[^a-z0-9]+/g, '-')\n    .replace(/^-+|-+$/g, '')\n    .slice(0, max);\n}\n\nfunction hashString(str) {\n  let hash = 0;\n  for (let i = 0; i < str.length; i++) {\n    hash = ((hash << 5) - hash) + str.charCodeAt(i);\n    hash |= 0;\n  }\n  return Math.abs(hash).toString(36);\n}\n\nfunction todayLocalYmd() {\n  const now = new Date();\n  const year = now.getFullYear();\n  const month = String(now.getMonth() + 1).padStart(2, '0');\n  const day = String(now.getDate()).padStart(2, '0');\n  return `${year}-${month}-${day}`;\n}\n\nconst payload = Array.isArray(items[0]?.json?.body) ? items[0].json.body : [];\n\nreturn payload\n  .filter((row) => clean(row?.['Company']) && clean(row?.['Job Title']))\n  .map((row) => {\n    const newRow = { ...row };\n\n    const existingDateScraped = clean(newRow['Date Scraped']);\n    if (!existingDateScraped) {\n      newRow['Date Scraped'] = todayLocalYmd();\n    }\n\n    const existingJobRef = clean(newRow['Job Ref']);\n    if (existingJobRef.startsWith('lead-')) {\n      return { json: newRow };\n    }\n\n    const title = clean(newRow['Job Title']);\n    const company = clean(newRow['Company']);\n    const location = clean(newRow['Location']);\n    const country = clean(newRow['Country']);\n    const jobUrl = clean(newRow['Job URL']);\n    const datePosted = clean(newRow['Date Posted']);\n    const platform = clean(newRow['Platform']);\n\n    const fingerprint = [\n      jobUrl,\n      company,\n      title,\n      location,\n      country,\n      datePosted,\n      platform\n    ].join('|');\n\n    const companyPart = slug(company || 'company');\n    const titlePart = slug(title || 'role');\n    const hashPart = hashString(fingerprint);\n\n    newRow['Job Ref'] = `lead-${companyPart}-${titlePart}-${hashPart}`;\n\n    return { json: newRow };\n  });"
+      },
+      "id": "e050a55c-c7ad-47b6-b63f-14cbedb90a0d",
+      "name": "Add in Job Ref ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1376,
+        3280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      leads: items.map(item => item.json)\n    }\n  }\n];"
+      },
+      "id": "b913b5f6-f3ed-4c9f-88f4-d8b616f55e7a",
+      "name": "Bundle valid leads1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        3280
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw",
+          "mode": "list",
+          "cachedResultName": "fuck_vacancysoft",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 488755016,
+          "mode": "list",
+          "cachedResultName": "Users",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit#gid=488755016"
+        },
+        "options": {}
+      },
+      "id": "d6d6f16d-c73b-414e-bc90-da50b297b90a",
+      "name": "Read Users1",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1776,
+        3280
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yXZppibUV1e9fFir",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ String($json['active'] || '').trim().toLowerCase() }}",
+              "rightValue": "yes",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "id": "544a8eff-06e9-4fb9-b96b-bfa95ad01c8d"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "604650f8-bfec-4b2a-bfc1-68889ea5e97c",
+      "name": "Filter active users1",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        1968,
+        3280
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "237d790c-bdc6-4ae5-bff5-b05294e8f24b",
+      "name": "Loop Over Users1",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        992,
+        3552
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalise(value) {\n  return String(value || '')\n    .toLowerCase()\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction splitList(value) {\n  return String(value || '')\n    .split(/[\\n|,]+/g)\n    .map(v => normalise(v))\n    .filter(Boolean);\n}\n\nconst loopUser = items[0]?.json || {};\nconst bundledLeadItem = $items(\"Bundle valid leads1\", 0, 0)[0]?.json || {};\nconst leadItems = Array.isArray(bundledLeadItem.leads) ? bundledLeadItem.leads : [];\n\nconst resolvedUserKey =\n  loopUser.userKey ||\n  loopUser['userKey '] ||\n  loopUser['UserKey'] ||\n  loopUser['userkey'] ||\n  loopUser['user key'] ||\n  '';\n\nconst resolvedLeadChatId = loopUser.leadChatId || '';\nconst resolvedOutputChatId = loopUser.outputChatId || '';\nconst resolvedCustomPrompt = loopUser.customPrompt || '';\nconst resolvedUserName = loopUser.name || loopUser.userName || '';\n\n// User preferences from sheet columns\nconst allowedCategories = splitList(loopUser.category || '');\nconst allowedSubSpecialisms = splitList(loopUser.subSpecialism || '');\nconst allowedCountries = splitList(loopUser.country || '');\n\nconst meta = {\n  userKey: resolvedUserKey,\n  leadChatId: resolvedLeadChatId,\n  outputChatId: resolvedOutputChatId,\n  customPrompt: resolvedCustomPrompt,\n  userName: resolvedUserName,\n};\n\nconst matched = leadItems.filter(row => {\n  // Category filter\n  if (allowedCategories.length > 0) {\n    const leadCategories = splitList(row['Category'] || '');\n    if (!leadCategories.some(v => allowedCategories.includes(v))) {\n      return false;\n    }\n  }\n\n  // Sub-specialism filter — only match against Sub Specialism, never fall back to Category\n  if (allowedSubSpecialisms.length > 0) {\n    const leadSubSpecList = splitList(row['Sub Specialism'] || '');\n    if (!leadSubSpecList.some(v => allowedSubSpecialisms.includes(v))) {\n      return false;\n    }\n  }\n\n  // Country filter\n  if (allowedCountries.length > 0) {\n    const leadCountry = normalise(row['Country'] || '');\n    if (!allowedCountries.some(c => leadCountry === c || leadCountry.includes(c) || c.includes(leadCountry))) {\n      return false;\n    }\n  }\n\n  return true;\n});\n\n// Always return at least one item so the loop continues to the next user.\n// __skip signals Build HTML to suppress the Teams send for this user.\nif (matched.length === 0) {\n  return [{ json: { ...meta, __skip: true } }];\n}\n\nreturn matched.map(row => ({ json: { ...row, ...meta } }));"
+      },
+      "id": "decf48d3-46c9-46b6-a615-0b55349e2958",
+      "name": "Match leads for user1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        3600
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const selectionWebhookBase = 'https://antonyberou.app.n8n.cloud/webhook/job-lead-queue';\n\nfunction esc(value) {\n  return String(value ?? '')\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\\\\\"/g, '&quot;');\n}\n\nfunction displayValue(value) {\n  const cleaned = String(value ?? '').trim();\n  return cleaned || 'Unknown';\n}\n\nconst first = items[0]?.json || {};\nconst leadChatId = String(first.leadChatId || '').trim();\nconst outputChatId = String(first.outputChatId || '').trim();\nconst userKey = String(first.userKey || '').trim();\nconst userName = String(first.userName || '').trim();\n\n// No leads matched for this user — return an item with empty leadChatId so\n// the Teams node fails silently (it has onError: continueRegularOutput) and\n// the loop proceeds to the next user without sending anything.\nif (first.__skip) {\n  return [{ json: { jobsHtml: '', leadChatId: '', outputChatId, userKey, userName, __skip: true } }];\n}\n\nconst rowsHtml = items.map((item) => {\n  const row = item.json;\n\n  const company = displayValue(row['Company']);\n  const jobTitle = displayValue(row['Job Title']);\n  const location = displayValue(row['Location']);\n  const country = displayValue(row['Country']);\n  const salary = displayValue(row['Salary']);\n  const platform = displayValue(row['Platform']);\n  const category = displayValue(row['Category']);\n  const subSpecialism = displayValue(row['Sub Specialism']);\n  const contractType = displayValue(row['Contract Type']);\n  const datePosted = displayValue(row['Date Posted']);\n  const jobUrl = String(row['Job URL'] || '').trim();\n  const jobRef = String(row['Job Ref'] || '').trim();\n\n  const createOutreachUrl = `${selectionWebhookBase}?jobRef=${encodeURIComponent(jobRef)}&userKey=${encodeURIComponent(userKey)}`;\n\n  return `\n    <div style=\"font-family: Arial, sans-serif; font-size: 14px; line-height: 1.5; margin: 0 0 16px 0;\">\n      <div><strong>Company:</strong> ${esc(company)}</div>\n      <div><strong>Title:</strong> ${esc(jobTitle)}</div>\n      <div><strong>Location:</strong> ${esc(location)}, ${esc(country)}</div>\n      <div><strong>Date Posted:</strong> ${esc(datePosted)}</div>\n      <div><strong>Category:</strong> ${esc(category)} - ${esc(subSpecialism)}</div>\n      <div><strong>Salary:</strong> ${esc(salary)}</div>\n      <div><strong>Contract:</strong> ${esc(contractType)}</div>\n      <div><strong>Platform:</strong> ${esc(platform)}</div>\n      <div style=\"margin-top: 8px;\">\n        <a href=\"${createOutreachUrl}\">Create Outreach</a>\n        ${jobUrl ? ` | <a href=\"${esc(jobUrl)}\">Open advert</a>` : ''}\n      </div>\n    </div>\n    <hr style=\"border: 0; border-top: 1px solid #cccccc; margin: 12px 0;\">\n  `;\n}).join('');\n\nreturn [{\n  json: {\n    jobsHtml: rowsHtml,\n    leadChatId,\n    outputChatId,\n    userKey,\n    userName\n  }\n}];"
+      },
+      "id": "7c291f98-acff-4eb9-965e-166285a6e975",
+      "name": "Build HTML message1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        3600
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "chatMessage",
+        "chatId": {
+          "__rl": true,
+          "value": "={{ $json.leadChatId }}",
+          "mode": "id"
+        },
+        "contentType": "html",
+        "message": "=<h2>Todays Vacancysoft Job Leads - {{ new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) }}</h2><p>Hello {{ $json.userName || 'there' }}, here are your matching roles based on your selected sub-specialisms. Click <strong>Create Outreach</strong> on any role you want queued.</p><hr/>{{ $json.jobsHtml }}",
+        "options": {}
+      },
+      "id": "2e7fdbdb-b62e-44cb-be02-580e28426bc3",
+      "name": "Teams - Send Job Leads1",
+      "type": "n8n-nodes-base.microsoftTeams",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        3600
+      ],
+      "webhookId": "03749935-0704-46dc-8f14-df24e00ee71e",
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "mewGldgiXaXkwm7z",
+          "name": "Microsoft Teams"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw",
+          "mode": "list",
+          "cachedResultName": "fuck_vacancysoft",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 127942527,
+          "mode": "list",
+          "cachedResultName": "Job Lead",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1V9EDsDQpqaa9-5zMOe6-_Yzm2ffVplMUIn26jpHAOMw/edit#gid=127942527"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Job URL"
+          ],
+          "schema": [
+            {
+              "id": "Job URL",
+              "displayName": "Job URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Job Ref",
+              "displayName": "Job Ref",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Category",
+              "displayName": "Category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Sub Specialism",
+              "displayName": "Sub Specialism",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Company",
+              "displayName": "Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Salary",
+              "displayName": "Salary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Contract Type",
+              "displayName": "Contract Type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Date Posted",
+              "displayName": "Date Posted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Job Board URL",
+              "displayName": "Job Board URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Platform",
+              "displayName": "Platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Date Scraped",
+              "displayName": "Date Scraped",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1568,
+        3088
+      ],
+      "id": "c5b2ce67-9e51-4a51-a605-a7fe883a468a",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "yXZppibUV1e9fFir",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Filter valid rows1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter valid rows1": {
+      "main": [
+        [
+          {
+            "node": "Add in Job Ref ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add in Job Ref ID": {
+      "main": [
+        [
+          {
+            "node": "Bundle valid leads1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Bundle valid leads1": {
+      "main": [
+        [
+          {
+            "node": "Read Users1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Users1": {
+      "main": [
+        [
+          {
+            "node": "Filter active users1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter active users1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Users1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Users1": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Match leads for user1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match leads for user1": {
+      "main": [
+        [
+          {
+            "node": "Build HTML message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build HTML message1": {
+      "main": [
+        [
+          {
+            "node": "Teams - Send Job Leads1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Teams - Send Job Leads1": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Users1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "711ec037-2dd5-4d6c-a39a-474928aef43c",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "56051bb04f7a2e887ca3ddb180af0435881e8c9b52d04db8fad02d4fe908d32b"
+  },
+  "id": "r61wYIcI41TJQBen",
+  "tags": []
+}
