@@ -28,6 +28,7 @@ def persist_classification_for_enriched_job(session: Session, enriched_job: Enri
         "target_domain": None,
         "primary_taxonomy_key": payload.primary_taxonomy_key,
         "secondary_taxonomy_keys": payload.secondary_taxonomy_keys,
+        "employment_type": payload.employment_type,
         "title_relevance_score": payload.title_relevance_score,
         "classification_confidence": payload.classification_confidence,
         "matched_terms": {"title": enriched_job.title},
