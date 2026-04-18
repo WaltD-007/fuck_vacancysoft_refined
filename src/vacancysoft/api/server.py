@@ -97,6 +97,7 @@ class SourceOut(BaseModel):
     categories_by_country: dict[str, dict[str, int]] = {}
     sub_specialisms: dict[str, dict[str, int]] = {}  # {category_label: {sub_specialism: count}}
     aggregator_hits: dict[str, int] = {}  # {adapter_name: count} for aggregator-contributed rows
+    employment_types: dict[str, int] = {}  # {Permanent|Contract: count}
     last_run_status: str | None = None
     last_run_error: str | None = None
 
@@ -415,6 +416,7 @@ def get_dashboard():
                 RawJob.listing_payload,
                 Source.base_url,
                 ScoreResult.export_eligibility_score,
+                ClassificationResult.employment_type,
             )
             .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
             .join(Source, RawJob.source_id == Source.id)
@@ -457,6 +459,7 @@ def get_dashboard():
                 "discovered": r[6].isoformat() if r[6] else None,
                 "board_url": r[9] or "",
                 "score": round(float(score_raw) * 10, 1) if score_raw is not None else None,
+                "employment_type": r[11] or "Permanent",
             })
 
         # Source health: last 20 runs
@@ -570,6 +573,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             ScoreResult.export_eligibility_score,
             Source.id, Source.employer_name, Source.adapter_name, Source.base_url,
             Source.active, Source.seed_type, Source.ats_family,
+            ClassificationResult.employment_type,
         )
         .select_from(ClassificationResult)
         .join(EnrichedJob, ClassificationResult.enriched_job_id == EnrichedJob.id)
@@ -590,7 +594,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
          enriched_id, title, loc_country,
          cat_key, _score,
          src_id, src_employer_name, src_adapter, _src_base_url,
-         _src_active, _src_seed, _src_ats) = r
+         _src_active, _src_seed, _src_ats, employment_type) = r
 
         is_aggregator = src_adapter in _AGGREGATOR_ADAPTERS
         if is_aggregator:
@@ -615,6 +619,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             "is_aggregator": is_aggregator,
             "employer_display": employer_display,
             "employer_norm": employer_norm,
+            "employment_type": employment_type or "Permanent",
         }
         existing = dedup.get(dedup_key)
         if existing is None:
@@ -641,6 +646,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             "categories_by_country": {},
             "sub_specialisms": {},
             "aggregator_hits": {},
+            "employment_types": {},
             "raw_jobs_count": 0,
             "last_run_status": None,
             "last_run_error": None,
@@ -662,6 +668,8 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
         )
         if lead["is_aggregator"]:
             card["aggregator_hits"][lead["adapter"]] = card["aggregator_hits"].get(lead["adapter"], 0) + 1
+        et = lead.get("employment_type") or "Permanent"
+        card["employment_types"][et] = card["employment_types"].get(et, 0) + 1
 
     # ---- 4) Resolve card metadata (card_id, run status, raw_jobs count) ----
     direct_sources = list(session.execute(
@@ -771,6 +779,7 @@ def list_sources(country: str | None = None):
             categories_by_country=card["categories_by_country"],
             sub_specialisms=card.get("sub_specialisms", {}),
             aggregator_hits=card["aggregator_hits"],
+            employment_types=card.get("employment_types", {}),
             last_run_status=card["last_run_status"],
             last_run_error=card["last_run_error"],
         )

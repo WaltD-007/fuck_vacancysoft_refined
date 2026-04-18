@@ -20,6 +20,7 @@ type Source = {
   categories_by_country: Record<string, Record<string, number>>;
   sub_specialisms?: Record<string, Record<string, number>>;
   aggregator_hits?: Record<string, number>;
+  employment_types?: Record<string, number>;
   last_run_status: string | null;
   last_run_error: string | null;
 };
@@ -83,6 +84,7 @@ export default function SourcesPage() {
   const [hotlist, setHotlist] = useState<Set<string>>(new Set());
   const [countries, setCountries] = useState<{ country: string; count: number }[]>([]);
   const [countryFilter, setCountryFilter] = useState("");
+  const [employmentTypeFilter, setEmploymentTypeFilter] = useState("");
   const [companySearch, setCompanySearch] = useState("");
   const [adapterFilter, setAdapterFilter] = useState("");
   const [aggregatorFilter, setAggregatorFilter] = useState("");
@@ -537,7 +539,8 @@ export default function SourcesPage() {
 
   const filtered = viewFiltered
     .filter((s) => !adapterFilter || s.adapter_name === adapterFilter)
-    .filter((s) => !aggregatorFilter || (s.aggregator_hits?.[aggregatorFilter] ?? 0) > 0);
+    .filter((s) => !aggregatorFilter || (s.aggregator_hits?.[aggregatorFilter] ?? 0) > 0)
+    .filter((s) => !employmentTypeFilter || (s.employment_types?.[employmentTypeFilter] ?? 0) > 0);
   // Put recently added source first — `highlightSourceId` (from Add Company) takes
   // priority over `addedSourceId` (from legacy Add Source flow).
   const pinned = highlightSourceId ? sources.find((s) => s.id === highlightSourceId) : null;
@@ -594,6 +597,16 @@ export default function SourcesPage() {
                 {countries.map((c) => (
                   <option key={c.country} value={c.country}>{c.country} ({c.count})</option>
                 ))}
+              </select>
+              <select
+                value={employmentTypeFilter}
+                onChange={(e) => { setEmploymentTypeFilter(e.target.value); setSourceJobs({}); setExpandedSource(null); }}
+                className="px-3 py-2 rounded-lg text-sm cursor-pointer outline-none"
+                style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="">Perm + Contract</option>
+                <option value="Permanent">Permanent</option>
+                <option value="Contract">Contract</option>
               </select>
               {/* Add Source temporarily disconnected — keep entire flow intact for reinstatement. */}
               {false && (
