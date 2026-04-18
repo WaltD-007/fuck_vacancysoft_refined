@@ -84,7 +84,7 @@ export default function SourcesPage() {
   const [hotlist, setHotlist] = useState<Set<string>>(new Set());
   const [countries, setCountries] = useState<{ country: string; count: number }[]>([]);
   const [countryFilter, setCountryFilter] = useState("");
-  const [employmentTypeFilter, setEmploymentTypeFilter] = useState("");
+  const [employmentTypeFilter, setEmploymentTypeFilter] = useState("Permanent");
   const [companySearch, setCompanySearch] = useState("");
   const [adapterFilter, setAdapterFilter] = useState("");
   const [aggregatorFilter, setAggregatorFilter] = useState("");
@@ -604,7 +604,6 @@ export default function SourcesPage() {
                 className="px-3 py-2 rounded-lg text-sm cursor-pointer outline-none"
                 style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
               >
-                <option value="">Perm + Contract</option>
                 <option value="Permanent">Permanent</option>
                 <option value="Contract">Contract</option>
               </select>

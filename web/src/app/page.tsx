@@ -73,7 +73,7 @@ export default function DashboardPage() {
   const [feedCategory, setFeedCategory] = useState("");
   const [feedCountry, setFeedCountry] = useState("");
   const [feedSubSpec, setFeedSubSpec] = useState("");
-  const [feedEmploymentType, setFeedEmploymentType] = useState("");
+  const [feedEmploymentType, setFeedEmploymentType] = useState("Permanent");
   const [queued, setQueued] = useState<Set<string>>(new Set());
   const [excludedCompanies, setExcludedCompanies] = useState<Set<string>>(new Set());
   // company -> end timestamp ms; non-empty rows are greyed out and
@@ -232,8 +232,7 @@ export default function DashboardPage() {
                     <option value="">All Locations</option>
                     {(() => { const c = new Set<string>(); (data?.recent_leads || []).forEach(l => { if (l.country) c.add(l.country); }); return Array.from(c).sort().map(co => <option key={co} value={co}>{co}</option>); })()}
                   </select>
-                  <select value={feedEmploymentType} onChange={(e) => setFeedEmploymentType(e.target.value)} className="text-xs px-2 py-1 rounded-md cursor-pointer outline-none" style={{ background: "#16161f", color: feedEmploymentType ? "#e8e8f0" : "#555570", border: "1px solid #2a2a3a" }}>
-                    <option value="">Perm + Contract</option>
+                  <select value={feedEmploymentType} onChange={(e) => setFeedEmploymentType(e.target.value)} className="text-xs px-2 py-1 rounded-md cursor-pointer outline-none" style={{ background: "#16161f", color: "#e8e8f0", border: "1px solid #2a2a3a" }}>
                     <option value="Permanent">Permanent</option>
                     <option value="Contract">Contract</option>
                   </select>
