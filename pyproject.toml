@@ -21,6 +21,11 @@ dependencies = [
   "pyyaml>=6.0,<7",
   "tenacity>=9.0,<10",
   "openpyxl>=3.1,<4",
+  "rich>=13.0,<15",
+  "openai>=1.0,<2",
+  "psycopg2-binary>=2.9,<3",
+  "arq>=0.26,<1",
+  "redis>=5.0,<6",
 ]
 
 [project.optional-dependencies]
@@ -32,7 +37,7 @@ dev = [
 ]
 
 [project.scripts]
-vacancysoft = "vacancysoft.cli.app:app"
+prospero = "vacancysoft.cli.app:app"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

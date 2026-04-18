@@ -1,4 +1,4 @@
-# fuck_vacancysoft_refined
+# fuck_prospero_refined
 
 Coverage-first redesign of the Vacancysoft scraping pipeline.
 
@@ -36,9 +36,9 @@ alembic upgrade head
 ## CLI
 
 ```bash
-vacancysoft db init
-vacancysoft pipeline discover --all
-vacancysoft pipeline classify --pending
-vacancysoft pipeline export --profile accepted_only_excel
-vacancysoft export taxonomy-preview
+prospero db init
+prospero pipeline discover --all
+prospero pipeline classify --pending
+prospero pipeline export --profile accepted_only_excel
+prospero export taxonomy-preview
 ```
