@@ -642,11 +642,56 @@ def refresh_runtime_exclusions() -> int:
     return len(_RUNTIME_EXCLUSIONS)
 
 
+def _git_auto_commit_exclusions(company_norm: str) -> None:
+    """Best-effort git commit of the exclusions YAML after a runtime add.
+
+    Silent on failure: the YAML write is the source of truth, so if git
+    is unavailable (no repo, detached HEAD, pre-commit hook failure,
+    identity not configured, etc.) we log and move on rather than
+    breaking the API call that triggered the exclusion.
+    """
+    import subprocess
+
+    try:
+        root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout.strip()
+    except Exception as exc:  # noqa: BLE001
+        logger.info("agency-exclusion auto-commit skipped (not a git repo?): %s", exc)
+        return
+
+    try:
+        subprocess.run(
+            ["git", "add", "configs/agency_exclusions.yaml"],
+            cwd=root, capture_output=True, timeout=10, check=True,
+        )
+        # Only commit if the add actually staged something (no-op if
+        # the yaml change was already committed by a previous call).
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "configs/agency_exclusions.yaml"],
+            cwd=root, capture_output=True, text=True, timeout=10, check=True,
+        )
+        if not diff.stdout.strip():
+            return
+        subprocess.run(
+            ["git", "commit", "-m", f"Add agency exclusion: {company_norm}"],
+            cwd=root, capture_output=True, timeout=15, check=True,
+        )
+        logger.info("agency-exclusion auto-committed: %s", company_norm)
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr.decode() if isinstance(exc.stderr, bytes) else exc.stderr) or ""
+        logger.warning("agency-exclusion auto-commit failed for %s: %s", company_norm, stderr.strip())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agency-exclusion auto-commit failed for %s: %s", company_norm, exc)
+
+
 def add_agency_exclusion(company: str) -> bool:
     """Append a company name to the runtime YAML exclusion list.
 
     Returns True if newly added, False if already present (in either the
-    hardcoded set or the runtime set).
+    hardcoded set or the runtime set). On success, auto-commits the YAML
+    change via git (best-effort; see `_git_auto_commit_exclusions`).
     """
     if not company or not company.strip():
         return False
@@ -666,6 +711,7 @@ def add_agency_exclusion(company: str) -> bool:
     with _RUNTIME_EXCLUSIONS_PATH.open("w", encoding="utf-8") as fh:
         yaml.safe_dump(data, fh, sort_keys=False, allow_unicode=True)
     refresh_runtime_exclusions()
+    _git_auto_commit_exclusions(norm)
     return True
 
 
