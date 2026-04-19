@@ -7,19 +7,23 @@ a new aggregator (or fixing one) only needs a single edit.
 
 ### What's wrong
 
-There are two implementations of `_extract_employer_from_payload`:
+There are now two implementations of `_extract_employer_from_payload`
+(was three until commit XXXX inlined the third site to call the API
+copy):
 
 | Location | Coverage |
 |---|---|
 | [`src/vacancysoft/pipelines/enrichment_persistence.py:40`](src/vacancysoft/pipelines/enrichment_persistence.py:40) | **Comprehensive** — knows Adzuna `company.display_name`, Reed `employerName`, Google Jobs `company_name`, eFinancialCareers `companyName` / `advertiserName` / `employer.name`, and a generic string-`company` fallback |
-| [`src/vacancysoft/api/server.py:522`](src/vacancysoft/api/server.py:522) | **Leaner** — only knows `company.display_name`, `employer_name`, `employerName` (just added), `companyName`, `company_name` |
+| [`src/vacancysoft/api/server.py:522`](src/vacancysoft/api/server.py:522) | **Leaner** — only knows `company.display_name`, `employer_name`, `employerName`, `companyName`, `company_name`. Used by both `/api/sources` card aggregation AND `/api/dashboard` Live Feed lead rendering. |
 
-These have already drifted twice. Most recently the API version was
-missing Reed's `employerName`, which silently dropped 726 classified
-Reed leads from `/api/sources` because they had no extractable
-employer → no card to land on → no chip. Fixed in commit 6401fbb
-by adding one line to the API copy. Without dedupe, the next new
-aggregator will hit the same problem.
+These have drifted three times now. First the Sources page chip was
+missing Reed (commit 6401fbb fixed by adding `employerName` to the
+API copy). Then the Live Feed showed "Reed" instead of the real
+employer because the dashboard endpoint had a third **inline** copy
+of the same logic — now collapsed into the API copy. The pattern
+is: someone adds a new aggregator key in one place and the others
+silently break. Without dedupe to a single shared module, this
+recurs every time a new aggregator lands.
 
 ### The fix
 

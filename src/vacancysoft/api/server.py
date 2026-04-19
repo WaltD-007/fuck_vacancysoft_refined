@@ -439,14 +439,16 @@ def get_dashboard():
             category = map_category(tax_key, routing)
             sub = map_sub_specialism(title, category, routing)
 
-            # For aggregator jobs, extract the real employer from payload
+            # For aggregator jobs, extract the real employer from payload.
+            # Uses the shared extractor (which knows Reed's employerName,
+            # eFC's companyName, etc.) — falls back to the source's
+            # employer_name (e.g. "Reed", "Adzuna") only if nothing real
+            # could be parsed from the payload.
             company = r[1] or ""
-            if adapter in _AGGREGATOR_ADAPTERS and isinstance(payload, dict):
-                co_obj = payload.get("company")
-                if isinstance(co_obj, dict):
-                    company = co_obj.get("display_name") or company
-                if company == r[1]:
-                    company = payload.get("employer_name") or payload.get("companyName") or payload.get("company_name") or company
+            if adapter in _AGGREGATOR_ADAPTERS:
+                extracted = _extract_employer_from_payload(payload)
+                if extracted:
+                    company = extracted
 
             leads.append({
                 "title": title,
