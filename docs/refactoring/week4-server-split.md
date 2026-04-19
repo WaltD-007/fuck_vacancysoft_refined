@@ -263,12 +263,69 @@ Rollback: `git revert <sha-of-step-5>`.
 
 ## Step 6 — `routes/campaigns.py`
 
-_Pending._
+Last router extracted. Four endpoints plus the `_dossier_to_dict`
+helper move into `src/vacancysoft/api/routes/campaigns.py`:
+
+  POST /api/agency                    `mark_agency`
+  POST /api/leads/{item_id}/dossier   `generate_lead_dossier`
+  GET  /api/leads/{item_id}/dossier   `get_lead_dossier`
+  POST /api/leads/{item_id}/campaign  `generate_lead_campaign`
+
+Schemas `MarkAgencyRequest` / `MarkAgencyResponse` come from
+`api.schemas`. `_dossier_to_dict` stays private to this module (only
+the two dossier handlers use it).
+
+Verification:
+- route list vs baseline → identical (24 routes)
+- `pytest` → 359 passed, same pre-existing unrelated failure
+- `GET /api/sources` → 5,285 rows
+
+Rollback: `git revert <sha-of-step-6>`.
 
 ## Step 7 — slim `server.py`
 
-_Pending._
+After the step-6 extraction, `server.py` already contains only the
+FastAPI app bootstrap: imports, middleware, the four
+`app.include_router` calls, and the Redis `@app.on_event`
+startup / shutdown hooks. No further trimming needed.
+
+The `@app.on_event` hooks emit a FastAPI deprecation warning about
+`lifespan` context managers — deliberately not migrated in this
+refactor (the `_startup` hook does real work against
+`app.state.redis` and would need proper testing before swap). Noted
+as a follow-up.
 
 ## Final state
 
-_Pending._
+| File | Lines | Role |
+|---|---|---|
+| `api/server.py` | **88** (was 2,240) | FastAPI app, CORS, Redis startup / shutdown, 4× include_router |
+| `api/schemas.py` | 151 | All Pydantic request / response models |
+| `api/ledger.py` | 430 | `_build_source_card_ledger` + caches + constants + `clear_ledger_caches` |
+| `api/routes/__init__.py` | 6 | Package marker |
+| `api/routes/leads.py` | 585 | `/api/stats`, `/api/dashboard`, `/api/countries`, `/api/queue*` |
+| `api/routes/sources.py` | 468 | `/api/sources`, `/api/sources/{id}/*`, `/api/sources/detect` |
+| `api/routes/add_company.py` | 350 | `/api/sources/add-company/*` + Coresignal helpers |
+| `api/routes/campaigns.py` | 346 | `/api/agency`, `/api/leads/{id}/*` |
+
+`server.py` dropped by **2,152 lines (-96%)**. Total line count
+across the split is higher than the original due to per-module
+imports, docstrings, and APIRouter boilerplate — but every file is
+now individually readable in one sitting.
+
+Deferred for later (not in scope of this week):
+- Migrate `@app.on_event("startup" | "shutdown")` to FastAPI
+  `lifespan` context manager. The hooks emit a deprecation warning
+  but still work; the startup hook does real DB work that needs
+  proper testing before the swap.
+- Add `response_model=` to the handlers that currently return raw
+  dicts (`queue_campaign`, `list_queue`, `send_to_campaign`,
+  `remove_from_queue`, `scrape_source_endpoint`, `diagnose_source`,
+  `generate_lead_dossier`, `get_lead_dossier`,
+  `generate_lead_campaign`) — improves OpenAPI schema coverage but
+  is purely additive.
+- `_addcompany_count_jobs` (in `routes/add_company.py`) appears
+  unused — confirm and delete.
+
+To revert the entire week's work: `git revert 422cb11..HEAD` on the
+`chatgpt/adapter-updates` branch.
