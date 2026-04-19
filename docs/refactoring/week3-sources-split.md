@@ -129,7 +129,44 @@ Rollback: `git revert <sha-of-step-2>`.
 
 ## Step 3 — `SourceCard`
 
-_Pending._
+The per-employer card (`~158` lines of inline JSX inside the
+`orderedSources.slice(...).map(...)` render) moves into
+`web/src/app/sources/components/SourceCard.tsx`. `SourceJobsDrawer`
+is now composed as a child of `SourceCard` rather than of the page —
+the card owns the `{expandedSource === src.id && <Drawer .../>}`
+check internally.
+
+The `SourceJobsDrawer` import is removed from `page.tsx` (the card
+imports it directly). The parent now just renders:
+
+```
+{orderedSources.slice(0, displayLimit).map((src) => (
+  <SourceCard key={src.id} src={src} ... />
+))}
+```
+
+Prop surface is wide (roughly 25 props) because the card reads many
+pieces of parent state (expand / scrape / delete / diagnose). All
+state stays parent-owned; the card mutates only through the `on*`
+callbacks. `getCats` / `getScored` / `effCatCount` are passed as
+function props so the card does not need to know about
+`countryFilter` or `subFilters` — step 5 (StatsSection) will decide
+whether to promote these to a shared utils module.
+
+Callback wiring:
+- `onDelete` → `handleDeleteSource`
+- `onRequestDelete` → `setConfirmDeleteId`
+- `onCancelDelete` → `() => setConfirmDeleteId(null)`
+- `onScrape` → `handleScrapeSource`
+- `onDiagnose` → `handleDiagnose`
+- `onToggleJobs` → `handleToggleJobs`
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200
+
+Rollback: `git revert <sha-of-step-3>` — restores the inline card
+block and re-imports `SourceJobsDrawer` directly into `page.tsx`.
 
 ## Step 4 — `AddCompanyModal`
 
