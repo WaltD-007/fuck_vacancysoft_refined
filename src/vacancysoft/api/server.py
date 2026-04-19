@@ -38,42 +38,31 @@ from vacancysoft.worker.settings import _redis_settings
 
 @app.on_event("startup")
 async def _startup():
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # 1) Connect to Redis. If this fails, fall back to in-process tasks
+    #    (queue_campaign uses asyncio.ensure_future when app.state.redis
+    #    is None) and return — can't self-heal without a Redis pool.
     try:
         app.state.redis = await create_pool(_redis_settings())
-        # Re-enqueue any orphaned pending leads from previous server runs
-        from vacancysoft.db.models import ReviewQueueItem
-        with SessionLocal() as s:
-            # Fix leads stuck in "generating" that already have dossiers
-            from vacancysoft.db.models import IntelligenceDossier
-            stuck = list(s.execute(
-                select(ReviewQueueItem)
-                .where(ReviewQueueItem.status == "generating")
-                .where(ReviewQueueItem.queue_type == "campaign")
-                .where(ReviewQueueItem.enriched_job_id.in_(
-                    select(IntelligenceDossier.enriched_job_id)
-                ))
-            ).scalars())
-            for item in stuck:
-                item.status = "ready"
-            if stuck:
-                s.commit()
-
-            # Re-enqueue genuinely pending/stuck leads
-            pending = list(s.execute(
-                select(ReviewQueueItem)
-                .where(ReviewQueueItem.status.in_(("pending", "generating")))
-                .where(ReviewQueueItem.queue_type == "campaign")
-            ).scalars())
-            for item in pending:
-                ev = item.evidence_blob or {}
-                await app.state.redis.enqueue_job("process_lead", item.id, ev.get("url"), ev.get("company"), ev.get("title"))
-            if pending or stuck:
-                import logging
-                logging.getLogger(__name__).info("Startup: fixed %d stuck leads, re-enqueued %d pending", len(stuck), len(pending))
     except Exception as exc:
-        import logging
-        logging.getLogger(__name__).warning("Redis not available, falling back to in-process tasks: %s", exc)
+        logger.warning("Redis not available, falling back to in-process tasks: %s", exc)
         app.state.redis = None
+        return
+
+    # 2) Self-heal: sweep the queue for any ReviewQueueItem still in
+    #    "pending" / "generating" state and push it back onto ARQ. Catches
+    #    items that were written to the DB while Redis was briefly down
+    #    (e.g. the UOB case on 2026-04-19). Separate try so a self-heal
+    #    hiccup doesn't flip app.state.redis back to None — the pool is
+    #    fine; only the sweep failed.
+    try:
+        from vacancysoft.worker.self_heal import reenqueue_pending_leads
+        await reenqueue_pending_leads(app.state.redis)
+    except Exception as exc:
+        logger.error("Self-heal at API startup failed: %s", exc, exc_info=True)
+        # Don't propagate — API should still serve even if self-heal flunks.
 
 @app.on_event("shutdown")
 async def _shutdown():

@@ -236,6 +236,7 @@ Priority scores use a 1–5 scale:
 | 12 | Composite index on `SourceRun(source_id, created_at)` if hotspot | **P5** | 15 min (conditional) | open |
 | 13 | Investigate DeepSeek for dossier + campaign properly | **P5** | 4–6 h | open (deprioritised — two runs confirmed DeepSeek can't match OpenAI here) |
 | 14 | Investigate why HM search returned zero hiring_managers | **P3** | 1–2 h | open |
+| 15 | Fix `'NoneType' object has no attribute 'lower'` crash in intelligence client | **P3** | 30 min | open |
 
 ---
 
@@ -271,6 +272,15 @@ No deploy step, no Playwright install (keeps it under 60 s). Matrix can stay Pyt
 ---
 
 ### Ticket 3 — Worker-side cache invalidation after `scrape_source` [P3]
+
+**Update 2026-04-19**: partially addressed by the queue self-heal landed in
+commit `<this commit>`. The self-heal doesn't clear the ledger cache, but
+it does solve the related "ReviewQueueItem stuck in pending with no ARQ
+job" failure mode that was the more visible symptom. See
+`src/vacancysoft/worker/self_heal.py`. Original ticket body below still
+applies for the cache-specific work.
+
+---
 
 **Goal**: when the ARQ worker (`src/vacancysoft/worker/tasks.py`) finishes a scrape, the next `/api/sources` request should rebuild the ledger, not wait up to 30 s for the `_SOURCES_CACHE_TTL` to expire.
 
@@ -482,3 +492,22 @@ C. **`search_context_size = "high"` for HM specifically** means OpenAI pulls ~10
 - If (C): try `search_context_size = "medium"` or `"low"` — less context but more targeted, and the model may pick up on LinkedIn hits that currently drown in bulk.
 
 **Why P3**: hiring_managers is one of the most-used dossier fields (recruiters click on the HM first when opening the Campaign Builder). If it's systematically empty, the dossier has lost one of its most valuable outputs, and the money spent on the HM call is being wasted. Fix is likely small — the diagnostic alone may point at a one-line change.
+
+---
+
+### Ticket 15 — Fix `'NoneType' object has no attribute 'lower'` crash in intelligence client [P3]
+
+**Context**: surfaced 2026-04-19 while diagnosing why the UOB lead appeared stuck. Two ARQ `process_lead` jobs for the same item failed after running for 141-196s with the error `'NoneType' object has no attribute 'lower'`. The worker's `try/except` in `process_lead` reverted the item's status to `pending` and let ARQ mark the job failed — which left the queue item looking stuck until the next self-heal sweep re-enqueued it.
+
+**Suspect call sites** (from `grep -rn "\.lower()" src/vacancysoft/intelligence/`):
+
+- `src/vacancysoft/intelligence/client.py:96` — `model_lower = model.lower()` in `_call_completions_api`. If `model` arg is `None`, this crashes.
+- `src/vacancysoft/intelligence/client.py:156` — same pattern in `_call_responses_api`.
+
+**Likely cause**: `configs/app.toml::[intelligence]` has `dossier_model` / `campaign_model` / `hm_search_model` set, but `_load_intel_config()` reads those via `config.get("dossier_model", "gpt-4o")` — defaults are strings, never None. So the None must be coming from a different path. Possible culprit: one of the DeepSeek-era config-key lookups (`config.get("dossier_model_deepseek")`) that returns None if the key isn't present and the toggle logic falls through in an unexpected way. Worth re-reading `dossier.py` and `campaign.py` for any `model=None` call-sites.
+
+**Fix pattern**: wrap both `model.lower()` calls in `(model or "").lower()`. Zero-risk guard; covers the None path with a meaningful error later (`_resolve_rates` of empty string returns DEFAULT_PRICE; the actual OpenAI call with `model=""` raises a clearer `BadRequestError`).
+
+**Diagnostic**: log the full request payload at DEBUG level just before the `client.chat.completions.create(...)` / `client.responses.create(...)` call. Next time a run fails, we'll see exactly what `model` was passed.
+
+**Why P3**: users saw leads look stuck for 30+ minutes before the self-heal caught them. Fix is a one-line guard + a diagnostic. Low effort, high clarity.

@@ -54,15 +54,27 @@ class WorkerSettings:
     retry_jobs = True
     health_check_interval = 30
 
-    # Logging
+    # Logging + self-heal
     @staticmethod
     async def on_startup(ctx: dict) -> None:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
         logging.getLogger("vacancysoft").setLevel(logging.INFO)
-        logging.getLogger(__name__).info(
+        logger = logging.getLogger(__name__)
+        logger.info(
             "Worker started — max_jobs=%d, job_timeout=%ds, max_tries=%d",
             WorkerSettings.max_jobs, WorkerSettings.job_timeout, WorkerSettings.max_tries,
         )
+
+        # Self-heal: sweep for any ReviewQueueItem still in pending /
+        # generating and push it back onto ARQ. Matching behaviour to
+        # api/server.py::_startup so whichever service (API or worker)
+        # boots first catches any stuck items. Uses _job_id dedup so a
+        # re-run on an already-queued item is a no-op.
+        try:
+            from vacancysoft.worker.self_heal import reenqueue_pending_leads
+            await reenqueue_pending_leads(ctx["redis"])
+        except Exception as exc:
+            logger.warning("Worker self-heal failed: %s", exc, exc_info=True)
 
     @staticmethod
     async def on_shutdown(ctx: dict) -> None:
