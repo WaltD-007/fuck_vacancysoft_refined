@@ -88,6 +88,11 @@ export default function SourcesPage() {
   const [companySearch, setCompanySearch] = useState("");
   const [adapterFilter, setAdapterFilter] = useState("");
   const [aggregatorFilter, setAggregatorFilter] = useState("");
+  // Pagination — render the first PAGE_SIZE cards, then a Load More
+  // button reveals the next batch. Resets on any view / filter change
+  // so the operator always starts from the top of a fresh list.
+  const PAGE_SIZE = 100;
+  const [displayLimit, setDisplayLimit] = useState<number>(PAGE_SIZE);
 
   // Add Company (Coresignal taxonomy sweep) UI state
   const [showAddCompany, setShowAddCompany] = useState(false);
@@ -403,6 +408,13 @@ export default function SourcesPage() {
       runScrapeQueue([...scrapeQueue]);
     }
   }, [scrapeQueue, isQueueRunning]);
+
+  // Reset pagination back to PAGE_SIZE whenever the user changes the
+  // view, search, or any filter — so a fresh list always starts from
+  // the top instead of inheriting the previous Load More clicks.
+  useEffect(() => {
+    setDisplayLimit(PAGE_SIZE);
+  }, [sourceView, companySearch, countryFilter, employmentTypeFilter, adapterFilter, aggregatorFilter, filters, subFilters]);
 
   const handleScrapeSource = (sourceId: number) => {
     queueScrape(sourceId);
@@ -1050,7 +1062,7 @@ export default function SourcesPage() {
             <div className="text-center py-20 text-sm" style={{ color: "var(--text-muted)" }}>Loading sources...</div>
           ) : (
             <div className="grid grid-cols-3 gap-3">
-              {orderedSources.map((src) => (
+              {orderedSources.slice(0, displayLimit).map((src) => (
                 <div key={src.id} className="rounded-xl" style={{ background: "var(--bg-card)", border: expandedSource === src.id ? "1px solid var(--accent)" : src.id === addedSourceId ? "1px solid var(--green)" : (src.last_run_status === "FAIL" || src.last_run_status === "error") ? "1px solid var(--red)" : "1px solid var(--border-subtle)" }}>
                   <div className="p-4">
                     <div className="flex justify-between items-start mb-3">
@@ -1274,6 +1286,33 @@ export default function SourcesPage() {
                   })()}
                 </div>
               ))}
+            </div>
+          )}
+          {/* Load more — only renders when there are still cards beyond
+              the current displayLimit. Each click reveals another PAGE_SIZE
+              batch. The 'X of Y shown' text gives the operator a sense of
+              how many remain. */}
+          {!loading && orderedSources.length > displayLimit && (
+            <div className="flex flex-col items-center gap-2 mt-6 mb-2">
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Showing {Math.min(displayLimit, orderedSources.length).toLocaleString()} of {orderedSources.length.toLocaleString()} sources
+              </div>
+              <button
+                onClick={() => setDisplayLimit((n) => n + PAGE_SIZE)}
+                className="px-5 py-2 rounded-lg text-sm font-semibold cursor-pointer"
+                style={{ background: "var(--accent-glow)", color: "var(--accent-light)", border: "1px solid rgba(108,92,231,0.3)" }}
+              >
+                Load {Math.min(PAGE_SIZE, orderedSources.length - displayLimit).toLocaleString()} more
+              </button>
+              {orderedSources.length - displayLimit > PAGE_SIZE && (
+                <button
+                  onClick={() => setDisplayLimit(orderedSources.length)}
+                  className="text-[11px] cursor-pointer underline"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Load all {(orderedSources.length - displayLimit).toLocaleString()} remaining
+                </button>
+              )}
             </div>
           )}
         </div>
