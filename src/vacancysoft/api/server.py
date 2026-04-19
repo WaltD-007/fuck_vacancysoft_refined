@@ -740,6 +740,119 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             card["adapter_name"] = "aggregator"
             card["seed_type"] = "aggregator"
 
+    # ---- 5) Inject "genuine empty" cards ----
+    # Surface direct sources that have been looked at recently and genuinely
+    # returned nothing, cross-checked against aggregator coverage. Criteria:
+    #   (a) latest SourceRun for at least one matching direct source is
+    #       status="success" AND created_at within the last 24h
+    #   (b) total RawJob count across all direct sources for the employer is 0
+    #   (c) at least one aggregator has a success SourceRun within 24h, AND
+    #       no RawJob from those aggregators mentions the employer_norm in
+    #       its payload (via _extract_employer_from_payload, same normalisation).
+    # Employers already on a With-Leads card are skipped (precedence).
+    # Country-filtered ledgers skip this pass — empty cards have no country.
+    if country is None and direct_by_emp:
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+
+        # Latest SourceRun per source via grouped subquery
+        latest_run_sq = (
+            select(
+                SourceRun.source_id.label("sid"),
+                func.max(SourceRun.created_at).label("mx"),
+            )
+            .group_by(SourceRun.source_id)
+            .subquery()
+        )
+
+        fresh_direct_ids: set[int] = set(session.execute(
+            select(Source.id)
+            .join(latest_run_sq, latest_run_sq.c.sid == Source.id)
+            .join(
+                SourceRun,
+                (SourceRun.source_id == latest_run_sq.c.sid)
+                & (SourceRun.created_at == latest_run_sq.c.mx),
+            )
+            .where(Source.active.is_(True))
+            .where(Source.adapter_name.notin_(_AGGREGATOR_ADAPTERS))
+            .where(SourceRun.status == "success")
+            .where(SourceRun.created_at >= cutoff)
+        ).scalars())
+
+        fresh_agg_ids: set[int] = set(session.execute(
+            select(Source.id)
+            .join(latest_run_sq, latest_run_sq.c.sid == Source.id)
+            .join(
+                SourceRun,
+                (SourceRun.source_id == latest_run_sq.c.sid)
+                & (SourceRun.created_at == latest_run_sq.c.mx),
+            )
+            .where(Source.active.is_(True))
+            .where(Source.adapter_name.in_(_AGGREGATOR_ADAPTERS))
+            .where(SourceRun.status == "success")
+            .where(SourceRun.created_at >= cutoff)
+        ).scalars())
+
+        # Short-circuit: cannot confirm aggregator coverage → no injection.
+        if fresh_agg_ids:
+            agg_matched_norms: set[str] = set()
+            for (payload,) in session.execute(
+                select(RawJob.listing_payload)
+                .where(RawJob.source_id.in_(fresh_agg_ids))
+                .where(RawJob.first_seen_at >= cutoff)
+            ):
+                name = _extract_employer_from_payload(payload)
+                if name:
+                    norm = name.lower().strip()
+                    if norm:
+                        agg_matched_norms.add(norm)
+
+            for employer_norm, matches in direct_by_emp.items():
+                if not employer_norm or employer_norm in cards:
+                    continue
+                if not any(m.id in fresh_direct_ids for m in matches):
+                    continue
+                if sum(raw_counts.get(m.id, 0) for m in matches) != 0:
+                    continue
+                if employer_norm in agg_matched_norms:
+                    continue
+                primary = matches[0]
+                # Reuse the worst-status loop from step 4 so sibling FAILs surface.
+                worst = None
+                err = None
+                for m in matches:
+                    lr = last_runs.get(m.id)
+                    if not lr:
+                        continue
+                    status, diag = lr
+                    if status in ("error", "FAIL"):
+                        worst = status
+                        if isinstance(diag, dict):
+                            err = diag.get("error") or "Unknown error"
+                        break
+                    if worst is None:
+                        worst = status
+                cards[employer_norm] = {
+                    "employer_display": primary.employer_name or "",
+                    "employer_norm": employer_norm,
+                    "card_id": primary.id,
+                    "adapter_name": primary.adapter_name,
+                    "base_url": primary.base_url or "",
+                    "active": primary.active,
+                    "seed_type": primary.seed_type,
+                    "ats_family": primary.ats_family,
+                    "direct_source_ids": [m.id for m in matches],
+                    "lead_ids": [],
+                    "categories": {},
+                    "categories_by_country": {},
+                    "sub_specialisms": {},
+                    "aggregator_hits": {},
+                    "employment_types": {},
+                    "raw_jobs_count": 0,
+                    "last_run_status": worst,
+                    "last_run_error": err,
+                }
+
     return sorted(cards.values(), key=lambda c: len(c["lead_ids"]), reverse=True)
 
 
