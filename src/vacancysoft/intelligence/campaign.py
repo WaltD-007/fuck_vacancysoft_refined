@@ -95,6 +95,7 @@ async def generate_campaign(
         max_tokens=config.get("max_tokens", 8000),
         timeout_seconds=config.get("timeout_seconds", 120),
         response_format={"type": "json_object"},
+        reasoning_effort=config.get("campaign_reasoning_effort", "low"),
     )
 
     parsed = result["parsed"]
