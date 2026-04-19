@@ -73,36 +73,39 @@ Return a single JSON object with these keys. Do not wrap in markdown. Do not res
 
 ## Section Guidance
 
-### 1. Company and Market Context (company_context)
-In plain English, explain:
+Keep every section concise. Target lengths are upper bounds; be shorter if the material allows.
+
+### 1. Company and Market Context (company_context) — target ~100 words
+In plain English, cover:
 - What the company does and how it makes money
 - Its market position versus peers
-- How it is financed and who its lenders or investors are
 - What matters right now: {market_context_guidance}
-- Any recent events that make this hire necessary now
-- External pressures including regulation, funding costs, and market conditions
+- Any recent event that makes this hire necessary now
+Skip any point you cannot say something specific about.
 
-### 2. The Core Business Problem (core_problem)
-Explain the real problem beneath the role and what the business risks losing if the hire is delayed.
+### 2. The Core Business Problem (core_problem) — target ~60 words
+State the real problem beneath the role and what the business risks losing if the hire is delayed. One paragraph.
 
-### 3. Stated Need vs Actual Need (stated_vs_actual)
-Provide rows comparing what the JD asks for versus what the business likely needs. Highlight gaps and misalignment.
+### 3. Stated Need vs Actual Need (stated_vs_actual) — exactly 2 rows
+Two rows comparing what the JD asks for versus what the business likely needs. Pick the two biggest gaps; omit the rest.
 
-### 4. Specification and Execution Risk (spec_risk)
-Only include risks that are genuinely present in this specific JD. Do not list every possible risk category. Do not reword the prompt criteria as generic observations. If a risk does not apply, omit it entirely. Each item must reference a specific detail from the JD or company context that creates the risk. Think like a recruiter who has read 10,000 JDs and can spot the real problems.
+### 4. Specification and Execution Risk (spec_risk) — 1 or 2 items max
+Only include risks that are genuinely present in this specific JD. Each item must reference a specific detail from the JD or company context that creates the risk. If only one real risk is present, return one.
 
-Consider (but only include if actually present):
-- Over-specification that will eliminate viable candidates (cite the specific requirement)
-- Conflicting expectations within the role (cite the specific tension)
+Categories to check (include only if genuinely present):
+- Over-specification that will eliminate viable candidates
+- Conflicting expectations within the role
 - Mismatch between seniority, scope, and likely authority
-- Requirements that materially shrink the talent pool (cite which ones)
+- Requirements that materially shrink the talent pool
 - Pay vs market mismatch if compensation is disclosed
-- Whether the firm's brand is strong enough to attract the profile described
+- Brand strength vs the profile required
 
-### 5. Ideal Candidate Profiles (candidate_profiles)
-Describe two strong-fit candidate types. For each, explain where they typically come from, why they fit this situation, and what outcomes they could realistically deliver.
+Each `explanation` should be one sentence.
 
-### 6. Lead Score 1-5 (lead_score, lead_score_justification)
+### 5. Ideal Candidate Profiles (candidate_profiles) — 2 profiles, ~30 words each
+Two strong-fit candidate types. For each, `background`, `fit_reason`, and `outcomes` should each be one short sentence.
+
+### 6. Lead Score 1-5 (lead_score, lead_score_justification) — ~40 words of justification
 How worthwhile this company and role would be for a high-quality agency recruiter to invest meaningful time in, assuming the company initially resists recruiters and only engages if hiring becomes difficult. This score is a filter, not a compliment.
 
 ### 7. Hiring Manager Search Boolean (hiring_manager_boolean)
