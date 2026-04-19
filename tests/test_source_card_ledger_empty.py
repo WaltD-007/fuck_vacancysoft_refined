@@ -32,7 +32,7 @@ from vacancysoft.db.models import (
 
 @pytest.fixture()
 def session():
-    """Fresh in-memory SQLite with every table from BaseV2 created."""
+    """Fresh in-memory SQLite with every table from Base created."""
     engine = create_engine("sqlite://", future=True)
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine, expire_on_commit=False, future=True)
