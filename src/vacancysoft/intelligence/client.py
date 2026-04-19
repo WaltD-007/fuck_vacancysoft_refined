@@ -37,9 +37,16 @@ async def call_chat(
     timeout_seconds: float = 120,
     response_format: dict[str, str] | None = None,
     web_search: bool = False,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     """Call OpenAI API. Uses the Responses API with web search when web_search=True,
-    otherwise falls back to the Chat Completions API."""
+    otherwise falls back to the Chat Completions API.
+
+    reasoning_effort: "low" | "medium" | "high". Only applied when the model
+    is a reasoning model (gpt-5, o1, o3, o4) — silently ignored otherwise.
+    Lower effort produces fewer reasoning tokens (output cost driver) and
+    finishes faster, at some quality cost.
+    """
     client = _get_client()
 
     last_err: Exception | None = None
@@ -52,6 +59,7 @@ async def call_chat(
                     client, model=model, messages=messages,
                     temperature=temperature, max_tokens=max_tokens,
                     timeout_seconds=timeout_seconds,
+                    reasoning_effort=reasoning_effort,
                 )
             else:
                 result = await _call_completions_api(
@@ -59,6 +67,7 @@ async def call_chat(
                     temperature=temperature, max_tokens=max_tokens,
                     timeout_seconds=timeout_seconds,
                     response_format=response_format,
+                    reasoning_effort=reasoning_effort,
                 )
 
             result["latency_ms"] = int((time.monotonic() - t0) * 1000)
@@ -78,6 +87,7 @@ async def _call_completions_api(
     client: AsyncOpenAI, *, model: str, messages: list[dict[str, str]],
     temperature: float, max_tokens: int, timeout_seconds: float,
     response_format: dict[str, str] | None,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     # GPT-5 / o1 / o3 reasoning-style models require max_completion_tokens
     # and do not accept a custom temperature.
@@ -96,6 +106,8 @@ async def _call_completions_api(
     }
     if is_reasoning:
         kwargs["max_completion_tokens"] = max_tokens
+        if reasoning_effort in ("low", "medium", "high"):
+            kwargs["reasoning_effort"] = reasoning_effort
     else:
         kwargs["max_tokens"] = max_tokens
         kwargs["temperature"] = temperature
@@ -126,6 +138,7 @@ async def _call_completions_api(
 async def _call_responses_api(
     client: AsyncOpenAI, *, model: str, messages: list[dict[str, str]],
     temperature: float, max_tokens: int, timeout_seconds: float,
+    reasoning_effort: str | None = None,
 ) -> dict[str, Any]:
     """Use the Responses API with web_search_preview tool enabled."""
 
@@ -137,17 +150,28 @@ async def _call_responses_api(
         else:
             input_parts.append({"role": role, "content": msg["content"]})
 
-    resp = await client.responses.create(
-        model=model,
-        input=input_parts,
-        tools=[{
-            "type": "web_search_preview",
-            "search_context_size": "high",
-        }],
-        temperature=temperature,
-        max_output_tokens=max_tokens,
-        timeout=timeout_seconds,
+    model_lower = model.lower()
+    is_reasoning = (
+        model_lower.startswith("gpt-5")
+        or model_lower.startswith("o1")
+        or model_lower.startswith("o3")
+        or model_lower.startswith("o4")
     )
+
+    create_kwargs: dict[str, Any] = {
+        "model": model,
+        "input": input_parts,
+        "tools": [{"type": "web_search_preview", "search_context_size": "high"}],
+        "max_output_tokens": max_tokens,
+        "timeout": timeout_seconds,
+    }
+    if is_reasoning:
+        if reasoning_effort in ("low", "medium", "high"):
+            create_kwargs["reasoning"] = {"effort": reasoning_effort}
+    else:
+        create_kwargs["temperature"] = temperature
+
+    resp = await client.responses.create(**create_kwargs)
 
     content = resp.output_text or ""
     usage = resp.usage

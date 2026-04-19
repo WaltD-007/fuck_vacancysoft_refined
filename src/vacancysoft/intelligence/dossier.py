@@ -170,7 +170,10 @@ async def generate_dossier(
     config = _load_intel_config()
     model = config.get("dossier_model", "gpt-4o")
 
-    # Call 1: Main dossier (sections 1-7) with web search for context
+    # Call 1: Main dossier (sections 1-7) with web search for context.
+    # Uses the deeper reasoning model (configurable via dossier_model) and
+    # respects dossier_reasoning_effort (default "medium") so the operator
+    # can dial it down without changing models.
     result = await call_chat(
         model=model,
         messages=messages,
@@ -178,18 +181,25 @@ async def generate_dossier(
         max_tokens=config.get("max_tokens", 8000),
         timeout_seconds=config.get("timeout_seconds", 120),
         web_search=True,
+        reasoning_effort=config.get("dossier_reasoning_effort", "medium"),
     )
     parsed = result["parsed"]
 
-    # Call 2: Focused hiring manager search (separate call for better results)
+    # Call 2: Focused hiring manager search. This is structured web search,
+    # not analysis — so it uses a cheaper model (default gpt-4o) by default
+    # and "low" reasoning effort if the operator overrides to a reasoning
+    # model. Saves the bulk of the per-dossier cost without affecting the
+    # quality of the analytical sections that consumers actually read.
+    hm_model = config.get("hm_search_model", "gpt-4o")
     hm_messages = _build_hm_prompt(job_data, category)
     hm_result = await call_chat(
-        model=model,
+        model=hm_model,
         messages=hm_messages,
         temperature=0.2,
         max_tokens=2000,
         timeout_seconds=60,
         web_search=True,
+        reasoning_effort=config.get("hm_search_reasoning_effort", "low"),
     )
     hm_parsed = hm_result["parsed"]
 

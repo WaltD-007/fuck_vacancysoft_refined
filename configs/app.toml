@@ -28,3 +28,16 @@ campaign_model = "gpt-5.2"
 temperature = 0.4
 max_tokens = 16000
 timeout_seconds = 120
+
+# Cost-control levers for the dossier pipeline:
+# - dossier_reasoning_effort: "low" | "medium" | "high". Lower values
+#   cut output (reasoning) tokens — the dominant cost — at some quality
+#   cost. Default "medium".
+# - hm_search_model: which model handles the hiring-manager search call
+#   (call 2 of the dossier). This call is structured web search, not
+#   analysis, so a cheaper non-reasoning model is fine. Default "gpt-4o".
+# - hm_search_reasoning_effort: only applied if hm_search_model is a
+#   reasoning model — otherwise silently ignored.
+dossier_reasoning_effort = "medium"
+hm_search_model = "gpt-4o"
+hm_search_reasoning_effort = "low"
