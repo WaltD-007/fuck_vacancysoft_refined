@@ -248,6 +248,10 @@ class IntelligenceDossier(BaseV2):
     tokens_prompt: Mapped[int | None] = mapped_column(Integer, nullable=True)
     tokens_completion: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Per-call breakdown: list of dicts, one per LLM call that contributed
+    # to this dossier. Each entry has call, model, tokens_prompt,
+    # tokens_completion, tokens_total, cost_usd, latency_ms.
+    call_breakdown: Mapped[list | None] = mapped_column(JSON, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 

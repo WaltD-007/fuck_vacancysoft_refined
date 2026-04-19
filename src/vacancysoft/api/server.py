@@ -2166,6 +2166,7 @@ def _dossier_to_dict(d) -> dict:
         "tokens_prompt": d.tokens_prompt,
         "tokens_completion": d.tokens_completion,
         "cost_usd": d.cost_usd,
+        "call_breakdown": d.call_breakdown or [],
         "latency_ms": d.latency_ms,
         "lead_score": d.lead_score,
         "lead_score_justification": d.lead_score_justification,

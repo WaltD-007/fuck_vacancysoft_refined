@@ -218,14 +218,35 @@ async def generate_dossier(
 
     from vacancysoft.intelligence.pricing import compute_cost
 
+    main_cost = compute_cost(result["model"], result["tokens_prompt"], result["tokens_completion"])
+    hm_cost = compute_cost(hm_result["model"], hm_result["tokens_prompt"], hm_result["tokens_completion"])
+
     total_prompt = result["tokens_prompt"] + hm_result["tokens_prompt"]
     total_completion = result["tokens_completion"] + hm_result["tokens_completion"]
     total_tokens = result["tokens_total"] + hm_result["tokens_total"]
     total_latency = result["latency_ms"] + hm_result["latency_ms"]
-    cost_usd = (
-        compute_cost(result["model"], result["tokens_prompt"], result["tokens_completion"])
-        + compute_cost(hm_result["model"], hm_result["tokens_prompt"], hm_result["tokens_completion"])
-    )
+    cost_usd = main_cost + hm_cost
+
+    call_breakdown = [
+        {
+            "call": "main",
+            "model": result["model"],
+            "tokens_prompt": result["tokens_prompt"],
+            "tokens_completion": result["tokens_completion"],
+            "tokens_total": result["tokens_total"],
+            "cost_usd": round(main_cost, 6),
+            "latency_ms": result["latency_ms"],
+        },
+        {
+            "call": "hm",
+            "model": hm_result["model"],
+            "tokens_prompt": hm_result["tokens_prompt"],
+            "tokens_completion": hm_result["tokens_completion"],
+            "tokens_total": hm_result["tokens_total"],
+            "cost_usd": round(hm_cost, 6),
+            "latency_ms": hm_result["latency_ms"],
+        },
+    ]
 
     dossier = IntelligenceDossier(
         enriched_job_id=enriched_job_id,
@@ -246,14 +267,17 @@ async def generate_dossier(
         tokens_prompt=total_prompt,
         tokens_completion=total_completion,
         cost_usd=round(cost_usd, 6),
+        call_breakdown=call_breakdown,
         latency_ms=total_latency,
     )
     session.add(dossier)
     session.commit()
 
     logger.info(
-        "Dossier generated for %s [%s] — %d tokens (%d in / %d out), $%.4f, %dms, score=%s, HMs=%d",
-        job_data["company"], category, total_tokens, total_prompt, total_completion,
-        cost_usd, total_latency, parsed.get("lead_score"), len(hiring_managers),
+        "Dossier for %s [%s] — main=%s $%.4f (%dt, %dms) + hm=%s $%.4f (%dt, %dms) = $%.4f total, score=%s, HMs=%d",
+        job_data["company"], category,
+        result["model"], main_cost, result["tokens_total"], result["latency_ms"],
+        hm_result["model"], hm_cost, hm_result["tokens_total"], hm_result["latency_ms"],
+        cost_usd, parsed.get("lead_score"), len(hiring_managers),
     )
     return dossier
