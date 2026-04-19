@@ -194,7 +194,43 @@ Rollback: `git revert <sha-of-step-3>`.
 
 ## Step 4 — `routes/sources.py`
 
-_Pending._
+Seven more endpoints move out of `server.py` into
+`src/vacancysoft/api/routes/sources.py`:
+
+  GET    /api/sources
+  GET    /api/sources/{source_id}/jobs
+  POST   /api/sources/detect
+  POST   /api/sources
+  POST   /api/sources/{source_id}/scrape
+  POST   /api/sources/{source_id}/diagnose
+  DELETE /api/sources/{source_id}
+
+Plus the three sources-specific constants: `_slugify()`, `ADAPTER_MAP`,
+`_API_ONLY_ADAPTERS`. The inline `_PLATFORM_MARKERS` map inside
+`diagnose_source` stays where it is (only that handler uses it).
+
+`scrape_source_endpoint` and `diagnose_source` now take `request:
+Request` and access the Redis pool via `request.app.state.redis`
+instead of closing over the module-level `app`.
+
+`server.py` imports dropped as their last consumers moved out:
+`asyncio`, `hashlib`, `urllib.parse.urlparse`, `fastapi.responses.JSONResponse`,
+`bindparam`, `source_detector.detect_platform`, `_CATEGORY_LABELS`,
+`_SOURCES_CACHE_TTL`, `_build_source_card_ledger`, `_get_cached_ledger`,
+`_ledger_cache`, `_sources_cache`, `AddSourceRequest`, `AddSourceResponse`,
+`DetectRequest`, `DetectResponse`, `ScoredJobOut`, `SourceOut`,
+`PLATFORM_REGISTRY`.
+
+Verification:
+- route list vs baseline → identical (24 routes)
+- `pytest` → 359 passed, same pre-existing unrelated failure
+- `GET /api/sources` → 5,285 rows, Goldman Sachs first
+
+File sizes:
+- `api/server.py`: 1,177 → 739 lines
+- `api/routes/sources.py`: 468 lines (new)
+
+Rollback: `git revert <sha-of-step-4>`.
 
 ## Step 5 — `routes/add_company.py`
 
