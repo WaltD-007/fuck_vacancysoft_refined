@@ -115,7 +115,38 @@ Rollback: `git revert <sha-of-step-1>`.
 
 ## Step 2 — `ledger.py`
 
-_Pending._
+Source-card ledger construction and associated caches move into
+`src/vacancysoft/api/ledger.py`:
+
+- Constants: `_CORE_MARKETS`, `_CATEGORY_LABELS`, `_AGGREGATOR_ADAPTERS`
+- Caches: `_sources_cache`, `_ledger_cache`, `_SOURCES_CACHE_TTL`
+- Helpers: `_category_counts`, `_core_market_total`,
+  `_extract_employer_from_payload`, `_build_source_card_ledger`,
+  `_get_cached_ledger`
+- New `clear_ledger_caches()` — the single public cache-invalidation
+  point. The two-liner `_sources_cache.clear(); _ledger_cache.clear()`
+  inside the add-company confirm handler at `server.py:849-850` is
+  replaced with `clear_ledger_caches()`, so future routers can depend
+  on this stable API instead of the two dict names.
+
+`server.py` now imports all of the above from `ledger`. The
+`from __future__ import annotations` is no longer strictly needed but
+is kept for consistency with the rest of the module.
+
+`tests/test_source_card_ledger_empty.py` updated to import
+`_build_source_card_ledger` from `vacancysoft.api.ledger` instead of
+`vacancysoft.api.server` — closer to the real home; less indirection.
+
+Verification:
+- route list vs baseline → identical (24 routes)
+- `pytest` → 359 passed, same pre-existing unrelated failure
+- `curl /api/sources | jq 'length'` → 5,285, first: Goldman Sachs
+
+File sizes:
+- `api/server.py`: 2,114 → 1,731 lines
+- `api/ledger.py`: 430 lines (new)
+
+Rollback: `git revert <sha-of-step-2>`.
 
 ## Step 3 — `routes/leads.py`
 

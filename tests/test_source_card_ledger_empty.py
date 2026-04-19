@@ -214,7 +214,7 @@ def _find_card(ledger, employer: str) -> dict | None:
 
 def test_case_a_qualifies(session) -> None:
     """Direct success + 0 raw jobs + aggregator success + no mention → card appears."""
-    from vacancysoft.api.server import _build_source_card_ledger
+    from vacancysoft.api.ledger import _build_source_card_ledger
 
     now = datetime.utcnow()
     _seed_qualifying(session, now=now)
@@ -232,7 +232,7 @@ def test_case_a_qualifies(session) -> None:
 
 def test_case_b_direct_stale(session) -> None:
     """Direct success outside the 24h window → card does not appear."""
-    from vacancysoft.api.server import _build_source_card_ledger
+    from vacancysoft.api.ledger import _build_source_card_ledger
 
     now = datetime.utcnow()
     direct = _make_source(session, employer="Target Co", adapter="greenhouse")
@@ -247,7 +247,7 @@ def test_case_b_direct_stale(session) -> None:
 
 def test_case_c_aggregator_match(session) -> None:
     """Aggregator payload mentions the employer → card does not appear."""
-    from vacancysoft.api.server import _build_source_card_ledger
+    from vacancysoft.api.ledger import _build_source_card_ledger
 
     now = datetime.utcnow()
     _seed_qualifying(
@@ -262,7 +262,7 @@ def test_case_c_aggregator_match(session) -> None:
 
 def test_case_d_aggregator_gate(session) -> None:
     """No aggregator SourceRun in last 24h → card does not appear."""
-    from vacancysoft.api.server import _build_source_card_ledger
+    from vacancysoft.api.ledger import _build_source_card_ledger
 
     now = datetime.utcnow()
     direct = _make_source(session, employer="Target Co", adapter="greenhouse")
@@ -278,7 +278,7 @@ def test_case_d_aggregator_gate(session) -> None:
 
 def test_case_e_with_leads_wins(session) -> None:
     """Employer already has a core-market lead → lead card survives, not overwritten."""
-    from vacancysoft.api.server import _build_source_card_ledger
+    from vacancysoft.api.ledger import _build_source_card_ledger
 
     now = datetime.utcnow()
     direct, _agg, _agg_run = _seed_qualifying(session, now=now)
@@ -298,7 +298,7 @@ def test_case_e_with_leads_wins(session) -> None:
 
 def test_case_f_country_filter(session) -> None:
     """Country-filtered ledger must not inject synthetic empty cards."""
-    from vacancysoft.api.server import _build_source_card_ledger
+    from vacancysoft.api.ledger import _build_source_card_ledger
 
     now = datetime.utcnow()
     _seed_qualifying(session, now=now)
@@ -309,7 +309,7 @@ def test_case_f_country_filter(session) -> None:
 
 def test_case_g_direct_has_raw_jobs_does_not_qualify(session) -> None:
     """If the direct source has any current raw_jobs, the card is not empty."""
-    from vacancysoft.api.server import _build_source_card_ledger
+    from vacancysoft.api.ledger import _build_source_card_ledger
 
     now = datetime.utcnow()
     direct, _agg, _agg_run = _seed_qualifying(session, now=now)
