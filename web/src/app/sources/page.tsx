@@ -498,16 +498,14 @@ export default function SourcesPage() {
   };
 
   const globalScored = (s: Source): number => Object.values(s.categories || {}).reduce((a, b) => a + b, 0);
-  // With Leads = any card with at least one classified lead, regardless
-  // of whether it came from a direct-scrape adapter or an aggregator.
+  // With Leads = any card with at least one classified lead (direct or
+  // aggregator). Wins precedence over No Jobs Found: if an aggregator
+  // confirms jobs at this employer, the card lives here and not there.
   const withLeadsCount = sources.filter((s) => getScored(s) > 0).length;
-  // No Jobs Found = a direct adapter ran on this source and returned 0
-  // raw jobs. Excludes aggregator-only virtual cards (adapter_name ===
-  // "aggregator"), which never run a direct scrape. A card can be in
-  // both With Leads AND No Jobs Found — that's exactly the high-value
-  // triage case where another path (an aggregator) confirms jobs exist
-  // at the employer but our direct scraper isn't finding them.
-  const noJobsCount = sources.filter((s) => !isBroken(s) && s.jobs === 0 && s.adapter_name !== "aggregator").length;
+  // No Jobs Found = a direct adapter ran and returned zero raw_jobs AND
+  // no aggregator has any classified leads for this employer either.
+  // Mutually exclusive with With Leads.
+  const noJobsCount = sources.filter((s) => !isBroken(s) && s.jobs === 0 && s.adapter_name !== "aggregator" && getScored(s) === 0).length;
   const notRelevantCount = sources.filter((s) => getScored(s) === 0 && !isBroken(s) && (countryFilter ? globalScored(s) > 0 || s.jobs > 0 : s.jobs > 0)).length;
   const brokenCount = sources.filter((s) => isBroken(s)).length;
 
@@ -516,12 +514,11 @@ export default function SourcesPage() {
     const scored = getScored(s);
     const cats = getCats(s);
     if (searchLower) return s.employer_name.toLowerCase().includes(searchLower);
-    // No Jobs Found: a direct adapter ran on this source and returned 0
-    // raw_jobs. Excludes virtual aggregator-only cards (adapter_name ===
-    // "aggregator"). These are the cards the operator triages with the
-    // Update button — re-runs the direct scrape to see if jobs surface
-    // this time. Matches the noJobsCount calc above.
-    if (sourceView === "no_jobs") return !isBroken(s) && s.jobs === 0 && s.adapter_name !== "aggregator";
+    // No Jobs Found: direct adapter ran, returned zero raw_jobs, AND no
+    // aggregator has classified leads for this employer either. Once an
+    // aggregator confirms even one relevant lead, the card promotes to
+    // With Leads and is removed from here. Matches the noJobsCount calc.
+    if (sourceView === "no_jobs") return !isBroken(s) && s.jobs === 0 && s.adapter_name !== "aggregator" && scored === 0;
     // Not Relevant: jobs were scraped but none classified into core markets.
     if (sourceView === "not_relevant") return scored === 0 && !isBroken(s) && s.jobs > 0;
     if (sourceView === "broken") return isBroken(s);
