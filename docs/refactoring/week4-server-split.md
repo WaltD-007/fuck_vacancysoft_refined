@@ -234,7 +234,32 @@ Rollback: `git revert <sha-of-step-4>`.
 
 ## Step 5 — `routes/add_company.py`
 
-_Pending._
+The two Coresignal wizard endpoints and their four helper functions
+move into `src/vacancysoft/api/routes/add_company.py`:
+
+  POST /api/sources/add-company/search   `add_company_search`
+  POST /api/sources/add-company/confirm  `add_company_confirm`
+
+Helpers moving with them (only used in this flow):
+  - `_addcompany_slugify()`
+  - `_addcompany_source_key()`
+  - `_addcompany_count_jobs()` (currently unreferenced but preserved)
+  - `_addcompany_list_candidates()`
+
+`add_company_confirm` uses the public `clear_ledger_caches()` helper
+from `api.ledger` instead of reaching into `_sources_cache` /
+`_ledger_cache` directly.
+
+Verification:
+- route list vs baseline → identical (24 routes)
+- `pytest` → 359 passed, same pre-existing unrelated failure
+- `GET /api/sources` → 5,285 rows
+
+File sizes:
+- `api/server.py`: 739 → 405 lines
+- `api/routes/add_company.py`: 350 lines (new)
+
+Rollback: `git revert <sha-of-step-5>`.
 
 ## Step 6 — `routes/campaigns.py`
 
