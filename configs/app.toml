@@ -70,6 +70,31 @@ hm_search_reasoning_effort = "medium"
 # from broad web context. Small payload so cost stays bounded.
 hm_search_context_size = "high"
 
+# ── Alternative HM path: SerpApi + cheap-model extraction ──
+# When true, the HM call runs via SerpApi (LinkedIn site: searches hit
+# Google directly) + a small extraction model (default gpt-4o-mini),
+# instead of OpenAI Responses-API web_search_preview. Cuts per-dossier
+# HM cost ~60% ($0.064 → ~$0.025) and latency ~3-4× at similar quality
+# on named-individual extraction.
+#
+# If SERPAPI_KEY is missing or SerpApi raises, dossier.py falls back
+# to the OpenAI web_search route automatically — no dossier is lost.
+#
+# hm_serpapi_max_searches: how many of the category's pre-authored
+#   LinkedIn queries to run per lead. 5 covers head-of / director /
+#   chief variants comfortably. Cost scales linearly (~$0.015/search).
+# hm_extraction_model: the model that reads SerpApi snippets and
+#   extracts names. gpt-4o-mini is cheap, fast, and non-reasoning —
+#   avoids the max_tokens-burn-on-hidden-CoT trap.
+use_serpapi_hm_search = false
+# Default 3 searches lands cost around $0.046/lead vs $0.064 baseline
+# (~28% saving) at $0.015/search pricing. Going to 5 searches
+# (recall-first mode) pushes cost to ~$0.076 — slightly above the
+# OpenAI baseline but with 5x lower latency and higher recall on
+# obscure titles. Pick per your cost/quality trade-off.
+hm_serpapi_max_searches = 3
+hm_extraction_model = "gpt-4o-mini"
+
 # ── Provider selection ──
 # Flip these to route dossier / campaign calls to DeepSeek instead of
 # OpenAI. Hiring-manager search is hard-wired to OpenAI in dossier.py

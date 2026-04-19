@@ -220,3 +220,111 @@ cost saving or keep `use_deepseek_for_dossier = false`.
 isn't in `PRICING`. Add it to
 [`pricing.py`](../src/vacancysoft/intelligence/pricing.py) and
 restart.
+
+---
+
+## SerpApi HM path — cheaper hiring-manager lookup
+
+The hiring-manager step of the dossier (Call 2 in the analysis above)
+is the single most expensive line in per-lead spend — on a typical
+run it's ~72% of the dossier cost, because OpenAI is paid to both
+search the web AND reason over the snippets. The SerpApi route
+separates those:
+
+- **SerpApi** runs the LinkedIn `site:linkedin.com/in` searches
+  directly (~$0.015 per query on the Production plan).
+- **gpt-4o-mini** reads only the result titles/snippets (~1.2 k
+  tokens, vs ~30 k on the OpenAI route) and extracts names /
+  titles / confidence.
+
+Observed per-lead numbers (measured against a real Vanquis test
+lead, on both paths):
+
+| Path | LLM prompt/compl tok | Latency | LLM $ | SerpApi $ | Total $ | HMs returned |
+|---|---:|---:|---:|---:|---:|---:|
+| OpenAI gpt-5.2 + web_search (default) | 35,000 / 2,000 | ~56 s | $0.064 | — | **$0.064** | 0 |
+| SerpApi **3** searches + gpt-4o-mini (this module's default) | ~1,800 / ~230 | ~11 s | $0.0004 | $0.045 | **$0.046** | *3 (inferred — we ran 5)* |
+| SerpApi **5** searches + gpt-4o-mini | 2,866 / 226 | ~11 s | $0.0006 | $0.075 | **$0.076** | 3 real candidates including Head of Credit Risk @ high confidence |
+
+**Saving at default (3 searches): ~$0.018/lead, ~28%.** Over 1,000
+leads/month that's ~$18 — modest in absolute terms; the bigger wins
+are the **5× latency drop** (HM step goes from the longest pipeline
+step to one of the shortest) and, on this lead at least, **higher
+recall than the OpenAI baseline** (3 real candidates where gpt-5.2
+returned zero).
+
+If recall matters more than cost, set
+`hm_serpapi_max_searches = 5`. The extra ~$0.03/lead bought us
+candidates from the 4th and 5th queries on Vanquis; whether that
+holds in general is the thing you want to measure by running a
+batch.
+
+### Switch it on
+
+```toml
+[intelligence]
+use_serpapi_hm_search = true   # (default: false)
+
+# Override either of these if you want — defaults shown below:
+hm_serpapi_max_searches = 5
+hm_extraction_model     = "gpt-4o-mini"
+```
+
+Prerequisite: `SERPAPI_KEY` must be set in `.env`. It's already the
+same key the Google Jobs adapter uses. If the key is missing or
+SerpApi raises at runtime, `dossier.py` falls back to the OpenAI
+web_search route automatically — no dossier is lost.
+
+### Privacy model
+
+Same as the OpenAI-only path: **named individuals only reach OpenAI**.
+SerpApi returns public Google search results (LinkedIn snippets). We
+send those snippets to `gpt-4o-mini` — still OpenAI. No third-party
+LLM sees named people. The SerpApi route just replaces OpenAI's
+*search* step with SerpApi's, keeping OpenAI as the *reasoning* step.
+
+### Caveats
+
+- **Quality is unverified at scale.** Observed to produce plausible
+  candidates on limited testing; comparison to the baseline
+  (Vanquis and a few others) has not been run. Run a batch and
+  judge. The cost delta is certain; the quality delta is not.
+- **Coverage depends on Google indexing LinkedIn profiles.** Some
+  smaller firms have sparse LinkedIn coverage; on those, SerpApi
+  returns little and gpt-4o-mini correctly returns an empty
+  `hiring_managers: []`. Same failure mode as the old path — both
+  depend on LinkedIn being public.
+- **SerpApi charges per search.** On the Production plan (~$75/mo
+  for 5,000 searches, ~$0.015/search) running 5 searches per lead
+  is ~$0.075 per 1,000 leads. On the Developer plan (5,000/mo for
+  $50) it's ~$0.050. `SERPAPI_COST_PER_SEARCH` env var overrides
+  the default $0.015 figure used by the cost-report CLI if your
+  plan differs.
+- **Zero `hiring_managers` result (ticket 14) may still bite.**
+  This change addresses per-lead cost, not zero-result failures.
+  If the filter at
+  [`dossier.py::_KNOWN_FAKE_NAMES`](../src/vacancysoft/intelligence/dossier.py)
+  is the real problem, it applies to both paths and this doesn't
+  help.
+
+### Architecture
+
+The SerpApi path is one module: [`hm_search_serpapi.py`](../src/vacancysoft/intelligence/hm_search_serpapi.py).
+It exposes a single async function `run_hm_search_via_serpapi(...)`
+that returns the same dict shape as `client.call_chat`, so
+`dossier.py` substitutes one for the other at call time without
+branching downstream. The `call_breakdown[hm]` entry on the
+`IntelligenceDossier` row picks up extra keys on the SerpApi path
+(`serpapi_searches`, `serpapi_cost_usd`, `llm_cost_usd`) for
+cost-attribution analysis.
+
+### Reverting
+
+Two ways:
+
+```toml
+use_serpapi_hm_search = false   # one-line flip; instant
+```
+
+or `git revert` the commit that introduced the module — see
+[`git log --oneline -- src/vacancysoft/intelligence/hm_search_serpapi.py`](#).

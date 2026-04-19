@@ -469,6 +469,23 @@ C. **Wrong model for the job.** We defaulted the campaign primary to `deepseek-r
 
 ### Ticket 14 — Investigate why HM search returned zero hiring_managers [P3]
 
+**Update 2026-04-19 (evening)**: a second path for the HM call has
+landed — SerpApi + `gpt-4o-mini` extraction, gated by
+`use_serpapi_hm_search` in `configs/app.toml`. See
+`src/vacancysoft/intelligence/hm_search_serpapi.py` and the "SerpApi
+HM path" section of `docs/intelligence-providers.md`. Cost drops ~60%
+per lead; quality parity vs. the OpenAI gpt-5.2 web_search path is
+unverified until we run a batch.
+
+When the real cause of the zero-HM sweeps is diagnosed (this ticket),
+apply the fix to BOTH paths if it's prompt-side (shared
+`_KNOWN_FAKE_NAMES` / `"former"` filter in `dossier.py`), or just the
+affected path if it's search-side.
+
+---
+
+### Ticket 14 — (original body) Investigate why HM search returned zero hiring_managers
+
 **Context**: surfaced during the DeepSeek A/B test in the same 2026-04-19 session. This is not a DeepSeek issue — HM search is hard-wired to OpenAI in [`dossier.py`](../src/vacancysoft/intelligence/dossier.py) — but it became visible while we were scrutinising those runs.
 
 **Symptom**: every one of the ~10 leads tested during the session returned `IntelligenceDossier.hiring_managers = []`. The HM call completed successfully each time — `gpt-5.2-2025-12-11`, ~30k prompt tokens of web_search context, ~2k completion, $0.058 per call, 47-56 s latency. It's spending the money; it's just not returning names.
