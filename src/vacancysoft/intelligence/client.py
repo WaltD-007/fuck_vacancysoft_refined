@@ -38,6 +38,7 @@ async def call_chat(
     response_format: dict[str, str] | None = None,
     web_search: bool = False,
     reasoning_effort: str | None = None,
+    search_context_size: str = "high",
 ) -> dict[str, Any]:
     """Call OpenAI API. Uses the Responses API with web search when web_search=True,
     otherwise falls back to the Chat Completions API.
@@ -60,6 +61,7 @@ async def call_chat(
                     temperature=temperature, max_tokens=max_tokens,
                     timeout_seconds=timeout_seconds,
                     reasoning_effort=reasoning_effort,
+                    search_context_size=search_context_size,
                 )
             else:
                 result = await _call_completions_api(
@@ -139,6 +141,7 @@ async def _call_responses_api(
     client: AsyncOpenAI, *, model: str, messages: list[dict[str, str]],
     temperature: float, max_tokens: int, timeout_seconds: float,
     reasoning_effort: str | None = None,
+    search_context_size: str = "high",
 ) -> dict[str, Any]:
     """Use the Responses API with web_search_preview tool enabled."""
 
@@ -158,10 +161,13 @@ async def _call_responses_api(
         or model_lower.startswith("o4")
     )
 
+    if search_context_size not in ("low", "medium", "high"):
+        search_context_size = "high"
+
     create_kwargs: dict[str, Any] = {
         "model": model,
         "input": input_parts,
-        "tools": [{"type": "web_search_preview", "search_context_size": "high"}],
+        "tools": [{"type": "web_search_preview", "search_context_size": search_context_size}],
         "max_output_tokens": max_tokens,
         "timeout": timeout_seconds,
     }

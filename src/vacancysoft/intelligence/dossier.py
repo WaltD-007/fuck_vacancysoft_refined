@@ -173,7 +173,9 @@ async def generate_dossier(
     # Call 1: Main dossier (sections 1-7) with web search for context.
     # Uses the deeper reasoning model (configurable via dossier_model) and
     # respects dossier_reasoning_effort (default "medium") so the operator
-    # can dial it down without changing models.
+    # can dial it down without changing models. dossier_search_context_size
+    # (default "low") caps the web-search tokens pulled in — the dominant
+    # cost driver on this call when running on gpt-5-mini.
     result = await call_chat(
         model=model,
         messages=messages,
@@ -182,6 +184,7 @@ async def generate_dossier(
         timeout_seconds=config.get("timeout_seconds", 120),
         web_search=True,
         reasoning_effort=config.get("dossier_reasoning_effort", "medium"),
+        search_context_size=config.get("dossier_search_context_size", "low"),
     )
     parsed = result["parsed"]
 
@@ -200,6 +203,7 @@ async def generate_dossier(
         timeout_seconds=60,
         web_search=True,
         reasoning_effort=config.get("hm_search_reasoning_effort", "low"),
+        search_context_size=config.get("hm_search_context_size", "high"),
     )
     hm_parsed = hm_result["parsed"]
 

@@ -47,5 +47,13 @@ timeout_seconds = 300
 # - hm_search_reasoning_effort: only applied if hm_search_model is a
 #   reasoning model — otherwise silently ignored.
 dossier_reasoning_effort = "medium"
+# Web-search context size for the main dossier call. "low" caps the
+# input tokens at ~25K (vs ~100K for "high"), the dominant cost driver
+# on gpt-5-mini. Quality risk: less depth on company background.
+dossier_search_context_size = "low"
 hm_search_model = "gpt-5.4"
 hm_search_reasoning_effort = "medium"
+# HM call deliberately stays at "high" — the whole point of the HM
+# upgrade is accuracy on real-person identification, which benefits
+# from broad web context. Small payload so cost stays bounded.
+hm_search_context_size = "high"
