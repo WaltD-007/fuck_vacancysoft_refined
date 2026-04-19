@@ -68,10 +68,11 @@ timeout_seconds = 300
 # - hm_search_reasoning_effort: only applied if hm_search_model is a
 #   reasoning model — otherwise silently ignored.
 dossier_reasoning_effort = "medium"
-# Web-search context size for the main dossier call. "low" caps the
-# input tokens at ~25K (vs ~100K for "high"), the dominant cost driver
-# on gpt-5-mini. Quality risk: less depth on company background.
-dossier_search_context_size = "low"
+# Web-search context size for the main dossier call. "high" allows
+# ~100K input tokens of web context (vs ~25K at "low"). Paired with
+# the doubled word caps in base_dossier.py to give each section room
+# to be richer. Adds ~$0.019/lead on gpt-5-mini input.
+dossier_search_context_size = "high"
 hm_search_model = "gpt-5.2"
 hm_search_reasoning_effort = "medium"
 # HM call deliberately stays at "high" — the whole point of the HM

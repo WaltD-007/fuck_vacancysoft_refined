@@ -75,7 +75,7 @@ Return a single JSON object with these keys. Do not wrap in markdown. Do not res
 
 HARD LENGTH LIMITS. Every field has a maximum word count. You MUST stay under it. If you can say it in fewer words, do. Never pad. Before returning, check every section against its limit and cut anything that exceeds.
 
-### 1. Company and Market Context (company_context) — MAX 100 words
+### 1. Company and Market Context (company_context) — MAX 200 words
 Cover, in order, any of these you can say something specific about:
 1. What the company does and how it makes money
 2. Its position versus peers
@@ -84,14 +84,14 @@ Cover, in order, any of these you can say something specific about:
 
 If you only have material for 2 of the 4, return 2. Do not invent context to hit 4. Plain English. One paragraph.
 
-### 2. The Core Business Problem (core_problem) — MAX 60 words
+### 2. The Core Business Problem (core_problem) — MAX 120 words
 One paragraph. The real problem beneath the role and what the business risks if the hire is delayed. No preamble.
 
 ### 3. Stated Need vs Actual Need (stated_vs_actual) — EXACTLY 2 rows
-Two rows only. Pick the two biggest gaps between what the JD asks for and what the business likely needs. Each of `jd_asks_for` and `business_likely_needs` is MAX 20 words.
+Two rows only. Pick the two biggest gaps between what the JD asks for and what the business likely needs. Each of `jd_asks_for` and `business_likely_needs` is MAX 40 words.
 
 ### 4. Specification and Execution Risk (spec_risk) — 1 OR 2 items (not more)
-Only real risks present in THIS JD. `explanation` is ONE sentence, MAX 30 words. Omit any risk you cannot tie to a specific JD detail.
+Only real risks present in THIS JD. `explanation` is MAX 60 words (one or two sentences). Omit any risk you cannot tie to a specific JD detail.
 
 Categories to check (include only if genuinely present in the JD):
 - Over-specification that eliminates viable candidates
@@ -102,9 +102,9 @@ Categories to check (include only if genuinely present in the JD):
 - Brand strength vs the profile required
 
 ### 5. Ideal Candidate Profiles (candidate_profiles) — EXACTLY 2 profiles
-For each profile: `background`, `fit_reason`, `outcomes` are each ONE short sentence, MAX 20 words.
+For each profile: `background`, `fit_reason`, `outcomes` are each MAX 40 words (one or two short sentences).
 
-### 6. Lead Score 1-5 (lead_score, lead_score_justification) — `lead_score_justification` MAX 40 words
+### 6. Lead Score 1-5 (lead_score, lead_score_justification) — `lead_score_justification` MAX 80 words
 How worthwhile this role is for a high-quality agency recruiter to invest meaningful time in, assuming the company initially resists recruiters and only engages if hiring becomes difficult. Score is a filter, not a compliment.
 
 ### 7. Hiring Manager Search Boolean (hiring_manager_boolean)
