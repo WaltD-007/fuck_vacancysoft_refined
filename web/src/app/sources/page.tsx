@@ -498,8 +498,12 @@ export default function SourcesPage() {
   };
 
   const globalScored = (s: Source): number => Object.values(s.categories || {}).reduce((a, b) => a + b, 0);
+  // With Leads = any card with at least one classified lead, regardless
+  // of whether it came from a direct-scrape adapter or an aggregator.
+  // No Jobs Found is the strict complement: zero classified leads AND
+  // zero direct-scrape raw jobs. Together they don't overlap.
   const withLeadsCount = sources.filter((s) => getScored(s) > 0).length;
-  const noJobsCount = sources.filter((s) => !isBroken(s) && s.jobs === 0).length;
+  const noJobsCount = sources.filter((s) => !isBroken(s) && s.jobs === 0 && getScored(s) === 0).length;
   const notRelevantCount = sources.filter((s) => getScored(s) === 0 && !isBroken(s) && (countryFilter ? globalScored(s) > 0 || s.jobs > 0 : s.jobs > 0)).length;
   const brokenCount = sources.filter((s) => isBroken(s)).length;
 
@@ -508,16 +512,17 @@ export default function SourcesPage() {
     const scored = getScored(s);
     const cats = getCats(s);
     if (searchLower) return s.employer_name.toLowerCase().includes(searchLower);
-    // No Jobs Found: any source whose direct scrape produced zero raw_jobs.
-    // Includes cards that have aggregator-contributed leads (scored > 0) —
-    // those are the prime triage candidates: another path proves the employer
-    // exists but our direct scraper is silent. The Update button on each card
-    // re-runs the direct scrape so the operator can manually verify.
-    // Matches the noJobsCount calc above so count and rendered list agree.
-    if (sourceView === "no_jobs") return !isBroken(s) && s.jobs === 0;
+    // No Jobs Found: cards with zero direct-scrape jobs AND zero classified
+    // leads from any path. Cards whose only leads are from aggregators
+    // (scored > 0, jobs === 0) belong to With Leads instead — the lead is
+    // real even if our direct scraper hasn't pulled the underlying job.
+    if (sourceView === "no_jobs") return !isBroken(s) && s.jobs === 0 && scored === 0;
+    // Not Relevant: jobs were scraped but none classified into core markets.
     if (sourceView === "not_relevant") return scored === 0 && !isBroken(s) && s.jobs > 0;
     if (sourceView === "broken") return isBroken(s);
     if (sourceView === "all") return true;
+    // Default ("With Leads"): any card with at least one classified lead,
+    // regardless of whether it came from a direct adapter or an aggregator.
     if (filters.length === 0) return scored > 0;
     // AND across selected category chips: source must have leads in every selected category
     if (!filters.every((c) => (cats[c] || 0) > 0)) return false;
