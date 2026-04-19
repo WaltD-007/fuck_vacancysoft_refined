@@ -91,7 +91,7 @@ export default function SourcesPage() {
   // Pagination — render the first PAGE_SIZE cards, then a Load More
   // button reveals the next batch. Resets on any view / filter change
   // so the operator always starts from the top of a fresh list.
-  const PAGE_SIZE = 100;
+  const PAGE_SIZE = 99;
   const [displayLimit, setDisplayLimit] = useState<number>(PAGE_SIZE);
 
   // Add Company (Coresignal taxonomy sweep) UI state
@@ -1302,7 +1302,7 @@ export default function SourcesPage() {
                 className="px-5 py-2 rounded-lg text-sm font-semibold cursor-pointer"
                 style={{ background: "var(--accent-glow)", color: "var(--accent-light)", border: "1px solid rgba(108,92,231,0.3)" }}
               >
-                Load {Math.min(PAGE_SIZE, orderedSources.length - displayLimit).toLocaleString()} more
+                Load More?
               </button>
               {orderedSources.length - displayLimit > PAGE_SIZE && (
                 <button
@@ -1310,7 +1310,7 @@ export default function SourcesPage() {
                   className="text-[11px] cursor-pointer underline"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  Load all {(orderedSources.length - displayLimit).toLocaleString()} remaining
+                  Load all remaining
                 </button>
               )}
             </div>
