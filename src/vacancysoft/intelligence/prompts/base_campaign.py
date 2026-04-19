@@ -17,7 +17,7 @@ Placeholders:
 CAMPAIGN_SYSTEM = "You are a specialist agency recruiter writing outreach emails. Return valid JSON only."
 
 CAMPAIGN_TEMPLATE = """\
-You are writing a five-step email sequence for a recruiter reaching out to the hiring manager about filling this role.
+You are writing a five-step email sequence for a recruiter reaching out to the hiring manager about filling this role. For each step you will produce SIX tone variants so the operator can pick the right register per send.
 
 # Role context
 
@@ -48,47 +48,51 @@ Likely hiring manager: {hiring_manager_line}
 
 # Task
 
-You will return EXACTLY FIVE emails in a JSON array. The array MUST contain exactly five objects. No more, no fewer.
+You will return EXACTLY FIVE emails in a JSON array. Each email object has a `sequence` (1-5) and a `variants` object holding SIX tone keys: formal, informal, consultative, direct, candidate_spec, technical. Every tone must be populated for every sequence. No sequence may be skipped. No tone may be left empty. 5 sequences × 6 tones = 30 {{subject, body}} pairs total.
 
-Each of the five emails has a DIFFERENT purpose AND a DIFFERENT tone. Do not write alternative versions of the same email. Do not skip any sequence. Each `variants` object contains exactly ONE tone key — no alternatives.
+Every variant for a given sequence must convey the SAME core message and call-to-action for that step — only the register, vocabulary and stylistic choices differ. Do not change the underlying message between tones; re-voice it.
 
 Every email must lean on one or more specific details from the dossier sections above. Generic outreach that could apply to any firm is a failure. Reference the company's actual situation, the actual gap, or a specific spec risk. Do not invent details that aren't in the dossier.
 
-## The five emails
+## The five steps
 
-### Email 1 — sequence=1, tone=formal
-Purpose: Initial outreach.
-Tone rules: Measured, polished British business English. Minimal contractions. Third-person framing where natural.
-Source: Lean on "Company Context" and "Core Business Problem". If a likely hiring manager is identified above, address them by title (not name). {outreach_angle}
-Content: Open with one sentence that references the company's specific situation or the core problem (must feel informed, not generic). Follow with one sentence positioning the sender. Close with a low-pressure next step. Keep technical jargon minimal.
+### Step 1 — Initial outreach
+Purpose: First contact.
+Source: Lean on "Company Context" and "Core Business Problem". {outreach_angle}
+Content: Open with one sentence that references the company's specific situation or the core problem (must feel informed, not generic). Position the sender. Close with a low-pressure next step. Keep technical jargon minimal across all variants.
 
-### Email 2 — sequence=2, tone=candidate_spec
-Purpose: Spec CV introducing a specific candidate the recruiter is working with.
-Tone rules: Concrete, evidence-led, warm.
-Source: Draw the candidate directly from "Ideal Candidate Profiles" above. Name the background, fit reasoning, and likely outcomes from Profile A (if present). The bullets MUST reflect what that profile actually looks like, not a generic senior-hire archetype.
-Content: One-sentence opener referencing why you're sharing this specific candidate. Body MUST include exactly 3 bullet points summarising: (1) recent experience, (2) relevant skill areas, (3) why they fit THIS role (not generic "strong candidate" language).
+### Step 2 — Spec CV (candidate introduction)
+Purpose: Introduce a specific candidate the recruiter is working with.
+Source: Draw the candidate directly from "Ideal Candidate Profiles" above. Name the background, fit reasoning, and likely outcomes from Profile A (if present).
+Content: Each variant's body MUST include exactly 3 bullet points summarising: (1) recent experience, (2) relevant skill areas, (3) why they fit THIS role (not generic "strong candidate" language).
 
-### Email 3 — sequence=3, tone=technical
+### Step 3 — Technical angle (domain follow-up)
 Purpose: Follow-up that signals domain understanding.
-Tone rules: Uses the domain language of the role (risk frameworks, quant terms, compliance regs, etc.) where appropriate, without becoming jargon-heavy.
-Source: Pick ONE item from "Specification Risk" OR ONE tension from "Stated Need vs Actual Need". Name the specific risk/gap (e.g. "the JD asks for X, but the desk you'd sit on actually needs Y") and speak directly to it.
-Content: 3–5 sentences. Cite the specific risk/gap, then offer one thought on how a good candidate approaches that tension. Do not list multiple risks; pick one.
+Source: Pick ONE item from "Specification Risk" OR ONE tension from "Stated Need vs Actual Need". Name the specific risk/gap and speak directly to it.
+Content: 3-5 sentences per variant. Cite the specific risk/gap, then one thought on how a good candidate approaches that tension. Do not list multiple risks; pick one and keep it across all 6 tones.
 
-### Email 4 — sequence=4, tone=consultative
-Purpose: Market observation positioning the sender as a trusted adviser.
-Tone rules: Advisory, market-observation led. Third-person-ish framing; not salesy.
-Source: Reference a trend that comparable firms are seeing, tied back to the "Company Context" section above. Ground the observation — do not hand-wave about "the market" in general.
-Content: 3–5 sentences. One concrete market observation + one implication for this specific hire + a light next-step.
+### Step 4 — Market observation (consultative follow-up)
+Purpose: Position the sender as a trusted adviser.
+Source: Reference a trend that comparable firms are seeing, tied back to "Company Context". Ground the observation — do not hand-wave about "the market" in general.
+Content: 3-5 sentences per variant. One concrete market observation + one implication for this specific hire + a light next-step.
 
-### Email 5 — sequence=5, tone=informal
-Purpose: Re-engagement with a fresh angle.
-Tone rules: Warm and conversational. First-person. Contractions welcome. Short sentences. Friendly opener.
-Source: Reference a different "Ideal Candidate Profile" (if two exist), or a different framing of the problem from "Core Business Problem". Signal the sender is still in the market, not nagging.
-Content: Brief. 2–4 sentences. One warm opener, one fresh angle, one low-pressure line.
+### Step 5 — Re-engagement (fresh angle)
+Purpose: Warm re-engagement after earlier steps.
+Source: Reference a DIFFERENT "Ideal Candidate Profile" from Step 2 (if two exist), or a different framing of the problem from "Core Business Problem". Signal the sender is still in the market, not nagging.
+Content: Brief — 2-4 sentences per variant. One opener, one fresh angle, one low-pressure line.
 
-# Global rules (apply to every email)
+# Tone definitions (apply per variant, across all 5 sequences)
+
+- **formal** — measured, polished British business English; minimal contractions; third-person framing where natural
+- **informal** — warm and conversational; first-person; contractions welcome; short sentences; friendly opener
+- **consultative** — advisory and market-observation led; positions the sender as a trusted partner with a view on the wider market
+- **direct** — concise and outcome-focused; cuts to the point in the first line; light on adjectives; short
+- **candidate_spec** — emphasises the calibre of candidates the recruiter is talking to; references specific candidate profiles or an active pipeline
+- **technical** — uses the domain language of the role (risk frameworks, quant terms, compliance regs, etc.) where appropriate, without becoming jargon-heavy
+
+# Global rules (apply to every variant)
 - Plain, ordinary British English underneath the chosen tone
-- No sign-off or signature
+- No sign-off or signature in any message
 - No em-dashes, no bolding
 - Never salesy; light, empathetic, gently persuasive
 - Do not ask the reader for more info — this is one-way automation
@@ -96,20 +100,29 @@ Content: Brief. 2–4 sentences. One warm opener, one fresh angle, one low-press
 
 # Output schema
 
-Return this exact JSON shape. Replace "..." with real content. Do NOT add extra keys, extra tone variants, or extra sequences. The `emails` array MUST have exactly 5 elements in the order shown:
+Return this exact JSON shape. Replace "..." with real content. Every sequence MUST have all six tone keys populated. No tone may be null or empty-string for subject/body:
 
 {{
   "emails": [
-    {{"sequence": 1, "variants": {{"formal":         {{"subject": "...", "body": "..."}}}}}},
-    {{"sequence": 2, "variants": {{"candidate_spec": {{"subject": "...", "body": "..."}}}}}},
-    {{"sequence": 3, "variants": {{"technical":      {{"subject": "...", "body": "..."}}}}}},
-    {{"sequence": 4, "variants": {{"consultative":   {{"subject": "...", "body": "..."}}}}}},
-    {{"sequence": 5, "variants": {{"informal":       {{"subject": "...", "body": "..."}}}}}}
+    {{"sequence": 1, "variants": {{
+      "formal":         {{"subject": "...", "body": "..."}},
+      "informal":       {{"subject": "...", "body": "..."}},
+      "consultative":   {{"subject": "...", "body": "..."}},
+      "direct":         {{"subject": "...", "body": "..."}},
+      "candidate_spec": {{"subject": "...", "body": "..."}},
+      "technical":      {{"subject": "...", "body": "..."}}
+    }}}},
+    {{"sequence": 2, "variants": {{ "formal": {{...}}, "informal": {{...}}, "consultative": {{...}}, "direct": {{...}}, "candidate_spec": {{...}}, "technical": {{...}} }}}},
+    {{"sequence": 3, "variants": {{ "formal": {{...}}, "informal": {{...}}, "consultative": {{...}}, "direct": {{...}}, "candidate_spec": {{...}}, "technical": {{...}} }}}},
+    {{"sequence": 4, "variants": {{ "formal": {{...}}, "informal": {{...}}, "consultative": {{...}}, "direct": {{...}}, "candidate_spec": {{...}}, "technical": {{...}} }}}},
+    {{"sequence": 5, "variants": {{ "formal": {{...}}, "informal": {{...}}, "consultative": {{...}}, "direct": {{...}}, "candidate_spec": {{...}}, "technical": {{...}} }}}}
   ]
 }}
 
 Before returning, verify:
-- the `emails` array has exactly 5 elements in the order [formal, candidate_spec, technical, consultative, informal]
-- each email leans on at least one specific dossier detail (not generic prose)
+- the `emails` array has exactly 5 sequence objects (sequences 1-5)
+- each sequence has all 6 tone keys populated
+- each variant leans on at least one specific dossier detail (not generic prose)
 - no email names the hiring manager by first name
+- within a given sequence, all 6 tones carry the same underlying message, differing only in register
 """
