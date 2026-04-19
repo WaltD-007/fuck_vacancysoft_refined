@@ -23,7 +23,11 @@ job_timeout = 300
 max_retries = 3
 
 [intelligence]
-dossier_model = "gpt-5.2"
+# Model routing (Apr 2026 cost-optimised configuration):
+#   - dossier main:       gpt-5-mini          (cheap reasoning, suffices for analytical sections)
+#   - hiring manager:     gpt-5.4 + medium    (small payload, accuracy matters for real-name lookup)
+#   - campaign:           gpt-5-mini + low    (structured email generation, doesn't need deep reasoning)
+dossier_model = "gpt-5-mini"
 campaign_model = "gpt-5-mini"
 campaign_reasoning_effort = "low"
 temperature = 0.4
@@ -35,10 +39,10 @@ timeout_seconds = 120
 #   cut output (reasoning) tokens — the dominant cost — at some quality
 #   cost. Default "medium".
 # - hm_search_model: which model handles the hiring-manager search call
-#   (call 2 of the dossier). This call is structured web search, not
-#   analysis, so a cheaper non-reasoning model is fine. Default "gpt-4o".
+#   (call 2 of the dossier). Originally a cheap non-reasoning model, but
+#   accuracy on real-person lookup pushed it back up to gpt-5.4.
 # - hm_search_reasoning_effort: only applied if hm_search_model is a
 #   reasoning model — otherwise silently ignored.
 dossier_reasoning_effort = "medium"
-hm_search_model = "gpt-4o"
-hm_search_reasoning_effort = "low"
+hm_search_model = "gpt-5.4"
+hm_search_reasoning_effort = "medium"

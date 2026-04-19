@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # (input_per_1m_usd, output_per_1m_usd)
 PRICING: dict[str, tuple[float, float]] = {
     # GPT-5 family
+    "gpt-5.4":     (2.50, 15.00),  # estimated — heavier sibling of gpt-5.2; verify against OpenAI dashboard
     "gpt-5.2":     (1.25, 10.00),
     "gpt-5":       (1.25, 10.00),
     "gpt-5-mini":  (0.25,  2.00),
