@@ -30,6 +30,11 @@ max_retries = 3
 dossier_model = "gpt-5-mini"
 campaign_model = "gpt-5-mini"
 campaign_reasoning_effort = "low"
+# Fallback used if the primary campaign model returns empty content
+# (gpt-5-mini occasionally burns the entire max_completion_tokens budget
+# on internal reasoning and produces no visible JSON). gpt-4o has no
+# reasoning step so it can't hit the same trap.
+campaign_fallback_model = "gpt-4o"
 temperature = 0.4
 max_tokens = 16000
 # Bumped from 120 to 300: gpt-5-mini with web_search at high context size

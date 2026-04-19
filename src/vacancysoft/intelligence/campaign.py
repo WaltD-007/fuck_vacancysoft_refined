@@ -88,8 +88,11 @@ async def generate_campaign(
     messages = resolve_campaign_prompt(dossier.category_used, job_data, dossier_sections)
     config = _load_intel_config()
 
+    primary_model = config.get("campaign_model", "gpt-4o")
+    fallback_model = config.get("campaign_fallback_model", "gpt-4o")
+
     result = await call_chat(
-        model=config.get("campaign_model", "gpt-4o"),
+        model=primary_model,
         messages=messages,
         temperature=config.get("temperature", 0.4),
         max_tokens=config.get("max_tokens", 8000),
@@ -99,6 +102,37 @@ async def generate_campaign(
     )
 
     parsed = result["parsed"]
+    emails = parsed.get("emails") if isinstance(parsed, dict) else None
+
+    # Reasoning models can burn the entire max_completion_tokens budget on
+    # internal reasoning and return empty visible content. Detect that and
+    # fall back to a non-reasoning model that won't hit the same trap.
+    if not emails and primary_model != fallback_model:
+        logger.warning(
+            "Campaign returned no emails on %s (tokens=%d completion=%d) — "
+            "retrying with fallback %s",
+            primary_model, result["tokens_total"], result["tokens_completion"],
+            fallback_model,
+        )
+        result = await call_chat(
+            model=fallback_model,
+            messages=messages,
+            temperature=config.get("temperature", 0.4),
+            max_tokens=config.get("max_tokens", 8000),
+            timeout_seconds=config.get("timeout_seconds", 120),
+            response_format={"type": "json_object"},
+        )
+        parsed = result["parsed"]
+        emails = parsed.get("emails") if isinstance(parsed, dict) else None
+
+    if not emails:
+        # Both models failed to produce a parseable email list — don't
+        # persist a broken row that the worker would mark "ready".
+        raise RuntimeError(
+            f"Campaign generation produced no emails for dossier {dossier_id} "
+            f"on {primary_model} (and fallback {fallback_model}). "
+            f"Last response keys: {list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__}"
+        )
 
     from vacancysoft.intelligence.pricing import compute_cost
     cost_usd = compute_cost(result["model"], result["tokens_prompt"], result["tokens_completion"])
@@ -106,7 +140,7 @@ async def generate_campaign(
     campaign = CampaignOutput(
         dossier_id=dossier_id,
         model_used=result["model"],
-        outreach_emails=parsed.get("emails"),
+        outreach_emails=emails,
         raw_response=parsed,
         tokens_used=result["tokens_total"],
         tokens_prompt=result["tokens_prompt"],
@@ -117,9 +151,9 @@ async def generate_campaign(
     session.add(campaign)
     session.commit()
 
-    email_count = len(parsed.get("emails") or [])
     logger.info(
-        "Campaign generated for dossier %s — %d emails, %d tokens, %dms",
-        dossier_id, email_count, result["tokens_total"], result["latency_ms"],
+        "Campaign generated for dossier %s — %d emails on %s, %d tokens, %dms, $%.4f",
+        dossier_id, len(emails), result["model"], result["tokens_total"],
+        result["latency_ms"], cost_usd,
     )
     return campaign
