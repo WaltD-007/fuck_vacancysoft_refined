@@ -19,7 +19,14 @@ default_profile = "accepted_only_excel"
 [worker]
 redis_url = "redis://localhost:6379"
 max_concurrent = 25
-job_timeout = 300
+# Single process_lead job has to fit: (optional description scrape 0-60s) +
+# dossier main call + dossier HM search + campaign pre-generation. On
+# DeepSeek that's ~300-360s end-to-end; on OpenAI with gpt-5-mini +
+# web_search at "high" context it can reach 400-500s. 300s was killing
+# the campaign step of every DeepSeek run mid-flight (dossier committed
+# before campaign starts, so the symptom was dossiers landing with no
+# matching campaign row). 900s = comfortable margin for both providers.
+job_timeout = 900
 max_retries = 3
 
 [intelligence]
