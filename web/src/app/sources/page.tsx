@@ -496,7 +496,13 @@ export default function SourcesPage() {
     const scored = getScored(s);
     const cats = getCats(s);
     if (searchLower) return s.employer_name.toLowerCase().includes(searchLower);
-    if (sourceView === "no_jobs") return scored === 0 && !isBroken(s) && s.jobs === 0;
+    // No Jobs Found: any source whose direct scrape produced zero raw_jobs.
+    // Includes cards that have aggregator-contributed leads (scored > 0) —
+    // those are the prime triage candidates: another path proves the employer
+    // exists but our direct scraper is silent. The Update button on each card
+    // re-runs the direct scrape so the operator can manually verify.
+    // Matches the noJobsCount calc above so count and rendered list agree.
+    if (sourceView === "no_jobs") return !isBroken(s) && s.jobs === 0;
     if (sourceView === "not_relevant") return scored === 0 && !isBroken(s) && s.jobs > 0;
     if (sourceView === "broken") return isBroken(s);
     if (sourceView === "all") return true;
