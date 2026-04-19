@@ -76,7 +76,34 @@ Rollback: `git revert <sha-of-step-0>`.
 
 ## Step 1 — `SourceJobsDrawer`
 
-_Pending._
+Extracted the expanded per-card job list (the drawer that appears
+underneath a source card when it is expanded) into
+`web/src/app/sources/components/SourceJobsDrawer.tsx`.
+
+The drawer was previously an inline IIFE inside the `sources.map()`
+render at roughly lines 1155–1230 (post-step-0 numbering). It is now a
+proper component; `page.tsx` renders it with:
+
+```
+{expandedSource === src.id && <SourceJobsDrawer ... />}
+```
+
+Props passed in: `src`, `expandedCategory`, `countryFilter`,
+`sourceJobs` (the shared cache), `categoryColors`, `hotlist`,
+`setHotlist`, `apiBase` (= the `API` constant). The component owns no
+state; it reads rows out of `sourceJobs[jobKey]` using the same
+key-derivation rule the parent uses to populate the cache — critical
+because a mismatch here shows "Loading..." forever.
+
+Behaviour unchanged: same markup, same scroll container, same hotlist
+POST to `${apiBase}/queue`, same score colour coding.
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200
+
+Rollback: `git revert <sha-of-step-1>` (component file will be deleted,
+inline IIFE restored).
 
 ## Step 2 — `SourceFilters`
 
