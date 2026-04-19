@@ -12,12 +12,26 @@ load_dotenv()
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 from sqlalchemy import select, func, text, bindparam
 
 from vacancysoft.db.engine import SessionLocal
 from vacancysoft.db.models import Source, RawJob, EnrichedJob, ScoreResult
 from vacancysoft.api.source_detector import detect_and_validate, detect_platform
+from vacancysoft.api.schemas import (
+    AddCompanyCandidate,
+    AddCompanyRequest,
+    AddCompanyResponse,
+    AddSourceRequest,
+    AddSourceResponse,
+    DetectRequest,
+    DetectResponse,
+    MarkAgencyRequest,
+    MarkAgencyResponse,
+    QueueRequest,
+    ScoredJobOut,
+    SourceOut,
+    StatsOut,
+)
 from vacancysoft.source_registry.config_seed_loader import PLATFORM_REGISTRY
 
 app = FastAPI(title="Prospero API", version="0.1.0")
@@ -81,100 +95,6 @@ async def _shutdown():
 
 
 # ── Models ──
-
-class SourceOut(BaseModel):
-    id: int
-    employer_name: str
-    adapter_name: str
-    base_url: str
-    active: bool
-    seed_type: str
-    ats_family: str | None
-    jobs: int = 0
-    enriched: int = 0
-    scored: int = 0
-    categories: dict[str, int] = {}
-    categories_by_country: dict[str, dict[str, int]] = {}
-    sub_specialisms: dict[str, dict[str, int]] = {}  # {category_label: {sub_specialism: count}}
-    aggregator_hits: dict[str, int] = {}  # {adapter_name: count} for aggregator-contributed rows
-    employment_types: dict[str, int] = {}  # {Permanent|Contract: count}
-    last_run_status: str | None = None
-    last_run_error: str | None = None
-
-    class Config:
-        from_attributes = True
-
-
-class DetectRequest(BaseModel):
-    url: str
-
-
-class DetectResponse(BaseModel):
-    adapter: str
-    slug: str | None
-    url: str
-    company_guess: str
-    reachable: bool
-    job_count: int | None
-    error: str | None
-
-
-class AddSourceRequest(BaseModel):
-    url: str
-    company: str
-
-
-class AddSourceResponse(BaseModel):
-    id: int
-    employer_name: str
-    adapter_name: str
-    base_url: str
-    message: str
-
-
-class AddCompanyRequest(BaseModel):
-    company: str
-    countries: list[str] | None = None  # defaults to ["United Kingdom"]
-    days_back: int = 30
-    employer_exact: str | None = None  # set by /confirm when user picks a specific candidate from the list
-
-
-class AddCompanyCandidate(BaseModel):
-    """One employer name that matches the fuzzy query, with jobs_count within the
-    date/country window. Returned by /search so the UI can disambiguate."""
-    employer_name: str
-    jobs_count: int
-    sample_title: str | None = None
-    sample_location: str | None = None
-    already_in_db: bool = False  # True if this exact employer already has a direct Source row
-
-
-class AddCompanyResponse(BaseModel):
-    """Response for BOTH /search (preview) and /confirm (commit).
-
-    status values:
-      * "ready"    — search found jobs, user can now confirm (returned by /search only)
-      * "no_jobs"  — nothing to add (returned by /search only)
-      * "exists"   — a direct card already exists; no Coresignal call made
-      * "ok"       — card created and scraped (returned by /confirm only)
-    """
-    status: str
-    jobs_found: int
-    company: str
-    source_id: int | None = None
-    message: str
-    candidates: list[AddCompanyCandidate] = []  # populated on /search when status="ready"
-
-
-class StatsOut(BaseModel):
-    total_sources: int
-    active_sources: int
-    total_jobs: int
-    total_enriched: int
-    total_scored: int
-    adapters: dict[str, int]
-    categories: dict[str, int]
-
 
 # ── Helpers ──
 
@@ -905,20 +825,6 @@ def list_sources(country: str | None = None):
 
 
 
-class ScoredJobOut(BaseModel):
-    title: str
-    company: str
-    location: str | None
-    country: str | None
-    category: str | None
-    sub_specialism: str | None
-    score: float | None
-    url: str | None
-
-    class Config:
-        from_attributes = True
-
-
 @app.get("/api/sources/{source_id}/jobs", response_model=list[ScoredJobOut])
 def get_source_jobs(
     source_id: int,
@@ -1422,17 +1328,6 @@ async def add_source(req: AddSourceRequest):
 
 # ── Queue Campaign ──
 
-class QueueRequest(BaseModel):
-    title: str
-    company: str
-    location: str | None = None
-    country: str | None = None
-    category: str | None = None
-    sub_specialism: str | None = None
-    url: str | None = None
-    score: float | None = None
-    board_url: str | None = None
-
 
 @app.post("/api/queue")
 async def queue_campaign(req: QueueRequest):
@@ -1704,14 +1599,6 @@ def remove_from_queue(item_id: str):
     return {"message": "Removed", "id": item_id}
 
 
-class ScrapeResponse(BaseModel):
-    source_key: str
-    employer_name: str
-    jobs_found: int
-    status: str
-    removed: bool = False
-
-
 _API_ONLY_ADAPTERS = {"workday", "greenhouse", "workable", "ashby", "smartrecruiters", "lever",
                       "pinpoint", "bamboohr", "teamtailor", "personio", "recruitee", "jazzhr",
                       "silkroad", "reed", "adzuna", "google_jobs", "efinancialcareers"}
@@ -1909,19 +1796,6 @@ def delete_source(source_id: int):
 
 
 # ── Mark company as agency ──
-
-
-class MarkAgencyRequest(BaseModel):
-    company: str
-
-
-class MarkAgencyResponse(BaseModel):
-    added: bool
-    deleted_jobs: int
-    deleted_classifications: int
-    deleted_scores: int
-    deleted_dossiers: int
-    deleted_queue_items: int
 
 
 @app.post("/api/agency", response_model=MarkAgencyResponse)
