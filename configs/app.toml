@@ -86,7 +86,7 @@ hm_search_context_size = "high"
 # hm_extraction_model: the model that reads SerpApi snippets and
 #   extracts names. gpt-4o-mini is cheap, fast, and non-reasoning —
 #   avoids the max_tokens-burn-on-hidden-CoT trap.
-use_serpapi_hm_search = false
+use_serpapi_hm_search = true
 # Default 3 searches lands cost around $0.046/lead vs $0.064 baseline
 # (~28% saving) at $0.015/search pricing. Going to 5 searches
 # (recall-first mode) pushes cost to ~$0.076 — slightly above the
