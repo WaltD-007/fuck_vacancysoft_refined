@@ -209,6 +209,11 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             "categories": {},
             "categories_by_country": {},
             "sub_specialisms": {},
+            # Country-scoped sub-specialism breakdown so the frontend can
+            # narrow chip counts + the grid's sub filter to the active
+            # country. The flat `sub_specialisms` blob above is kept for
+            # any legacy readers that want the global total.
+            "sub_specialisms_by_country": {},
             "aggregator_hits": {},
             "employment_types": {},
             "raw_jobs_count": 0,
@@ -233,6 +238,13 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
         card["sub_specialisms"].setdefault(cat_label, {})
         card["sub_specialisms"][cat_label][sub_label] = (
             card["sub_specialisms"][cat_label].get(sub_label, 0) + 1
+        )
+        # Country-scoped copy. Same (cat_label, sub_label) aggregation keyed
+        # under the lead's country so the UI can show UK sub counts when the
+        # country filter is UK, rather than the global sum.
+        card["sub_specialisms_by_country"].setdefault(country_key, {}).setdefault(cat_label, {})
+        card["sub_specialisms_by_country"][country_key][cat_label][sub_label] = (
+            card["sub_specialisms_by_country"][country_key][cat_label].get(sub_label, 0) + 1
         )
         if lead["is_aggregator"]:
             card["aggregator_hits"][lead["adapter"]] = card["aggregator_hits"].get(lead["adapter"], 0) + 1
@@ -411,6 +423,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
                     "categories": {},
                     "categories_by_country": {},
                     "sub_specialisms": {},
+                    "sub_specialisms_by_country": {},
                     "aggregator_hits": {},
                     "employment_types": {},
                     "raw_jobs_count": 0,

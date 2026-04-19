@@ -24,6 +24,7 @@ class SourceOut(BaseModel):
     categories: dict[str, int] = {}
     categories_by_country: dict[str, dict[str, int]] = {}
     sub_specialisms: dict[str, dict[str, int]] = {}  # {category_label: {sub_specialism: count}}
+    sub_specialisms_by_country: dict[str, dict[str, dict[str, int]]] = {}  # {country: {category_label: {sub_specialism: count}}}
     aggregator_hits: dict[str, int] = {}  # {adapter_name: count} for aggregator-contributed rows
     employment_types: dict[str, int] = {}  # {Permanent|Contract: count}
     last_run_status: str | None = None

@@ -40,6 +40,10 @@ type Props = {
   effScored: (s: Source) => number;
   effCatCount: (s: Source, cat: string) => number;
   getCats: (s: Source) => Record<string, number>;
+  // Country-aware sub-specialism blob lookup — mirrors getCats so
+  // sub chip counts track the active country filter instead of summing
+  // worldwide totals.
+  getSubs: (s: Source) => Record<string, Record<string, number>>;
 
   // Colour map
   categoryColors: Record<string, string>;
@@ -86,6 +90,7 @@ export default function StatsSection({
   effScored,
   effCatCount,
   getCats,
+  getSubs,
   categoryColors,
 }: Props) {
   if (!stats) return null;
@@ -150,7 +155,10 @@ export default function StatsSection({
         // its subs if it has leads in ANY selected category.
         const poolSources = sources.filter((s) => filters.some((c) => (getCats(s)[c] || 0) > 0));
         for (const s of poolSources) {
-          const subs = s.sub_specialisms || {};
+          // getSubs narrows to the active country (or merges all non-N/A
+          // countries when no country filter is active) so sub chip counts
+          // track the filter instead of summing worldwide totals.
+          const subs = getSubs(s);
           for (const cat of filters) {
             const bucket = subs[cat];
             if (!bucket) continue;

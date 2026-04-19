@@ -90,6 +90,7 @@ def list_sources(country: str | None = None):
             categories=card["categories"],
             categories_by_country=card["categories_by_country"],
             sub_specialisms=card.get("sub_specialisms", {}),
+            sub_specialisms_by_country=card.get("sub_specialisms_by_country", {}),
             aggregator_hits=card["aggregator_hits"],
             employment_types=card.get("employment_types", {}),
             last_run_status=card["last_run_status"],

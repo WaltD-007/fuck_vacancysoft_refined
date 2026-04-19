@@ -16,6 +16,10 @@ export type Source = {
   categories: Record<string, number>;
   categories_by_country: Record<string, Record<string, number>>;
   sub_specialisms?: Record<string, Record<string, number>>;
+  // {country: {category: {sub: count}}} — country-partitioned sub totals
+  // so card readouts can narrow to the active country filter. Populated
+  // by the ledger; missing when the backend is older than Apr 2026.
+  sub_specialisms_by_country?: Record<string, Record<string, Record<string, number>>>;
   aggregator_hits?: Record<string, number>;
   employment_types?: Record<string, number>;
   last_run_status: string | null;

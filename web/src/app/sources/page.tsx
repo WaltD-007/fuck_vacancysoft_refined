@@ -365,6 +365,26 @@ export default function SourcesPage() {
     return Object.values(cats).reduce((a, b) => a + b, 0);
   };
 
+  // Country-scoped sub-specialism blob for a source. When a country filter is
+  // active we return only that country's bucket. When no country filter is
+  // active we merge every known country EXCEPT "N/A" so global sub totals
+  // don't mix in unresolved-location rows.
+  const getSubs = (s: Source): Record<string, Record<string, number>> => {
+    const byCountry = s.sub_specialisms_by_country || {};
+    if (countryFilter) return byCountry[countryFilter] || {};
+    const merged: Record<string, Record<string, number>> = {};
+    for (const [country, catMap] of Object.entries(byCountry)) {
+      if (country === "N/A") continue;
+      for (const [cat, subMap] of Object.entries(catMap)) {
+        merged[cat] = merged[cat] || {};
+        for (const [sub, n] of Object.entries(subMap)) {
+          merged[cat][sub] = (merged[cat][sub] || 0) + (n as number);
+        }
+      }
+    }
+    return merged;
+  };
+
   // Effective category count for a source, narrowed by any active sub-specialism
   // filter. When no sub chips are selected this is just the raw category count.
   // When sub chips ARE selected, we sum only the matching sub counts within that
@@ -373,7 +393,7 @@ export default function SourcesPage() {
   const effCatCount = (s: Source, cat: string): number => {
     const base = getCats(s)[cat] || 0;
     if (subFilters.length === 0) return base;
-    const subs = (s.sub_specialisms || {})[cat] || {};
+    const subs = getSubs(s)[cat] || {};
     const narrowed = subFilters.reduce((n, sub) => n + (subs[sub] || 0), 0);
     // Never exceed the raw cat count (matters if a country filter is active and
     // narrows the raw cat count while sub counts remain country-agnostic).
@@ -419,9 +439,11 @@ export default function SourcesPage() {
     // OR across selected category chips: source qualifies if it has leads in ANY selected category.
     if (!filters.some((c) => (cats[c] || 0) > 0)) return false;
     // OR across selected sub-specialism chips: at least one (selected cat, selected sub)
-    // pair must exist on this source.
+    // pair must exist on this source WITHIN THE ACTIVE COUNTRY. getSubs narrows
+    // the blob to the current country filter so a UK filter doesn't let through
+    // cards whose only Credit Risk jobs are in the US.
     if (subFilters.length > 0) {
-      const subs = s.sub_specialisms || {};
+      const subs = getSubs(s);
       return filters.some((c) => subFilters.some((sub) => (subs[c]?.[sub] || 0) > 0));
     }
     return true;
@@ -649,6 +671,7 @@ export default function SourcesPage() {
             effScored={effScored}
             effCatCount={effCatCount}
             getCats={getCats}
+            getSubs={getSubs}
             categoryColors={categoryColors}
           />
 
