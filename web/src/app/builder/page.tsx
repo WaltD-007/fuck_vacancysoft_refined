@@ -1,9 +1,9 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import useSWR from "swr";
 import Sidebar from "../components/Sidebar";
-
-const API = "http://localhost:8000/api";
+import { API, fetcher } from "../lib/swr";
 
 type ToneKey = "formal" | "informal" | "consultative" | "direct" | "candidate_spec" | "technical";
 
@@ -67,21 +67,18 @@ export default function BuilderPage() {
   const searchParams = useSearchParams();
   const leadId = searchParams.get("lead") || "";
 
-  const [leads, setLeads] = useState<QueuedLead[]>([]);
+  // Shared SWR cache — dedupes with Sidebar + Leads page.
+  const { data: rawLeads } = useSWR<QueuedLead[]>("/queue", fetcher, {
+    keepPreviousData: true,
+  });
+  const leads = useMemo(
+    () => (Array.isArray(rawLeads) ? rawLeads.filter((l) => l.status === "ready") : []),
+    [rawLeads],
+  );
   const [steps, setSteps] = useState<EmailStep[]>(defaultSteps);
   const [activeStep, setActiveStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Load ready leads for the selector
-  useEffect(() => {
-    fetch(`${API}/queue`)
-      .then((r) => r.json())
-      .then((data: QueuedLead[]) => {
-        setLeads(Array.isArray(data) ? data.filter((l) => l.status === "ready") : []);
-      })
-      .catch(() => {});
-  }, []);
 
   // When leadId changes, fetch the campaign and populate variants
   useEffect(() => {

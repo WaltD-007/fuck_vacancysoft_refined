@@ -1,8 +1,8 @@
 "use client";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
+import useSWR, { mutate as globalMutate } from "swr";
 import Sidebar from "../components/Sidebar";
-
-const API = "http://localhost:8000/api";
+import { API, fetcher } from "../lib/swr";
 
 const catColors: Record<string, string> = { Risk: "#a29bfe", Quant: "#4dabf7", Compliance: "#00d2a0", Audit: "#ffd93d", Cyber: "#ff6b6b", Legal: "#fd79a8", "Quant Risk": "#4dabf7", "Front Office": "#ffa500" };
 
@@ -19,6 +19,9 @@ type QueuedLead = {
   score: number | null;
   board_url: string | null;
   created_at: string | null;
+  // Inlined by /api/queue so the Leads page can render the intelligence
+  // panel without issuing an N+1 /dossier request per row.
+  dossier: Dossier | null;
 };
 
 type Dossier = {
@@ -219,61 +222,55 @@ function DossierPanel({ dossier, onCreateCampaign, jobUrl, company, leadId }: { 
 }
 
 export default function LeadsPage() {
-  const [leads, setLeads] = useState<QueuedLead[]>([]);
+  // /api/queue now returns each lead with its latest dossier inlined
+  // (see src/vacancysoft/api/routes/leads.py::list_queue). We poll every
+  // 5s to pick up pending → generating → ready status transitions.
+  const { data: leads = [], mutate: mutateLeads } = useSWR<QueuedLead[]>(
+    "/queue",
+    fetcher,
+    { refreshInterval: 5000, keepPreviousData: true },
+  );
   const [filter, setFilter] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [dossiers, setDossiers] = useState<Record<string, Dossier>>({});
+  // Overrides for leads whose dossier had to be freshly generated
+  // (unusual — server pre-generates on queue). Falls back to lead.dossier
+  // otherwise.
+  const [dossierOverrides, setDossierOverrides] = useState<Record<string, Dossier>>({});
   const [loadingDossier, setLoadingDossier] = useState<Set<string>>(new Set());
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetch(`${API}/queue`).then((r) => r.json()).then(setLeads).catch(() => {});
-    // Poll every 5s to pick up status changes (pending → generating → ready)
-    const interval = setInterval(() => {
-      fetch(`${API}/queue`).then((r) => r.json()).then((fresh) => {
-        setLeads(fresh);
-        // Auto-load dossiers for newly ready leads
-        for (const lead of fresh) {
-          if (lead.status === "ready" && !dossiers[lead.id]) {
-            fetch(`${API}/leads/${lead.id}/dossier`).then((r) => r.ok ? r.json() : null).then((d) => {
-              if (d) setDossiers((prev) => ({ ...prev, [lead.id]: d }));
-            }).catch(() => {});
-          }
-        }
-      }).catch(() => {});
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  const getDossier = (lead: QueuedLead): Dossier | null =>
+    dossierOverrides[lead.id] ?? lead.dossier ?? null;
 
-  const toggleDossier = async (id: string) => {
-    if (expandedId === id) {
+  const toggleDossier = async (lead: QueuedLead) => {
+    if (expandedId === lead.id) {
       setExpandedId(null);
       return;
     }
-    setExpandedId(id);
+    setExpandedId(lead.id);
 
-    // If already loaded, just show it
-    if (dossiers[id]) return;
+    // Inline dossier already present — render immediately, no request.
+    if (getDossier(lead)) return;
 
-    // Try to load existing dossier
-    setLoadingDossier((prev) => new Set(prev).add(id));
+    // Rare fallback: no dossier yet for this row. Try to fetch, and if
+    // none exists, generate one on demand (same behaviour as before SWR).
+    setLoadingDossier((prev) => new Set(prev).add(lead.id));
     try {
-      const res = await fetch(`${API}/leads/${id}/dossier`);
+      const res = await fetch(`${API}/leads/${lead.id}/dossier`);
       if (res.ok) {
         const data = await res.json();
-        setDossiers((prev) => ({ ...prev, [id]: data }));
+        setDossierOverrides((prev) => ({ ...prev, [lead.id]: data }));
       } else if (res.status === 404) {
-        // No dossier yet, generate one
-        const genRes = await fetch(`${API}/leads/${id}/dossier`, { method: "POST" });
+        const genRes = await fetch(`${API}/leads/${lead.id}/dossier`, { method: "POST" });
         if (genRes.ok) {
           const data = await genRes.json();
-          setDossiers((prev) => ({ ...prev, [id]: data }));
+          setDossierOverrides((prev) => ({ ...prev, [lead.id]: data }));
         }
       }
     } catch (err) {
       console.error("Failed to load dossier:", err);
     } finally {
-      setLoadingDossier((prev) => { const n = new Set(prev); n.delete(id); return n; });
+      setLoadingDossier((prev) => { const n = new Set(prev); n.delete(lead.id); return n; });
     }
   };
 
@@ -352,7 +349,7 @@ export default function LeadsPage() {
                   filtered.map((l) => {
                     const st = statusStyles[l.status] || statusStyles.pending;
                     const isExpanded = expandedId === l.id;
-                    const dossier = dossiers[l.id];
+                    const dossier = getDossier(l);
                     const isLoading = loadingDossier.has(l.id);
 
                     return (
@@ -363,7 +360,7 @@ export default function LeadsPage() {
                         >
                           <td className="px-5 py-3.5 text-[13px] font-semibold">
                             <span
-                              onClick={(e) => { e.stopPropagation(); toggleDossier(l.id); }}
+                              onClick={(e) => { e.stopPropagation(); toggleDossier(l); }}
                               className="hover:underline cursor-pointer"
                               style={{ color: isExpanded ? "#a29bfe" : "#e8e8f0" }}
                             >{l.title}</span>
@@ -407,7 +404,10 @@ export default function LeadsPage() {
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 await fetch(`${API}/queue/${l.id}`, { method: "DELETE" });
-                                setLeads((prev) => prev.filter((x) => x.id !== l.id));
+                                // Optimistic update: drop the row locally, then let
+                                // SWR revalidate to confirm. Dedupes across Sidebar too.
+                                mutateLeads((prev) => (prev ?? []).filter((x) => x.id !== l.id), false);
+                                globalMutate("/queue");
                               }}
                               title="Remove from Lead List"
                             >&#10005;</button>

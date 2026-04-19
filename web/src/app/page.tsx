@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import useSWR from "swr";
 import Sidebar from "./components/Sidebar";
-
-const API = "http://localhost:8000/api";
+import { API, fetcher } from "./lib/swr";
 
 type Dashboard = {
   total_scored: number;
@@ -69,7 +69,14 @@ const catColors: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  const [data, setData] = useState<Dashboard | null>(null);
+  // SWR caches the last response in the browser. On navigation back to `/`
+  // it paints instantly with cached data then revalidates in the background.
+  // Focus revalidation gives us fresh data when the user returns to the tab.
+  const { data } = useSWR<Dashboard>("/dashboard", fetcher, {
+    revalidateOnFocus: true,
+    dedupingInterval: 2000,
+    keepPreviousData: true,
+  });
   const [feedCategory, setFeedCategory] = useState("");
   const [feedCountry, setFeedCountry] = useState("");
   const [feedSubSpec, setFeedSubSpec] = useState("");
@@ -80,10 +87,6 @@ export default function DashboardPage() {
   // become live until the timer expires, at which point we POST.
   const [pendingUndo, setPendingUndo] = useState<Record<string, number>>({});
   const [nowTick, setNowTick] = useState<number>(Date.now());
-
-  useEffect(() => {
-    fetch(`${API}/dashboard`).then((r) => r.json()).then(setData).catch(() => {});
-  }, []);
 
   // Tick every 200ms while there is at least one pending undo so the
   // countdown digits update. No-op when nothing is pending.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import useSWR from "swr";
 import Sidebar from "../components/Sidebar";
 import AddCompanyModal from "./components/AddCompanyModal";
 import SourceCard from "./components/SourceCard";
@@ -14,10 +15,19 @@ import {
   type Stats,
   type SourceView,
 } from "./types";
-
-const API = "http://localhost:8000/api";
+import { API, fetcher } from "../lib/swr";
 
 export default function SourcesPage() {
+  // SWR drives initial + focus-triggered fetches. Mutation handlers still
+  // refetch via raw fetch() + setSources/setStats for immediate feedback;
+  // SWR's own focus-revalidate keeps the cache aligned with the server.
+  const { data: sourcesSWR, isLoading: sourcesLoading } =
+    useSWR<Source[]>("/sources", fetcher, { keepPreviousData: true });
+  const { data: statsSWR } =
+    useSWR<Stats>("/stats", fetcher, { keepPreviousData: true });
+  const { data: countriesSWR } =
+    useSWR<{ country: string; count: number }[]>("/countries", fetcher, { keepPreviousData: true });
+
   const [sources, setSources] = useState<Source[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -66,19 +76,23 @@ export default function SourcesPage() {
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const [iframeTitle, setIframeTitle] = useState("");
 
+  // Mirror SWR's data into the local state the rest of the page already
+  // uses. Mutation handlers still call setSources/setStats for immediate
+  // feedback; on the next SWR revalidation (focus, navigation, or explicit
+  // mutate()) the server truth replaces it.
   useEffect(() => {
-    fetch(`${API}/countries`).then((r) => r.json()).then(setCountries).catch(() => {});
-    // Load all sources once — country filtering happens client-side on the jobs
-    setLoading(true);
-    Promise.all([
-      fetch(`${API}/sources`).then((r) => r.json()),
-      fetch(`${API}/stats`).then((r) => r.json()),
-    ]).then(([s, st]) => {
-      setSources(s);
-      setStats(st);
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, []);
+    if (countriesSWR) setCountries(countriesSWR);
+  }, [countriesSWR]);
+  useEffect(() => {
+    if (sourcesSWR) setSources(sourcesSWR);
+  }, [sourcesSWR]);
+  useEffect(() => {
+    if (statsSWR) setStats(statsSWR);
+  }, [statsSWR]);
+  useEffect(() => {
+    setLoading(sourcesLoading);
+  }, [sourcesLoading]);
+
 
   const handleDetect = async () => {
     if (!addUrl.trim()) return;

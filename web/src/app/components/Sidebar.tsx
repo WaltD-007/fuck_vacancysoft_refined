@@ -1,23 +1,20 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import Link from "next/link";
-
-const API = "http://localhost:8000/api";
+import useSWR from "swr";
+import { fetcher } from "../lib/swr";
 
 const sections = ["OVERVIEW", "PIPELINE", "SETTINGS"];
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const [queueCount, setQueueCount] = useState(0);
-
-  useEffect(() => {
-    const poll = () => fetch(`${API}/queue`).then((r) => r.json()).then((data) => setQueueCount(data.length)).catch(() => {});
-    poll();
-    const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
-  }, []);
+  // Shares the same SWR cache key ("/queue") as the Leads page — when
+  // both are mounted there's exactly one HTTP request every 5s, not two.
+  const { data: queueData } = useSWR<Array<unknown>>("/queue", fetcher, {
+    refreshInterval: 5000,
+  });
+  const queueCount = queueData?.length ?? 0;
 
   const nav = [
     { label: "Dashboard", href: "/", icon: "▣", section: "OVERVIEW" },
