@@ -1,5 +1,48 @@
 # Deferred work
 
+## Ticket — Surface zero-classification direct sources on the Sources page
+
+**Symptom**: No Jobs Found tab on `/sources` is permanently empty.
+
+**Why**: `_build_source_card_ledger` in `src/vacancysoft/api/server.py:540`
+builds employer cards from the lead pool — only sources that have at
+least one classified lead in a core market produce a card. A direct
+source whose adapter ran and returned zero raw_jobs (or returned jobs
+that none classified into core markets, with no aggregator picking up
+the slack) never gets a card, so the frontend has nothing to render in
+the No Jobs Found view.
+
+The frontend's filter is correct:
+`!isBroken && jobs === 0 && adapter !== "aggregator" && scored === 0`.
+The data just doesn't exist client-side.
+
+**The fix**: extend `_build_source_card_ledger` to also walk the
+`direct_sources` list and emit a synthetic card for each direct source
+that did NOT match any existing card by `employer_norm`. Such a
+synthetic card would have:
+- `card_id` = the Source.id (positive)
+- `adapter_name` = the actual adapter (e.g. "workday")
+- `jobs` = `raw_counts.get(src.id, 0)` (likely 0 here, but accurate)
+- `scored` = 0 (no classifications)
+- `categories` / `sub_specialisms` / `aggregator_hits` = `{}`
+- `last_run_status` / `last_run_error` from the latest SourceRun
+
+That way the No Jobs Found tab populates with all currently-empty
+direct sources and the operator can re-scrape them via the existing
+Update button workflow.
+
+**Risk**: the cards endpoint already returns ~5,000 rows. Adding
+zero-classification sources could push that into the tens of
+thousands and make the API slower. Mitigation: paginate the API
+response, or surface this set behind a separate endpoint
+(`/api/sources/empty`) that the No Jobs Found tab calls only when
+selected.
+
+**Estimated effort**: 30-60 minutes plus an API smoke test. No
+schema or migration work.
+
+---
+
 ## Ticket — Dedupe `_extract_employer_from_payload`
 
 **Goal**: get rid of the duplicate aggregator-employer extractor so adding
