@@ -29,44 +29,59 @@ Location: {location}
 ### Specification Risk
 {spec_risk_summary}
 
-# Email Sequence
+# Task
 
-Produce FIVE emails. Each email is a single complete message — one subject line and one body — written in exactly the tone specified for its step:
+You will return EXACTLY FIVE emails in a JSON array. The array MUST contain exactly five objects. No more, no fewer.
 
-## Email 1 — FORMAL
-Initial outreach. Measured, polished British business English; minimal contractions; third-person framing where natural. {outreach_angle}
-Keep technical jargon to a minimum. Focus on recruitment pain points: candidate shortages, fierce competition for top talent, and factors that might mean the employer struggles to attract talent. Differentiate the sender by emphasising their long-standing track record and extensive network.
+Each of the five emails has a DIFFERENT purpose AND a DIFFERENT tone. Do not write alternative versions of the same email. Do not skip any sequence. Each `variants` object contains exactly ONE tone key — no alternatives.
 
-## Email 2 — CANDIDATE SPEC
-Spec CV message. Emphasise the calibre of candidates the recruiter is talking to; reference specific candidate profiles or an active pipeline. Include 3 short bullet points summarising a candidate the recruiter is working with who matches the ideal candidate profile above — their experience and why they fit the role.
+## The five emails
 
-## Email 3 — TECHNICAL
-Uses the domain language of the role (risk frameworks, quant terms, compliance regs, etc.) where appropriate, without becoming jargon-heavy. Follow-up referencing a specific technical angle from the dossier's core problem or spec risk — something that signals the sender understands the role's real demands.
+### Email 1 — sequence=1, tone=formal
+Purpose: Initial outreach.
+Tone rules: Measured, polished British business English. Minimal contractions. Third-person framing where natural.
+Content: {outreach_angle} Keep technical jargon minimal. Lead on recruitment pain points the employer faces: candidate shortages, competition for senior talent, difficulty attracting the specific profile the JD describes. Differentiate the sender by their track record and network — do not boast.
 
-## Email 4 — CONSULTATIVE
-Advisory and market-observation led; positions the sender as a trusted partner with a view on the wider market. Share an observation about how similar firms are approaching this hire, or a trend the hiring manager is likely to be seeing. Light, not salesy.
+### Email 2 — sequence=2, tone=candidate_spec
+Purpose: Spec CV introducing a specific candidate the recruiter is working with.
+Tone rules: Concrete, evidence-led, warm. Refer to a real-sounding candidate profile drawn from the "Ideal Candidate Profile" section above.
+Content: Body MUST include exactly 3 bullet points summarising the candidate: their recent experience, relevant skill areas, and why they fit THIS role specifically.
 
-## Email 5 — INFORMAL
-Warm and conversational; first-person; contractions welcome; short sentences; friendly opener. Re-engagement with a fresh angle — different candidates or a different framing. Light, empathetic, gently persuasive.
+### Email 3 — sequence=3, tone=technical
+Purpose: Follow-up that signals domain understanding.
+Tone rules: Uses the domain language of the role (risk frameworks, quant terms, compliance regs, etc.) where appropriate, without becoming jargon-heavy.
+Content: Reference ONE specific technical angle from the dossier's Core Business Problem or Specification Risk section. Do not list multiple angles — pick one and speak to it directly.
 
-# Rules (apply to every email)
-- Plain, ordinary, friendly British English underneath the chosen tone
-- No sign-off or signature in any message
+### Email 4 — sequence=4, tone=consultative
+Purpose: Market observation positioning the sender as a trusted adviser.
+Tone rules: Advisory, market-observation led. Third-person-ish framing; not salesy.
+Content: Share ONE observation about how comparable firms are approaching similar hires, or a trend the hiring manager is likely already noticing.
+
+### Email 5 — sequence=5, tone=informal
+Purpose: Re-engagement with a fresh angle.
+Tone rules: Warm and conversational. First-person. Contractions welcome. Short sentences. Friendly opener.
+Content: Reference a different candidate profile or a different framing of the problem — signal the sender is still in the market, not nagging.
+
+# Global rules (apply to every email)
+- Plain, ordinary British English underneath the chosen tone
+- No sign-off or signature
 - No em-dashes, no bolding
-- Never salesy; light, friendly, empathetic, gently persuasive
-- Do not ask for more info; this is a one-way automation
+- Never salesy; light, empathetic, gently persuasive
+- Do not ask the reader for more info — this is one-way automation
 
-# Output
+# Output schema
 
-Return a JSON object with exactly this shape. Each email has ONE variant keyed by its tone; empty tone slots are not needed:
+Return this exact JSON shape. Replace "..." with real content. Do NOT add extra keys, extra tone variants, or extra sequences. The `emails` array MUST have exactly 5 elements in the order shown:
 
 {{
   "emails": [
-    {{"sequence": 1, "variants": {{ "formal":         {{"subject": "...", "body": "..."}} }}}},
-    {{"sequence": 2, "variants": {{ "candidate_spec": {{"subject": "...", "body": "..."}} }}}},
-    {{"sequence": 3, "variants": {{ "technical":      {{"subject": "...", "body": "..."}} }}}},
-    {{"sequence": 4, "variants": {{ "consultative":   {{"subject": "...", "body": "..."}} }}}},
-    {{"sequence": 5, "variants": {{ "informal":       {{"subject": "...", "body": "..."}} }}}}
+    {{"sequence": 1, "variants": {{"formal":         {{"subject": "...", "body": "..."}}}}}},
+    {{"sequence": 2, "variants": {{"candidate_spec": {{"subject": "...", "body": "..."}}}}}},
+    {{"sequence": 3, "variants": {{"technical":      {{"subject": "...", "body": "..."}}}}}},
+    {{"sequence": 4, "variants": {{"consultative":   {{"subject": "...", "body": "..."}}}}}},
+    {{"sequence": 5, "variants": {{"informal":       {{"subject": "...", "body": "..."}}}}}}
   ]
 }}
+
+Before returning, verify the `emails` array has exactly 5 elements and each uses the correct `sequence` number and tone key from the list above.
 """

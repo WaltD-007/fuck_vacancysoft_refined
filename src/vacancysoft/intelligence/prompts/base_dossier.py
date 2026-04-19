@@ -73,40 +73,39 @@ Return a single JSON object with these keys. Do not wrap in markdown. Do not res
 
 ## Section Guidance
 
-Keep every section concise. Target lengths are upper bounds; be shorter if the material allows.
+HARD LENGTH LIMITS. Every field has a maximum word count. You MUST stay under it. If you can say it in fewer words, do. Never pad. Before returning, check every section against its limit and cut anything that exceeds.
 
-### 1. Company and Market Context (company_context) — target ~100 words
-In plain English, cover:
-- What the company does and how it makes money
-- Its market position versus peers
-- What matters right now: {market_context_guidance}
-- Any recent event that makes this hire necessary now
-Skip any point you cannot say something specific about.
+### 1. Company and Market Context (company_context) — MAX 100 words
+Cover, in order, any of these you can say something specific about:
+1. What the company does and how it makes money
+2. Its position versus peers
+3. What matters right now: {market_context_guidance}
+4. The recent event (if any) driving this hire now
 
-### 2. The Core Business Problem (core_problem) — target ~60 words
-State the real problem beneath the role and what the business risks losing if the hire is delayed. One paragraph.
+If you only have material for 2 of the 4, return 2. Do not invent context to hit 4. Plain English. One paragraph.
 
-### 3. Stated Need vs Actual Need (stated_vs_actual) — exactly 2 rows
-Two rows comparing what the JD asks for versus what the business likely needs. Pick the two biggest gaps; omit the rest.
+### 2. The Core Business Problem (core_problem) — MAX 60 words
+One paragraph. The real problem beneath the role and what the business risks if the hire is delayed. No preamble.
 
-### 4. Specification and Execution Risk (spec_risk) — 1 or 2 items max
-Only include risks that are genuinely present in this specific JD. Each item must reference a specific detail from the JD or company context that creates the risk. If only one real risk is present, return one.
+### 3. Stated Need vs Actual Need (stated_vs_actual) — EXACTLY 2 rows
+Two rows only. Pick the two biggest gaps between what the JD asks for and what the business likely needs. Each of `jd_asks_for` and `business_likely_needs` is MAX 20 words.
 
-Categories to check (include only if genuinely present):
-- Over-specification that will eliminate viable candidates
+### 4. Specification and Execution Risk (spec_risk) — 1 OR 2 items (not more)
+Only real risks present in THIS JD. `explanation` is ONE sentence, MAX 30 words. Omit any risk you cannot tie to a specific JD detail.
+
+Categories to check (include only if genuinely present in the JD):
+- Over-specification that eliminates viable candidates
 - Conflicting expectations within the role
 - Mismatch between seniority, scope, and likely authority
 - Requirements that materially shrink the talent pool
 - Pay vs market mismatch if compensation is disclosed
 - Brand strength vs the profile required
 
-Each `explanation` should be one sentence.
+### 5. Ideal Candidate Profiles (candidate_profiles) — EXACTLY 2 profiles
+For each profile: `background`, `fit_reason`, `outcomes` are each ONE short sentence, MAX 20 words.
 
-### 5. Ideal Candidate Profiles (candidate_profiles) — 2 profiles, ~30 words each
-Two strong-fit candidate types. For each, `background`, `fit_reason`, and `outcomes` should each be one short sentence.
-
-### 6. Lead Score 1-5 (lead_score, lead_score_justification) — ~40 words of justification
-How worthwhile this company and role would be for a high-quality agency recruiter to invest meaningful time in, assuming the company initially resists recruiters and only engages if hiring becomes difficult. This score is a filter, not a compliment.
+### 6. Lead Score 1-5 (lead_score, lead_score_justification) — `lead_score_justification` MAX 40 words
+How worthwhile this role is for a high-quality agency recruiter to invest meaningful time in, assuming the company initially resists recruiters and only engages if hiring becomes difficult. Score is a filter, not a compliment.
 
 ### 7. Hiring Manager Search Boolean (hiring_manager_boolean)
 Based on the hiring manager title you identify in Section 8, provide a single copy-paste-ready Boolean string for finding them on LinkedIn. Include the exact title plus adjacent derivatives (e.g. if the HM is likely "Head of Credit Risk", also include "Director of Credit Risk", "Chief Credit Officer", "Head of Credit", "VP Credit Risk"). Format: ("Title 1" OR "Title 2" OR "Title 3") AND "Company Name"
