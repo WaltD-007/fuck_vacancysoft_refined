@@ -81,8 +81,11 @@ async def generate_campaign(
     dossier_sections = {
         "company_context": dossier.company_context or "",
         "core_problem": dossier.core_problem or "",
+        "stated_vs_actual": dossier.stated_vs_actual or [],
         "candidate_profiles": dossier.candidate_profiles or [],
         "spec_risk": dossier.spec_risk or [],
+        "lead_score_justification": dossier.lead_score_justification or "",
+        "hiring_managers": dossier.hiring_managers or [],
     }
 
     messages = resolve_campaign_prompt(dossier.category_used, job_data, dossier_sections)

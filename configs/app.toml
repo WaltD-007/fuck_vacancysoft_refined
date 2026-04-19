@@ -35,12 +35,21 @@ max_retries = 3
 #   - hiring manager:     gpt-5.4 + medium    (small payload, accuracy matters for real-name lookup)
 #   - campaign:           gpt-5-mini + low    (structured email generation, doesn't need deep reasoning)
 dossier_model = "gpt-5-mini"
-campaign_model = "gpt-5-mini"
+# Campaign quality upgrade 2026-04-19: promoted gpt-5-mini → gpt-5.2
+# for the campaign primary. Rationale: the dossier body is already
+# rich (full stated_vs_actual + spec_risk explanations + candidate
+# outcomes + lead justification + HM name/title are now in the prompt),
+# so the campaign call is context-rich and the quality ceiling is
+# now the writing model, not the information it has. gpt-5.2 is 5×
+# the unit rate of gpt-5-mini but campaign tokens are small (~2.5k
+# prompt + ~1.5k completion with the new shape) so per-lead delta is
+# ~$0.010/campaign. Fits well inside the operator's $0.10/lead ceiling.
+campaign_model = "gpt-5.2"
 campaign_reasoning_effort = "low"
 # Fallback used if the primary campaign model returns empty content
-# (gpt-5-mini occasionally burns the entire max_completion_tokens budget
-# on internal reasoning and produces no visible JSON). gpt-4o has no
-# reasoning step so it can't hit the same trap.
+# (reasoning models occasionally burn the entire max_completion_tokens
+# budget on internal reasoning and produce no visible JSON). gpt-4o
+# has no reasoning step so it can't hit the same trap.
 campaign_fallback_model = "gpt-4o"
 temperature = 0.4
 max_tokens = 16000
