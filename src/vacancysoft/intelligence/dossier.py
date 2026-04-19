@@ -108,7 +108,7 @@ The hiring manager is the person the successful candidate would report into, not
 
 Step 1: Determine the hiring manager's likely title.
 - If the advert mentions a reporting line (e.g. "reporting to the Chief Credit Officer"), use that title.
-- Otherwise, derive the function from the role title {hm_function}. Go one or two levels above the role seniority.
+- Otherwise, derive the function from the role title {hm_function} by searching the term Head of "function identified in title" or Director "function identified in title" Go one or two levels above the role seniority, but only ever return a Chief Credit Officer or Chief Risk Officer if the role being searched is a Director or Head of Title
 - If the JD specifies a region such as EMEA, ignore it for the search — the hiring manager could be based anywhere.
 - If the JD specifies an asset class or sub-specialism (e.g. Leveraged Finance, Real Estate), include it.
 - If the role relates to information security, cyber security, security engineering, SOC, or any infosec function, the hiring manager is ultimately the CISO (Chief Information Security Officer). Always search for the CISO at the company first. The direct reporting line may be a Head of Security Engineering or similar, but always include the CISO as a candidate.

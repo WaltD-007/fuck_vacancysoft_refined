@@ -20,12 +20,9 @@ You will be given a public job description, which you should treat as the primar
 
 # Research Scope
 Use publicly available information to understand the company and its {research_scope}, including:
-- Company structure, ownership, governance, filings, and group relationships
-- The hiring company's website and investor materials
-- Recent news, leadership changes, and events affecting {market_context_guidance}
-- Regulatory, legal, and ESG issues relevant to {research_scope}
-- Public market signals such as equity performance, commentary, and changes in consensus expectations
-Prioritise issuer disclosures, investor relations material, filings, and reputable financial press.
+- Company standing relative to it's peers
+- Any recent hires or departures in leadership. If none found, skip this.
+- Macro issues that might positively or negatively impact the buisiness
 Avoid buzzwords without explanation and speculation not grounded in public signals.
 Your task is not to sell or pitch. Your task is to explain what is really happening, in plain English, and build the understanding a recruiter needs to become useful later if hiring stalls.
 
