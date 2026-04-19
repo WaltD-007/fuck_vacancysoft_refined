@@ -170,7 +170,41 @@ block and re-imports `SourceJobsDrawer` directly into `page.tsx`.
 
 ## Step 4 — `AddCompanyModal`
 
-_Pending._
+The Coresignal "Add a Company" wizard — previously ~134 lines of modal
+markup plus the two handlers `handleAddCompanySearch` (~27 lines) and
+`handleAddCompanyConfirm` (~53 lines) — moves into
+`web/src/app/sources/components/AddCompanyModal.tsx`. The modal owns
+its own wizard state entirely:
+  `addCompanyName`, `addCompanyState`, `addCompanyResult`,
+  `addCompanyConfirmingFor`, `addCompanyError`.
+
+All five `useState` declarations and both async handlers are removed
+from `page.tsx`. Parent state kept: only `showAddCompany` (a boolean
+toggle for whether the panel is mounted).
+
+Because the modal is rendered via `{showAddCompany && <AddCompanyModal .../>}`,
+it unmounts when closed and remounts fresh when reopened, so there is
+no leftover state to reset. The "+ Add Company" button therefore
+simplifies to `onClick={() => setShowAddCompany((v) => !v)}`.
+
+Parent-side coordination after a successful add is exposed via two
+props:
+- `onCardAdded(sourceId)` → parent pins the new card via
+  `setHighlightSourceId`, clears `setSourceView("all")`, and resets
+  `setAdapterFilter("")` + `setAggregatorFilter("")`.
+- `onSourcesRefreshed(sources, stats)` → parent writes both back into
+  its own state after the modal re-fetches them.
+
+`AddCompanyCandidate` no longer needs to be imported at the page
+level — the type stays in `types.ts` and is imported by the modal.
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200
+
+Rollback: `git revert <sha-of-step-4>` — restores the five parent
+`useState`s, both handlers, the inline modal, and the
+`AddCompanyCandidate` import in `page.tsx`.
 
 ## Step 5 — `StatsSection`
 
