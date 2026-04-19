@@ -53,11 +53,11 @@ const emptyVariants = (): Record<ToneKey, Variant> =>
   }, {} as Record<ToneKey, Variant>);
 
 const defaultSteps = (): EmailStep[] => [
-  { num: 1, title: "Initial Outreach",          tone: "candidate_spec", desc: "Sent immediately on lead discovery",  day: "Day 0",  active: true,  wait: 3,  variants: emptyVariants() },
-  { num: 2, title: "Follow-up + Value Add",     tone: "formal",         desc: "Reference value proposition",           day: "Day 3",  active: true,  wait: 4,  variants: emptyVariants() },
-  { num: 3, title: "Case Study + Social Proof", tone: "technical",      desc: "Share relevant placement story",        day: "Day 7",  active: true,  wait: 7,  variants: emptyVariants() },
-  { num: 4, title: "Breakup Email",             tone: "informal",       desc: "Low-pressure close",                    day: "Day 14", active: true,  wait: 16, variants: emptyVariants() },
-  { num: 5, title: "Re-engagement — New Angle", tone: "candidate_spec", desc: "Fresh approach, new candidates",        day: "Day 30", active: false, wait: 0,  variants: emptyVariants() },
+  { num: 1, title: "Initial Outreach",          tone: "formal",         desc: "Sent immediately on lead discovery",  day: "Day 0",  active: true,  wait: 3,  variants: emptyVariants() },
+  { num: 2, title: "Follow-up + Value Add",     tone: "candidate_spec", desc: "Reference value proposition",           day: "Day 3",  active: true,  wait: 4,  variants: emptyVariants() },
+  { num: 3, title: "Case Study + Social Proof", tone: "consultative",   desc: "Share relevant placement story",        day: "Day 7",  active: true,  wait: 7,  variants: emptyVariants() },
+  { num: 4, title: "Breakup Email",             tone: "technical",      desc: "Low-pressure close",                    day: "Day 14", active: true,  wait: 16, variants: emptyVariants() },
+  { num: 5, title: "Re-engagement — New Angle", tone: "informal",       desc: "Fresh approach, new candidates",        day: "Day 30", active: false, wait: 0,  variants: emptyVariants() },
 ];
 
 const waitOptions = [1, 2, 3, 4, 5, 7, 10, 14, 16, 21, 30, 45, 60];
