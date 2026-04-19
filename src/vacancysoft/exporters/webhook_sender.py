@@ -23,10 +23,15 @@ RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 def _resolve_webhook_url(explicit_url: str | None, config: dict) -> str:
-    """Resolve webhook URL: explicit param > env var > config file."""
+    """Resolve webhook URL: explicit param > env var > config file.
+
+    Env var WEBHOOK_URL replaces the legacy N8N_WEBHOOK_URL — n8n is
+    no longer in the system and the env var name is now transport-
+    agnostic so any downstream consumer works.
+    """
     if explicit_url:
         return explicit_url
-    env_url = os.getenv("N8N_WEBHOOK_URL", "").strip()
+    env_url = os.getenv("WEBHOOK_URL", "").strip()
     if env_url:
         return env_url
     return config.get("webhook", {}).get("production_url", "")

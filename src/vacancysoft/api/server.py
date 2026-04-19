@@ -1321,13 +1321,9 @@ class QueueRequest(BaseModel):
     board_url: str | None = None
 
 
-_N8N_LEAD_INTAKE_URL = "https://antonyberou.app.n8n.cloud/webhook/prospero-lead-intake"
-_N8N_QUEUE_DRAIN_URL = "https://antonyberou.app.n8n.cloud/webhook/job-queue-drain"
-
-
 @app.post("/api/queue")
 async def queue_campaign(req: QueueRequest):
-    """Add a lead to the campaign queue, write to Google Sheet via n8n, trigger campaign generation."""
+    """Add a lead to the campaign queue and trigger dossier + campaign generation via the worker."""
     from vacancysoft.db.models import ReviewQueueItem
     from datetime import datetime
     import httpx as _httpx
@@ -1567,75 +1563,19 @@ def list_queue():
 
 @app.post("/api/queue/{item_id}/send")
 async def send_to_campaign(item_id: str):
-    """Send a queued lead to n8n for campaign generation."""
+    """Mark a queued lead as 'generating' so the operator UI reflects the
+    campaign-build kickoff. Dossier + campaign generation themselves are
+    handled by the worker via the original /api/queue enqueue."""
     from vacancysoft.db.models import ReviewQueueItem
-    from datetime import datetime
-    import httpx as _httpx
 
     with SessionLocal() as s:
         item = s.execute(select(ReviewQueueItem).where(ReviewQueueItem.id == item_id)).scalar_one_or_none()
         if not item:
             raise HTTPException(status_code=404, detail="Not found")
-        evidence = item.evidence_blob or {}
-
-        # Update status
         item.status = "generating"
         s.commit()
 
-    # Send to n8n — write to Google Sheet
-    now = datetime.utcnow().strftime("%Y-%m-%d")
-    job_ref = evidence.get("job_ref", f"lead-{item_id[:10]}")
-    sheet_payload = {
-        "Job URL": evidence.get("url", ""),
-        "Job Title": evidence.get("title", ""),
-        "Job Ref": job_ref,
-        "Category": evidence.get("category", ""),
-        "Sub Specialism": evidence.get("sub_specialism", ""),
-        "Company": evidence.get("company", ""),
-        "Location": evidence.get("location", ""),
-        "Country": evidence.get("country", ""),
-        "Salary": "",
-        "Contract Type": "",
-        "Date Posted": now,
-        "Job Board URL": "",
-        "Platform": "prospero",
-        "Date Scraped": now,
-    }
-
     return {"message": "Status updated to generating", "id": item_id}
-
-
-@app.api_route("/api/queue/callback", methods=["GET", "POST"])
-async def queue_callback(request):
-    """Called by n8n when campaign generation is complete. Updates lead status to 'ready'."""
-    from vacancysoft.db.models import ReviewQueueItem
-
-    req = {}
-    try:
-        req = await request.json()
-    except Exception:
-        pass
-    if not req:
-        req = dict(request.query_params)
-
-    if not req:
-        return {"message": "No data"}
-
-    job_ref = req.get("jobRef", "")
-    status = req.get("status", "ready")
-
-    with SessionLocal() as s:
-        # Find the queue item by job_ref in evidence_blob
-        items = s.execute(select(ReviewQueueItem).where(ReviewQueueItem.queue_type == "campaign")).scalars().all()
-        updated = 0
-        for item in items:
-            evidence = item.evidence_blob or {}
-            if evidence.get("job_ref") == job_ref:
-                item.status = status
-                updated += 1
-        s.commit()
-
-    return {"message": f"Updated {updated} items to {status}", "jobRef": job_ref}
 
 
 @app.delete("/api/queue/{item_id}")

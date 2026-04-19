@@ -48,23 +48,23 @@ class TestWebhookUrlResolution:
 
     def test_config_fallback(self) -> None:
         import os
-        old = os.environ.pop("N8N_WEBHOOK_URL", None)
+        old = os.environ.pop("WEBHOOK_URL", None)
         try:
             url = _resolve_webhook_url(None, {"webhook": {"production_url": "https://config.com/hook"}})
             assert url == "https://config.com/hook"
         finally:
             if old is not None:
-                os.environ["N8N_WEBHOOK_URL"] = old
+                os.environ["WEBHOOK_URL"] = old
 
     def test_empty_config(self) -> None:
         import os
-        old = os.environ.pop("N8N_WEBHOOK_URL", None)
+        old = os.environ.pop("WEBHOOK_URL", None)
         try:
             url = _resolve_webhook_url(None, {})
             assert url == ""
         finally:
             if old is not None:
-                os.environ["N8N_WEBHOOK_URL"] = old
+                os.environ["WEBHOOK_URL"] = old
 
 
 class TestSerialisers:

@@ -179,10 +179,10 @@ def main() -> None:
         print(f"\nExport failed: {exc}")
         return
 
-    # --- N8N webhook ---
-    n8n_url = os.getenv("N8N_WEBHOOK_URL")
-    if n8n_url:
-        import httpx, json
+    # --- Webhook (generic) ---
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if webhook_url:
+        import httpx
         import openpyxl
 
         wb = openpyxl.load_workbook(out)
@@ -190,13 +190,13 @@ def main() -> None:
         headers = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
         rows = [dict(zip(headers, [c.value for c in row])) for row in ws.iter_rows(min_row=2)]
         try:
-            resp = httpx.post(n8n_url, json=rows, timeout=60)
+            resp = httpx.post(webhook_url, json=rows, timeout=60)
             resp.raise_for_status()
-            print(f"Posted {len(rows)} leads to N8N webhook")
+            print(f"Posted {len(rows)} leads to webhook")
         except Exception as exc:
-            print(f"N8N webhook failed: {exc}")
+            print(f"Webhook post failed: {exc}")
     else:
-        print("N8N_WEBHOOK_URL not set — skipping webhook")
+        print("WEBHOOK_URL not set — skipping webhook")
 
     print()
 

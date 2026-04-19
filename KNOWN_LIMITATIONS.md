@@ -25,5 +25,5 @@
 
 ## Infrastructure
 
-- **n8n webhook 403**: n8n Cloud blocks server-side requests. Workaround: browser calls webhooks directly.
-- **localtunnel callback**: n8n → Prospero callback uses localtunnel (temporary). Needs permanent URL when deployed to Azure.
+(no current limitations recorded — n8n integration was removed; replace
+this section as new infrastructure issues come up)
