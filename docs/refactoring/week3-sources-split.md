@@ -107,7 +107,25 @@ inline IIFE restored).
 
 ## Step 2 — `SourceFilters`
 
-_Pending._
+Extracted the three header filter controls (company search, country
+dropdown, employment-type dropdown) into
+`web/src/app/sources/components/SourceFilters.tsx`.
+
+Returned as a React Fragment so the parent's header flex container
+still lays out the "Add Company" button alongside. The parent passes
+`setSourceJobs({})` + `setExpandedSource(null)` inside the country /
+employment-type change handlers, exactly as before — filter changes
+still clear the job cache and collapse any expanded card.
+
+The filter-label / "Clear filter" block lower down (around the stats
+tiles) was left inline; it is coupled to the category + subfilter
+chips which move with StatsSection in step 5.
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200
+
+Rollback: `git revert <sha-of-step-2>`.
 
 ## Step 3 — `SourceCard`
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
+import SourceFilters from "./components/SourceFilters";
 import SourceJobsDrawer from "./components/SourceJobsDrawer";
 import {
   AGGREGATOR_LABELS,
@@ -542,34 +543,15 @@ export default function SourcesPage() {
               <div className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>{sources.length} companies with active leads</div>
             </div>
             <div className="flex items-center gap-3">
-              <input
-                type="text"
-                value={companySearch}
-                onChange={(e) => setCompanySearch(e.target.value)}
-                placeholder="Search companies..."
-                className="px-3 py-2 rounded-lg text-sm outline-none w-48"
-                style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+              <SourceFilters
+                companySearch={companySearch}
+                onCompanySearchChange={setCompanySearch}
+                countryFilter={countryFilter}
+                onCountryFilterChange={(value) => { setCountryFilter(value); setSourceJobs({}); setExpandedSource(null); }}
+                countries={countries}
+                employmentTypeFilter={employmentTypeFilter}
+                onEmploymentTypeFilterChange={(value) => { setEmploymentTypeFilter(value); setSourceJobs({}); setExpandedSource(null); }}
               />
-              <select
-                value={countryFilter}
-                onChange={(e) => { setCountryFilter(e.target.value); setSourceJobs({}); setExpandedSource(null); }}
-                className="px-3 py-2 rounded-lg text-sm cursor-pointer outline-none"
-                style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
-              >
-                <option value="">All Countries</option>
-                {countries.map((c) => (
-                  <option key={c.country} value={c.country}>{c.country} ({c.count})</option>
-                ))}
-              </select>
-              <select
-                value={employmentTypeFilter}
-                onChange={(e) => { setEmploymentTypeFilter(e.target.value); setSourceJobs({}); setExpandedSource(null); }}
-                className="px-3 py-2 rounded-lg text-sm cursor-pointer outline-none"
-                style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
-              >
-                <option value="Permanent">Permanent</option>
-                <option value="Contract">Contract</option>
-              </select>
               {/* Add Source temporarily disconnected — keep entire flow intact for reinstatement. */}
               {false && (
                 <button onClick={() => { setShowAdd(!showAdd); setAddState("idle"); setDetectResult(null); setAddUrl(""); }} className="px-4 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer" style={{ background: "linear-gradient(135deg, var(--accent), #8b7cf7)", boxShadow: "0 2px 12px rgba(108,92,231,0.3)" }}>+ Add Source</button>
