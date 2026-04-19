@@ -239,6 +239,7 @@ export default function SourceCard({
           src={src}
           expandedCategory={expandedCategory}
           countryFilter={countryFilter}
+          subFilters={subFilters}
           sourceJobs={sourceJobs}
           categoryColors={categoryColors}
           hotlist={hotlist}

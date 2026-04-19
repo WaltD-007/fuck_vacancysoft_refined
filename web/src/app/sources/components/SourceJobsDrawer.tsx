@@ -8,6 +8,10 @@ type Props = {
   src: Source;
   expandedCategory: string | null;
   countryFilter: string;
+  // Active sub-specialism chips from the page header. Each row's
+  // sub_specialism (already computed server-side) is matched against
+  // this list so the drawer agrees with the card's pill count.
+  subFilters: string[];
   sourceJobs: Record<string, ScoredJob[]>;
   categoryColors: Record<string, string>;
   hotlist: Set<string>;
@@ -30,6 +34,7 @@ export default function SourceJobsDrawer({
   src,
   expandedCategory,
   countryFilter,
+  subFilters,
   sourceJobs,
   categoryColors,
   hotlist,
@@ -38,21 +43,35 @@ export default function SourceJobsDrawer({
 }: Props) {
   const baseKey = expandedCategory ? `${src.id}_${expandedCategory}` : `${src.id}`;
   const jobKey = countryFilter ? `${baseKey}_${countryFilter}` : baseKey;
+  const rows = sourceJobs[jobKey];
+  // Client-side sub-specialism narrowing so the drawer agrees with the
+  // card pill count (which already narrows via effCatCount on the page).
+  // Per-card job lists are small (<100 rows) — filtering in JS costs
+  // nothing and keeps the server endpoint + cache key unchanged.
+  const visibleJobs = rows
+    ? (subFilters.length === 0
+        ? rows
+        : rows.filter((j) => subFilters.includes(j.sub_specialism ?? "")))
+    : undefined;
 
   return (
     <div style={{ borderTop: "1px solid var(--border-subtle)", animation: "fadeIn 0.2s ease-out" }}>
       {expandedCategory && <div className="px-4 pt-2 text-xs font-semibold" style={{ color: categoryColors[expandedCategory] || "var(--accent-light)" }}>{expandedCategory} leads</div>}
-      {sourceJobs[jobKey] === undefined ? (
+      {visibleJobs === undefined ? (
         <div className="p-3 text-center text-xs" style={{ color: "var(--text-muted)" }}>Loading...</div>
-      ) : sourceJobs[jobKey].length === 0 ? (
+      ) : rows!.length === 0 ? (
         <div className="p-3 text-center text-xs" style={{ color: "var(--text-muted)" }}>No jobs found</div>
+      ) : visibleJobs.length === 0 ? (
+        <div className="p-3 text-center text-xs" style={{ color: "var(--text-muted)" }}>
+          No jobs matching {subFilters.join(", ")}
+        </div>
       ) : (
         <div className="max-h-64 overflow-y-auto">
-          {sourceJobs[jobKey].map((job, i) => (
+          {visibleJobs.map((job, i) => (
             <div
               key={i}
               className="px-4 py-2 flex items-center gap-3"
-              style={{ borderBottom: i < sourceJobs[jobKey].length - 1 ? "1px solid var(--border-subtle)" : "none" }}
+              style={{ borderBottom: i < visibleJobs.length - 1 ? "1px solid var(--border-subtle)" : "none" }}
             >
               <div className="flex-1 min-w-0">
                 <div className="text-xs font-semibold truncate">
