@@ -3,16 +3,14 @@
 
 One workbook, one sheet per "prompt surface":
 
-  - Index            — overview + link to each other sheet
-  - Dossier          — DOSSIER_SYSTEM + DOSSIER_TEMPLATE (base template)
-  - HM search        — the category-specific HM search prompt builder
-  - Campaign (active) — currently-active CAMPAIGN_TEMPLATE + SYSTEM
-  - Campaign (full)  — the preserved CAMPAIGN_TEMPLATE_FULL that production
-                       should use once ticket 13 completes
-  - Categories       — one row per category (risk / quant / compliance / …)
-                       × one column per block field (research_scope,
-                       market_context_guidance, outreach_angle, etc.)
-  - HM queries       — the _*_HM_SEARCHES string templates, one per row
+  - Index       — overview + link to each other sheet
+  - Dossier     — DOSSIER_SYSTEM + DOSSIER_TEMPLATE (base template)
+  - HM search   — the category-specific HM search prompt builder
+  - Campaign    — CAMPAIGN_SYSTEM + CAMPAIGN_TEMPLATE
+  - Categories  — one row per category (risk / quant / compliance / …)
+                  × one column per block field (research_scope,
+                  market_context_guidance, outreach_angle, etc.)
+  - HM queries  — the _*_HM_SEARCHES string templates, one per row
 
 Writes to artifacts/prompts-review.xlsx (artifacts/ is gitignored per
 .gitignore so the export doesn't land in git). Non-destructive: just
@@ -45,7 +43,6 @@ from vacancysoft.intelligence.prompts.base_dossier import (
 from vacancysoft.intelligence.prompts.base_campaign import (
     CAMPAIGN_SYSTEM,
     CAMPAIGN_TEMPLATE,
-    CAMPAIGN_TEMPLATE_FULL,
 )
 from vacancysoft.intelligence.prompts.category_blocks import (
     CATEGORY_BLOCKS,
@@ -91,12 +88,9 @@ def write_index_sheet(wb: Workbook) -> None:
                       "resolver actually builds it at call time",
          "src/vacancysoft/intelligence/dossier.py::_build_hm_prompt + "
          "prompts/category_blocks.py::_*_HM_SEARCHES"),
-        ("Campaign (active)", "Currently-active campaign template "
-                              "(may be a temporary trim; check comment at top of sheet)",
+        ("Campaign", "Campaign email-sequence template "
+                     "(5 sequences × 6 tones)",
          "src/vacancysoft/intelligence/prompts/base_campaign.py::CAMPAIGN_TEMPLATE"),
-        ("Campaign (full)", "Preserved full-scope campaign template "
-                            "(5 sequences × 6 tones) used in production once ticket 13 completes",
-         "src/vacancysoft/intelligence/prompts/base_campaign.py::CAMPAIGN_TEMPLATE_FULL"),
         ("Categories", "Per-category blocks: research scope, market context, "
                        "outreach angle, HM function guidance (injected into the templates above)",
          "src/vacancysoft/intelligence/prompts/category_blocks.py::CATEGORY_BLOCKS"),
@@ -163,29 +157,21 @@ def write_hm_search_sheet(wb: Workbook) -> None:
     ws.freeze_panes = "A2"
 
 
-def write_campaign_sheet(wb: Workbook, sheet_name: str, template: str, note: str) -> None:
-    ws = wb.create_sheet(sheet_name)
-    if note:
-        cell = ws.cell(row=1, column=1, value=note)
-        cell.font = Font(italic=True, color="FF994400")
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=2)
-        start_row = 3
-    else:
-        start_row = 2
-
-    ws.cell(row=start_row - 1, column=1, value="Field")
-    ws.cell(row=start_row - 1, column=2, value="Content")
-    for c in (ws.cell(row=start_row - 1, column=1), ws.cell(row=start_row - 1, column=2)):
+def write_campaign_sheet(wb: Workbook) -> None:
+    ws = wb.create_sheet("Campaign")
+    ws.cell(row=1, column=1, value="Field")
+    ws.cell(row=1, column=2, value="Content")
+    for c in (ws.cell(row=1, column=1), ws.cell(row=1, column=2)):
         _style_header(c)
-    ws.cell(row=start_row, column=1, value="CAMPAIGN_SYSTEM (system message)")
-    ws.cell(row=start_row, column=2, value=CAMPAIGN_SYSTEM)
-    _style_prompt_cell(ws.cell(row=start_row, column=2))
-    ws.cell(row=start_row + 1, column=1, value="template (user message, with placeholders)")
-    ws.cell(row=start_row + 1, column=2, value=template)
-    _style_prompt_cell(ws.cell(row=start_row + 1, column=2))
-    ws.row_dimensions[start_row + 1].height = 500
+    ws.cell(row=2, column=1, value="CAMPAIGN_SYSTEM (system message)")
+    ws.cell(row=2, column=2, value=CAMPAIGN_SYSTEM)
+    _style_prompt_cell(ws.cell(row=2, column=2))
+    ws.cell(row=3, column=1, value="CAMPAIGN_TEMPLATE (user message, with placeholders)")
+    ws.cell(row=3, column=2, value=CAMPAIGN_TEMPLATE)
+    _style_prompt_cell(ws.cell(row=3, column=2))
+    ws.row_dimensions[3].height = 500
     _autofit(ws, {1: 30, 2: 120})
-    ws.freeze_panes = f"A{start_row - 1}"
+    ws.freeze_panes = "A2"
 
 
 def write_categories_sheet(wb: Workbook) -> None:
@@ -256,22 +242,7 @@ def main() -> int:
     write_index_sheet(wb)
     write_dossier_sheet(wb)
     write_hm_search_sheet(wb)
-    write_campaign_sheet(
-        wb,
-        "Campaign (active)",
-        CAMPAIGN_TEMPLATE,
-        note=(
-            "This is the template the running worker will use for the NEXT campaign call. "
-            "If 'Campaign (full)' differs, the active template is a temporary trim — "
-            "see the comment at the top of src/vacancysoft/intelligence/prompts/base_campaign.py."
-        ),
-    )
-    write_campaign_sheet(
-        wb,
-        "Campaign (full)",
-        CAMPAIGN_TEMPLATE_FULL,
-        note="Full-scope template (5 sequences × 6 tones). Production target.",
-    )
+    write_campaign_sheet(wb)
     write_categories_sheet(wb)
     write_hm_queries_sheet(wb)
 
