@@ -41,6 +41,26 @@ router = APIRouter(tags=["leads"])
 _PLAYWRIGHT_SCRAPER_URL = "https://playwright-runner.bluecliff-1ceb6690.uksouth.azurecontainerapps.io/scrape"
 
 
+# ── Dashboard cache ──────────────────────────────────────────────────────
+# The /api/dashboard handler runs ~10 separate aggregate queries on every
+# hit. That's expensive and the numbers don't change faster than ~30s in
+# practice (the discovery worker runs on schedules, not on every request),
+# so we cache the full response body in-process. Invalidated by mutation
+# handlers (queue_campaign, send_to_campaign, remove_from_queue,
+# mark_agency) so counts reflect user actions immediately.
+#
+# RAM cost: ~100 KB for the single "__all__" key.
+
+_dashboard_cache: dict[str, tuple[float, dict]] = {}
+_DASHBOARD_CACHE_TTL = 30  # seconds — matches _SOURCES_CACHE_TTL in ledger.py
+
+
+def clear_dashboard_cache() -> None:
+    """Drop the cached dashboard payload. Call from any handler that
+    mutates data surfaced on the dashboard so the next request rebuilds."""
+    _dashboard_cache.clear()
+
+
 @router.get("/api/stats", response_model=StatsOut)
 def get_stats(country: str | None = None):
     with SessionLocal() as s:
@@ -95,6 +115,12 @@ def get_dashboard():
                                real `score` (0–10) and `discovered` ISO timestamp
       * source_health          last 20 scrape runs
     """
+    import time as _time
+    cache_key = "__all__"
+    cached = _dashboard_cache.get(cache_key)
+    if cached and (_time.time() - cached[0]) < _DASHBOARD_CACHE_TTL:
+        return cached[1]
+
     from vacancysoft.db.models import ClassificationResult, SourceRun
     from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_category, map_sub_specialism
     from datetime import datetime, timedelta, timezone
@@ -278,7 +304,7 @@ def get_dashboard():
             for h in health
         ]
 
-    return {
+    payload = {
         "total_scored": total_scored,
         "total_jobs": total_jobs,
         "active_sources": active,
@@ -294,6 +320,8 @@ def get_dashboard():
         "campaigns_active": int(campaigns_active),
         "dossiers_active": int(dossiers_active),
     }
+    _dashboard_cache[cache_key] = (_time.time(), payload)
+    return payload
 
 
 @router.get("/api/countries")
@@ -383,6 +411,9 @@ async def queue_campaign(req: QueueRequest, request: Request):
         import asyncio
         asyncio.ensure_future(_scrape_and_generate_dossier(item_id, req.url, req.company, req.title))
 
+    # Queue length feeds the dashboard's campaigns_active / dossiers_active
+    # tiles, so the stale cached copy must be dropped.
+    clear_dashboard_cache()
     return {"message": "Queued", "id": item_id}
 
 
@@ -492,13 +523,19 @@ async def _scrape_and_generate_dossier(item_id: str, url: str | None, company: s
 
 @router.get("/api/queue")
 def list_queue():
-    """List all queued campaign leads.
+    """List all queued campaign leads, with the latest dossier inlined.
 
     A lead is only reported as 'ready' if an IntelligenceDossier actually exists
     for its enriched job. Otherwise we downgrade the reported status to
     'generating' so downstream consumers (e.g. the Campaign Builder) don't try
     to generate a campaign before the dossier is persisted.
+
+    The `dossier` field on each row carries the most recent dossier payload
+    for that lead (same shape as `GET /api/leads/{id}/dossier`) or `null` if
+    none has been generated yet. Inlining this here lets the Leads page
+    render the intelligence panel without an N+1 per-row fetch.
     """
+    from vacancysoft.api.schemas import dossier_to_dict
     from vacancysoft.db.models import IntelligenceDossier, ReviewQueueItem
     with SessionLocal() as s:
         items = s.execute(
@@ -507,52 +544,57 @@ def list_queue():
             .order_by(ReviewQueueItem.created_at.desc())
         ).scalars().all()
 
-        # Which URLs have a dossier? (We match on URL rather than
-        # enriched_job_id because there can be multiple EnrichedJob rows per
-        # URL and the queue item's enriched_job_id may point at a different
-        # one than the dossier's. Matching on URL is what the dossier /
-        # campaign endpoints effectively do.) Single query, then set membership.
-        urls = [
-            (i.evidence_blob or {}).get("url")
-            for i in items
-        ]
-        urls = [u for u in urls if u]
-        urls_with_dossier: set[str] = set()
+        # Pull the latest IntelligenceDossier for every queued URL in one
+        # shot. We match on URL rather than enriched_job_id because there
+        # can be multiple EnrichedJob rows per URL and the queue item's
+        # enriched_job_id may point at a different one than the dossier's.
+        # Matching on URL is what the dossier / campaign endpoints
+        # effectively do.
+        urls = [u for u in ((i.evidence_blob or {}).get("url") for i in items) if u]
+        dossiers_by_url: dict[str, IntelligenceDossier] = {}
         if urls:
-            urls_with_dossier = set(
-                s.execute(
-                    select(RawJob.discovered_url)
-                    .join(EnrichedJob, EnrichedJob.raw_job_id == RawJob.id)
-                    .join(IntelligenceDossier, IntelligenceDossier.enriched_job_id == EnrichedJob.id)
-                    .where(RawJob.discovered_url.in_(urls))
-                ).scalars().all()
-            )
+            # Grab (url, dossier) pairs; newest-first so the first entry we
+            # see for a URL is the one we keep.
+            rows = s.execute(
+                select(RawJob.discovered_url, IntelligenceDossier)
+                .join(EnrichedJob, EnrichedJob.raw_job_id == RawJob.id)
+                .join(IntelligenceDossier, IntelligenceDossier.enriched_job_id == EnrichedJob.id)
+                .where(RawJob.discovered_url.in_(urls))
+                .order_by(IntelligenceDossier.created_at.desc())
+            ).all()
+            for url, dossier in rows:
+                if url not in dossiers_by_url:
+                    dossiers_by_url[url] = dossier
 
         def _reported_status(item: ReviewQueueItem) -> str:
             if item.status != "ready":
                 return item.status
             url = (item.evidence_blob or {}).get("url")
-            if url and url in urls_with_dossier:
+            if url and url in dossiers_by_url:
                 return "ready"
             return "generating"
 
-        return [
-            {
+        out: list[dict] = []
+        for item in items:
+            evidence = item.evidence_blob or {}
+            url = evidence.get("url")
+            dossier = dossiers_by_url.get(url) if url else None
+            out.append({
                 "id": item.id,
                 "status": _reported_status(item),
-                "title": (item.evidence_blob or {}).get("title", ""),
-                "company": (item.evidence_blob or {}).get("company", ""),
-                "location": (item.evidence_blob or {}).get("location"),
-                "country": (item.evidence_blob or {}).get("country"),
-                "category": (item.evidence_blob or {}).get("category"),
-                "sub_specialism": (item.evidence_blob or {}).get("sub_specialism"),
-                "url": (item.evidence_blob or {}).get("url"),
-                "score": (item.evidence_blob or {}).get("score"),
-                "board_url": (item.evidence_blob or {}).get("board_url"),
+                "title": evidence.get("title", ""),
+                "company": evidence.get("company", ""),
+                "location": evidence.get("location"),
+                "country": evidence.get("country"),
+                "category": evidence.get("category"),
+                "sub_specialism": evidence.get("sub_specialism"),
+                "url": url,
+                "score": evidence.get("score"),
+                "board_url": evidence.get("board_url"),
                 "created_at": item.created_at.isoformat() if item.created_at else None,
-            }
-            for item in items
-        ]
+                "dossier": dossier_to_dict(dossier) if dossier else None,
+            })
+        return out
 
 
 @router.post("/api/queue/{item_id}/send")
@@ -569,6 +611,7 @@ async def send_to_campaign(item_id: str):
         item.status = "generating"
         s.commit()
 
+    clear_dashboard_cache()
     return {"message": "Status updated to generating", "id": item_id}
 
 
@@ -582,4 +625,5 @@ def remove_from_queue(item_id: str):
         from sqlalchemy import delete
         s.execute(delete(ReviewQueueItem).where(ReviewQueueItem.id == item_id))
         s.commit()
+    clear_dashboard_cache()
     return {"message": "Removed", "id": item_id}

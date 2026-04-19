@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
-from vacancysoft.api.schemas import MarkAgencyRequest, MarkAgencyResponse
+from vacancysoft.api.schemas import MarkAgencyRequest, MarkAgencyResponse, dossier_to_dict
 from vacancysoft.db.engine import SessionLocal
 from vacancysoft.db.models import EnrichedJob, RawJob, ScoreResult, Source
 
@@ -117,6 +117,13 @@ def mark_agency(payload: MarkAgencyRequest):
             ).rowcount or 0
         s.commit()
 
+    # Marking an agency strips leads from every dashboard total, so both
+    # the dashboard payload and the ledger/sources cache need to drop.
+    from vacancysoft.api.ledger import clear_ledger_caches
+    from vacancysoft.api.routes.leads import clear_dashboard_cache
+    clear_ledger_caches()
+    clear_dashboard_cache()
+
     return MarkAgencyResponse(
         added=added,
         deleted_jobs=deleted_jobs,
@@ -184,12 +191,12 @@ async def generate_lead_dossier(item_id: str):
         ).scalar_one_or_none()
 
         if existing:
-            return _dossier_to_dict(existing)
+            return dossier_to_dict(existing)
 
         # Generate new dossier
         from vacancysoft.intelligence.dossier import generate_dossier
         dossier = await generate_dossier(enriched.id, s)
-        return _dossier_to_dict(dossier)
+        return dossier_to_dict(dossier)
 
 
 @router.get("/api/leads/{item_id}/dossier")
@@ -239,7 +246,7 @@ def get_lead_dossier(item_id: str):
         if not dossier:
             return JSONResponse(status_code=404, content={"detail": "No dossier generated yet"})
 
-        return _dossier_to_dict(dossier)
+        return dossier_to_dict(dossier)
 
 
 @router.post("/api/leads/{item_id}/campaign")
@@ -321,26 +328,3 @@ async def generate_lead_campaign(item_id: str):
             "cost_usd": campaign.cost_usd,
             "latency_ms": campaign.latency_ms,
         }
-
-
-def _dossier_to_dict(d) -> dict:
-    return {
-        "id": d.id,
-        "category": d.category_used,
-        "model": d.model_used,
-        "tokens": d.tokens_used,
-        "tokens_prompt": d.tokens_prompt,
-        "tokens_completion": d.tokens_completion,
-        "cost_usd": d.cost_usd,
-        "call_breakdown": d.call_breakdown or [],
-        "latency_ms": d.latency_ms,
-        "lead_score": d.lead_score,
-        "lead_score_justification": d.lead_score_justification,
-        "company_context": d.company_context,
-        "core_problem": d.core_problem,
-        "stated_vs_actual": d.stated_vs_actual or [],
-        "spec_risk": d.spec_risk or [],
-        "candidate_profiles": d.candidate_profiles or [],
-        "search_booleans": d.search_booleans or {},
-        "hiring_managers": d.hiring_managers or [],
-    }

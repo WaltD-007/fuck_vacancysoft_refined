@@ -149,3 +149,30 @@ class MarkAgencyResponse(BaseModel):
     deleted_scores: int
     deleted_dossiers: int
     deleted_queue_items: int
+
+
+def dossier_to_dict(d) -> dict:
+    """Serialise an IntelligenceDossier ORM row to the dict shape the UI
+    consumes. Shared between the campaigns route (on-demand generation)
+    and the leads route (inline-with-queue projection) so both paths
+    return identical payloads."""
+    return {
+        "id": d.id,
+        "category": d.category_used,
+        "model": d.model_used,
+        "tokens": d.tokens_used,
+        "tokens_prompt": d.tokens_prompt,
+        "tokens_completion": d.tokens_completion,
+        "cost_usd": d.cost_usd,
+        "call_breakdown": d.call_breakdown or [],
+        "latency_ms": d.latency_ms,
+        "lead_score": d.lead_score,
+        "lead_score_justification": d.lead_score_justification,
+        "company_context": d.company_context,
+        "core_problem": d.core_problem,
+        "stated_vs_actual": d.stated_vs_actual or [],
+        "spec_risk": d.spec_risk or [],
+        "candidate_profiles": d.candidate_profiles or [],
+        "search_booleans": d.search_booleans or {},
+        "hiring_managers": d.hiring_managers or [],
+    }
