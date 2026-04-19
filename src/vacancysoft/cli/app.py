@@ -2181,6 +2181,33 @@ def intel_prompts() -> None:
     console.print(table)
 
 
+@intel_app.command("cost-report")
+def intel_cost_report(
+    since: str = typer.Option(
+        "7d",
+        "--since",
+        help="Window: 'all', relative (e.g. '7d', '30d', '6h'), or ISO date (e.g. '2025-04-01').",
+    ),
+) -> None:
+    """Compare per-provider cost + token usage across dossier and campaign runs.
+
+    Groups rows by inferred provider (OpenAI vs DeepSeek) and model,
+    reading existing per-call cost data from intelligence_dossiers and
+    campaign_outputs. No schema changes — purely a readout so operators
+    can A/B test providers via the use_deepseek_for_* toggles in
+    configs/app.toml and compare the resulting spend side-by-side.
+    """
+    from vacancysoft.db.engine import SessionLocal
+    from vacancysoft.intelligence.cost_report import build_report, format_report, parse_since
+    try:
+        cutoff = parse_since(since)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    with SessionLocal() as s:
+        report = build_report(s, since=cutoff)
+    typer.echo(format_report(report))
+
+
 if __name__ == "__main__":
     app()
 
