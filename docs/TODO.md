@@ -234,6 +234,8 @@ Priority scores use a 1–5 scale:
 | 10 | Fold the filter-label / "Clear filter" block into `StatsSection` | **P5** | 10 min | open |
 | 11 | Delete `_addcompany_count_jobs` if confirmed unused | **P5** | 5 min | open |
 | 12 | Composite index on `SourceRun(source_id, created_at)` if hotspot | **P5** | 15 min (conditional) | open |
+| 13 | Investigate DeepSeek for dossier + campaign properly | **P4** | 4–6 h | open |
+| 14 | Investigate why HM search returned zero hiring_managers | **P3** | 1–2 h | open |
 
 ---
 
@@ -380,3 +382,79 @@ No deploy step, no Playwright install (keeps it under 60 s). Matrix can stay Pyt
 **What**: add an Alembic migration creating `ix_source_runs_source_id_created_at ON source_runs(source_id, created_at DESC)`. Leave `SourceRun.started_at`'s existing index intact. Don't land this speculatively — run `EXPLAIN` on the queries first and confirm a real win.
 
 **Why P5**: conditional / speculative. The ledger is already cached for 30 s so rebuild latency is hit at most twice a minute. Only relevant if an operator complains about first-request latency.
+
+---
+
+### Ticket 13 — Investigate DeepSeek for dossier + campaign properly [P4]
+
+**Context**: during the 2026-04-19 session we wired DeepSeek in behind the `use_deepseek_for_*` toggles in `configs/app.toml`, ran ~10 real leads through `deepseek-reasoner`, and reverted. Outputs were noticeably weaker than the OpenAI path. This ticket captures what we saw so a second attempt starts from evidence rather than starting over.
+
+Everything the earlier session landed stays in the tree — `providers.py`, the pricing entries, the config toggles, the cost-report CLI. The toggles just default to `false`. Re-enabling is still a two-line config flip.
+
+**What the test run showed** (sample: HSBC / Head of Wholesale Credit Risk Management, Taguig)
+
+1. **`company_context` goes generic.** Output read like a Wikipedia intro ("HSBC Holdings plc is a global banking and financial services institution headquartered in London…"). No current events, no recent HSBC announcements. Expected: DeepSeek has no web-search tool, so `web_search=True` is silently dropped in `providers.py:call_llm`. The reasoner answers from training data only.
+2. **`core_problem` and `spec_risk` are actually OK.** The reasoner pulled real domain knowledge (Taguig, BSP, Basel III/IV). The analytical sections work; the research-hungry sections don't.
+3. **Campaign emails are generic.** Sequence 1 formal opener is boilerplate ("I am writing to introduce my services as a specialist risk recruitment consultant…"); sequence 2 invents a candidate profile that could fit any senior risk hire anywhere. Not obviously *wrong*, just unremarkable — would be deleted by a senior HM.
+4. **Per-lead latency ~300-360 s.** Dossier main ~105 s, HM ~47 s, campaign ~150 s. This hit the ARQ `job_timeout = 300 s` ceiling and killed campaigns mid-generation for every run until we bumped it to 900 s (commit `1423606`). Leave that bump in place.
+
+**Three likely causes, none of them "DeepSeek is just bad"**
+
+A. **Prompt was tuned for GPT-5 / reasoning-effort knob.** DeepSeek-reasoner ignores `temperature` (fixed 1.0 internally) and has no `reasoning_effort` equivalent. `providers.py` silently drops both parameters. Current prompt in [`prompts/base_campaign.py`](../src/vacancysoft/intelligence/prompts/base_campaign.py) and [`prompts/base_dossier.py`](../src/vacancysoft/intelligence/prompts/base_dossier.py) was never calibrated to this different inference profile.
+
+B. **Token-budget strangulation on campaign.** The campaign prompt asks for 30 emails (5 sequences × 6 tones) in a single JSON object. Reasoner models emit chain-of-thought to `reasoning_content` within the same `max_tokens=16000` budget. Rough estimate: reasoning eats 8-10k tokens → ~200-270 tokens left *per email*, which forces the model toward safe generic copy.
+
+C. **Wrong model for the job.** We defaulted the campaign primary to `deepseek-reasoner` because the user asked for the "highest-performance reasoning model". For 30 British-English outreach emails that's actively the wrong optimisation: creative-writing tasks don't benefit from hidden reasoning chains and the chain steals the budget. `deepseek-chat` (V3) is already wired as the fallback and is probably a better primary for campaigns.
+
+**Four things to try, in order of expected ROI**
+
+1. **Swap campaign primary from reasoner to chat.** One-line in `configs/app.toml`:
+   ```toml
+   campaign_model_deepseek = "deepseek-chat"
+   ```
+   Faster (~30 s vs 150 s), cheaper, and the reasoning-chain token-burn issue goes away. Re-queue 3 leads and compare sequence-1 formal quality against the OpenAI baseline. No code change needed. 15 min including restart.
+2. **Keep dossier on OpenAI.** `use_deepseek_for_dossier = false`. The cost saving from moving dossier's main call to DeepSeek (~80% off the main-call input cost) is real, but the `company_context` degradation from losing web search is visible and load-bearing — that section is what operators read first. 0 min; just don't flip it on.
+3. **Parallelise campaign into 5 per-sequence calls.** Each call produces 6 tones for a single sequence in its own JSON blob, giving each email ~3k tokens of budget instead of 200. Roughly same total tokens; much better quality per email; wall time similar because the calls run in parallel. Requires a focused edit in [`campaign.py`](../src/vacancysoft/intelligence/campaign.py): split `messages` by sequence, `asyncio.gather` the calls, merge the results. 2-3 h; worth doing even if we stay on OpenAI because it makes the fallback-on-empty-reasoner issue less likely on either provider.
+4. **Rewrite the dossier + campaign prompts with DeepSeek-reasoner's strengths in mind.** Reasoner models benefit from explicit "think step by step about X, then produce Y" scaffolding; they dislike loose open-ended creative prompts. Only worth this if steps 1-3 haven't closed the quality gap. 4-6 h if done properly with side-by-side evals.
+
+**What to keep vs revert if this ticket gets de-prioritised permanently**
+
+- **Keep** `providers.py`, the pricing entries, the cost-report CLI, the `job_timeout = 900` bump. All are general infrastructure that cost nothing to leave in place and are useful for any future provider work (e.g. Anthropic, local models).
+- **Keep** the config toggles — defaulting to `false` they're zero-cost.
+- **Consider reverting** `providers.py` and the toggle plumbing only if the "always OpenAI" commitment becomes permanent AND the code clutter starts hurting. Probably not worth the effort; leave as dormant infrastructure.
+
+**Smoke-test recipe for a second attempt**
+
+1. Flip `use_deepseek_for_campaign = true`, leave dossier on OpenAI.
+2. Change `campaign_model_deepseek = "deepseek-chat"` (step 1 above).
+3. Restart worker. Queue 3 leads (pick roles you have recent OpenAI baselines for).
+4. Run `vacancysoft intel cost-report --since 2h` and eyeball: cost delta, email quality, whether fallback ever fires.
+5. If the campaign reads at parity or better vs the OpenAI baseline, move on to step 3 of the plan (parallelise). If it doesn't, stop.
+
+---
+
+### Ticket 14 — Investigate why HM search returned zero hiring_managers [P3]
+
+**Context**: surfaced during the DeepSeek A/B test in the same 2026-04-19 session. This is not a DeepSeek issue — HM search is hard-wired to OpenAI in [`dossier.py`](../src/vacancysoft/intelligence/dossier.py) — but it became visible while we were scrutinising those runs.
+
+**Symptom**: every one of the ~10 leads tested during the session returned `IntelligenceDossier.hiring_managers = []`. The HM call completed successfully each time — `gpt-5.2-2025-12-11`, ~30k prompt tokens of web_search context, ~2k completion, $0.058 per call, 47-56 s latency. It's spending the money; it's just not returning names.
+
+**Diagnostic steps before any code change**
+
+1. Query historical data: `SELECT COUNT(*) FROM intelligence_dossiers WHERE hiring_managers != '[]'::jsonb AND created_at >= NOW() - INTERVAL '30 days'`. If the answer is "also zero", HM has been broken for a while and this session is the first time someone noticed. If it's "some", something regressed recently — `git log --oneline -- src/vacancysoft/intelligence/prompts/category_blocks.py src/vacancysoft/intelligence/dossier.py` to find what changed.
+2. Check whether the specific leads queued during the test had genuinely findable HMs. HSBC Taguig is a Philippines role where LinkedIn coverage is patchier; "Head of Wholesale Credit Risk Management" may be an internal-transfer role that no recruiter would expect a public HM for. Pick a lead you *know* has an obvious HM (named partner at a boutique, head-of-trading at a mid-sized prop shop) and see whether HM search finds them.
+3. Temporarily bump logging in [`dossier.py::_build_hm_prompt`](../src/vacancysoft/intelligence/dossier.py) to log the raw parsed response (`hm_result["raw_content"]`) before the filter at lines 211-217 strips fakes. The filter throws out anything with `"former"` in the title or a fake-name match — it's possible the model IS returning names and the filter is eating all of them.
+
+**Likely causes, in decreasing order of probability**
+
+A. **The filter is too aggressive.** `_KNOWN_FAKE_NAMES` or the `"former"` substring match is catching legitimate entries. Log the pre-filter response for a couple of runs and confirm.
+B. **The HM prompt is asking the wrong question.** Category blocks in [`category_blocks.py`](../src/vacancysoft/intelligence/prompts/category_blocks.py) have `hm_search_queries` like `"[company]" "head of credit" site:linkedin.com/in`. If LinkedIn has changed its public-profile visibility (or the exact phrasing in titles has drifted), the web search returns too little to extract names from.
+C. **`search_context_size = "high"` for HM specifically** means OpenAI pulls ~100k of web context. If LinkedIn results aren't in that context (because they rank low or are blocked), the model has nothing to extract.
+
+**Fix paths once a cause is confirmed**
+
+- If (A): relax the filter to log-only until we know the false-positive rate.
+- If (B): rewrite the HM prompts to be more tolerant of unclear matches — return "confidence: low" entries instead of nothing, so at least the operator has a starting name.
+- If (C): try `search_context_size = "medium"` or `"low"` — less context but more targeted, and the model may pick up on LinkedIn hits that currently drown in bulk.
+
+**Why P3**: hiring_managers is one of the most-used dossier fields (recruiters click on the HM first when opening the Campaign Builder). If it's systematically empty, the dossier has lost one of its most valuable outputs, and the money spent on the HM call is being wasted. Fix is likely small — the diagnostic alone may point at a one-line change.
