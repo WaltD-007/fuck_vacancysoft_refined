@@ -1,6 +1,6 @@
 """
 Quick test — scrape ~100 leads from the fastest API adapters and write to test_output.xlsx.
-Run: python3 test_quick.py
+Run: python3 scripts/test_quick.py
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import sys
 import time
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
