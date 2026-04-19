@@ -530,7 +530,7 @@ def _extract_employer_from_payload(payload) -> str | None:
         val = co.get("display_name")
         if val and str(val).strip():
             return str(val).strip()
-    for key in ("employer_name", "companyName", "company_name"):
+    for key in ("employer_name", "employerName", "companyName", "company_name"):
         val = payload.get(key)
         if val and str(val).strip():
             return str(val).strip()
