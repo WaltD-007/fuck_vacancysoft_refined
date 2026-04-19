@@ -234,19 +234,23 @@ export default function SourceCard({
           )}
         </div>
       </div>
-      {expandedSource === src.id && (
-        <SourceJobsDrawer
-          src={src}
-          expandedCategory={expandedCategory}
-          countryFilter={countryFilter}
-          subFilters={subFilters}
-          sourceJobs={sourceJobs}
-          categoryColors={categoryColors}
-          hotlist={hotlist}
-          setHotlist={setHotlist}
-          apiBase={apiBase}
-        />
-      )}
+      {expandedSource === src.id && (() => {
+        // Must match handleToggleJobs()'s key-builder exactly so the
+        // drawer reads the rows the parent just wrote.
+        const subKey = subFilters.length > 0 ? [...subFilters].sort().join("|") : "";
+        const jobKey = [String(src.id), expandedCategory || "", countryFilter, subKey].filter(Boolean).join("_");
+        return (
+          <SourceJobsDrawer
+            expandedCategory={expandedCategory}
+            jobKey={jobKey}
+            sourceJobs={sourceJobs}
+            categoryColors={categoryColors}
+            hotlist={hotlist}
+            setHotlist={setHotlist}
+            apiBase={apiBase}
+          />
+        );
+      })()}
     </div>
   );
 }

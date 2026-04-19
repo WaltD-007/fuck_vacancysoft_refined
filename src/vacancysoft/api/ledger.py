@@ -125,7 +125,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
     detail-view counts are always equal.
     """
     from vacancysoft.db.models import ClassificationResult, SourceRun
-    from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_sub_specialism
+    from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_category, map_sub_specialism
     routing = load_legacy_routing()
 
     # ---- 1) Fetch every core-market lead from active sources ----
@@ -216,7 +216,11 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             "last_run_error": None,
         })
         card["lead_ids"].append(lead["enriched_id"])
-        cat_label = _CATEGORY_LABELS.get(lead["cat_key"], lead["cat_key"])
+        # Use map_category so the label fed into map_sub_specialism matches
+        # what the per-job endpoint (GET /api/sources/{id}/jobs) uses —
+        # otherwise the card's sub_specialisms blob and the drawer's rows
+        # can be computed against different cat labels and disagree.
+        cat_label = map_category(lead["cat_key"], routing)
         card["categories"][cat_label] = card["categories"].get(cat_label, 0) + 1
         country_key = lead["country"] or "N/A"
         card["categories_by_country"].setdefault(country_key, {})

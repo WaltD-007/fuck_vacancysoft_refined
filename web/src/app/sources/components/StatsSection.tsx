@@ -50,7 +50,7 @@ type Props = {
  *   - 5 clickable bucket tiles (With Leads, No Jobs Found, Not
  *     Relevant, Broken, All Sources) + a Qualified Leads readout
  *   - 7 category chips (Risk, Quant, Compliance, Audit, Cyber, Legal,
- *     Front Office) — multi-select AND, counts narrow with the current
+ *     Front Office) — multi-select OR, counts narrow with the current
  *     country / sub-specialism filter
  *   - conditional sub-specialism chip row — only shown when ≥1 category
  *     chip is active
@@ -122,7 +122,7 @@ export default function StatsSection({
               key={cat}
               className="p-3 rounded-lg text-center cursor-pointer"
               onClick={() => {
-                // Multi-select AND toggle. Clearing sub-filters on any category change
+                // Multi-select OR toggle. Clearing sub-filters on any category change
                 // avoids stale sub chips that no longer belong to the selected set.
                 setFilters((prev) => prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]);
                 setSubFilters([]);
@@ -142,11 +142,13 @@ export default function StatsSection({
         })}
       </div>
       {/* Sub-specialism chips: shown when at least one category chip is selected. Flat
-          mixed row, each chip coloured by its parent category. Multi-select AND. */}
+          mixed row, each chip coloured by its parent category. Multi-select OR. */}
       {filters.length > 0 && (() => {
         const options: { sub: string; cat: string; count: number }[] = [];
         const seen = new Set<string>();
-        const poolSources = sources.filter((s) => filters.every((c) => (getCats(s)[c] || 0) > 0));
+        // Sub-chip pool follows the card grid's OR semantics: a source contributes
+        // its subs if it has leads in ANY selected category.
+        const poolSources = sources.filter((s) => filters.some((c) => (getCats(s)[c] || 0) > 0));
         for (const s of poolSources) {
           const subs = s.sub_specialisms || {};
           for (const cat of filters) {

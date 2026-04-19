@@ -37,8 +37,8 @@ export default function SourcesPage() {
   const [companyName, setCompanyName] = useState("");
   const [addState, setAddState] = useState<"idle" | "detecting" | "detected" | "error" | "added">("idle");
   const [addError, setAddError] = useState("");
-  const [filters, setFilters] = useState<string[]>([]);      // multi-select AND: category chips
-  const [subFilters, setSubFilters] = useState<string[]>([]); // multi-select AND: sub-specialism chips
+  const [filters, setFilters] = useState<string[]>([]);      // multi-select OR: category chips
+  const [subFilters, setSubFilters] = useState<string[]>([]); // multi-select OR: sub-specialism chips
   const [addedSourceId, setAddedSourceId] = useState<number | null>(null);
   const [expandedSource, setExpandedSource] = useState<number | null>(null);
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
@@ -290,6 +290,16 @@ export default function SourcesPage() {
     setDisplayLimit(PAGE_SIZE);
   }, [sourceView, companySearch, countryFilter, employmentTypeFilter, adapterFilter, aggregatorFilter, filters, subFilters]);
 
+  // Sub-chip changes invalidate the per-card job cache: the server now
+  // filters by sub_specialism so rows cached under a different sub set
+  // don't match any new selection. Also close any open drawer so the
+  // user sees a fresh fetch when they re-expand.
+  useEffect(() => {
+    setSourceJobs({});
+    setExpandedSource(null);
+    setExpandedCategory(null);
+  }, [subFilters]);
+
   const handleScrapeSource = (sourceId: number) => {
     queueScrape(sourceId);
   };
@@ -306,7 +316,6 @@ export default function SourcesPage() {
   };
 
   const handleToggleJobs = async (sourceId: number, category?: string, companyName?: string) => {
-    const key = category ? `${sourceId}_${category}` : `${sourceId}`;
     if (expandedSource === sourceId && expandedCategory === (category || null)) {
       setExpandedSource(null);
       setExpandedCategory(null);
@@ -314,11 +323,18 @@ export default function SourcesPage() {
     }
     setExpandedSource(sourceId);
     setExpandedCategory(category || null);
-    const jobKey = countryFilter ? `${key}_${countryFilter}` : key;
+    // Cache key includes every filter that changes the server's response
+    // — category, country, and the sub-specialism chip set — so toggling
+    // sub chips doesn't serve rows cached under a different selection.
+    const subKey = subFilters.length > 0 ? [...subFilters].sort().join("|") : "";
+    const jobKey = [String(sourceId), category || "", countryFilter, subKey].filter(Boolean).join("_");
     if (!sourceJobs[jobKey]) {
       const params = new URLSearchParams();
       if (category) params.set("category", category);
       if (countryFilter) params.set("country", countryFilter);
+      // Server-side sub filter keeps the drawer row list in lockstep with
+      // the card pill count — both computed against the same routing snapshot.
+      for (const sub of subFilters) params.append("sub_specialism", sub);
       // For aggregator cards (negative ID), search by company name
       if (sourceId < 0 && companyName) params.set("company", companyName);
       const qs = params.toString();
@@ -352,7 +368,7 @@ export default function SourcesPage() {
   // Effective category count for a source, narrowed by any active sub-specialism
   // filter. When no sub chips are selected this is just the raw category count.
   // When sub chips ARE selected, we sum only the matching sub counts within that
-  // category — so the number displayed always agrees with what the AND filter
+  // category — so the number displayed always agrees with what the filter
   // would actually surface.
   const effCatCount = (s: Source, cat: string): number => {
     const base = getCats(s)[cat] || 0;
@@ -400,13 +416,13 @@ export default function SourcesPage() {
     // Default ("With Leads"): any card with at least one classified lead,
     // regardless of whether it came from a direct adapter or an aggregator.
     if (filters.length === 0) return scored > 0;
-    // AND across selected category chips: source must have leads in every selected category
-    if (!filters.every((c) => (cats[c] || 0) > 0)) return false;
-    // AND across selected sub-specialism chips: each selected sub must exist in at least one of
-    // the selected categories on this source.
+    // OR across selected category chips: source qualifies if it has leads in ANY selected category.
+    if (!filters.some((c) => (cats[c] || 0) > 0)) return false;
+    // OR across selected sub-specialism chips: at least one (selected cat, selected sub)
+    // pair must exist on this source.
     if (subFilters.length > 0) {
       const subs = s.sub_specialisms || {};
-      return subFilters.every((sub) => filters.some((c) => (subs[c]?.[sub] || 0) > 0));
+      return filters.some((c) => subFilters.some((sub) => (subs[c]?.[sub] || 0) > 0));
     }
     return true;
   });
@@ -651,7 +667,7 @@ export default function SourcesPage() {
           <div className="flex items-center gap-2 mb-4">
             <div className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>
               {filters.length > 0
-                ? `Showing sources with ${filters.join(" AND ")}${subFilters.length > 0 ? ` · ${subFilters.join(" AND ")}` : ""} leads`
+                ? `Showing sources with ${filters.join(" OR ")}${subFilters.length > 0 ? ` · ${subFilters.join(" OR ")}` : ""} leads`
                 : "All sources"}
             </div>
             {(filters.length > 0 || subFilters.length > 0) && (

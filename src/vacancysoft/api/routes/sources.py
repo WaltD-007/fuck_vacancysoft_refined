@@ -21,7 +21,7 @@ import hashlib
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
@@ -107,6 +107,7 @@ def get_source_jobs(
     category: str | None = None,
     company: str | None = None,
     country: str | None = None,
+    sub_specialism: list[str] | None = Query(None),
 ):
     """Return the exact deduped lead set shown on one card.
 
@@ -183,11 +184,21 @@ def get_source_jobs(
             q = q.where(ClassificationResult.primary_taxonomy_key == cat_key_filter)
         rows = s.execute(q.order_by(ScoreResult.export_eligibility_score.desc().nullslast())).all()
 
+    # OR across sub_specialism filter values — matches the chip semantics on
+    # the Sources page. Computed here (not at the DB) because sub_specialism
+    # isn't a column; it's derived from the title via map_sub_specialism
+    # against the same routing snapshot the card counts used.
+    sub_allowed: set[str] | None = (
+        {s for s in sub_specialism if s} if sub_specialism else None
+    )
+
     result: list[ScoredJobOut] = []
     for r in rows:
         title = r[1] or ""
         cat_label = map_category(r[4], routing)
         sub_spec = map_sub_specialism(title, cat_label, routing)
+        if sub_allowed is not None and sub_spec not in sub_allowed:
+            continue
         result.append(ScoredJobOut(
             title=title,
             company=target["employer_display"],
