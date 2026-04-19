@@ -234,7 +234,7 @@ Priority scores use a 1–5 scale:
 | 10 | Fold the filter-label / "Clear filter" block into `StatsSection` | **P5** | 10 min | open |
 | 11 | Delete `_addcompany_count_jobs` if confirmed unused | **P5** | 5 min | open |
 | 12 | Composite index on `SourceRun(source_id, created_at)` if hotspot | **P5** | 15 min (conditional) | open |
-| 13 | Investigate DeepSeek for dossier + campaign properly | **P4** | 4–6 h | open |
+| 13 | Investigate DeepSeek for dossier + campaign properly | **P5** | 4–6 h | open (deprioritised — two runs confirmed DeepSeek can't match OpenAI here) |
 | 14 | Investigate why HM search returned zero hiring_managers | **P3** | 1–2 h | open |
 
 ---
@@ -385,7 +385,31 @@ No deploy step, no Playwright install (keeps it under 60 s). Matrix can stay Pyt
 
 ---
 
-### Ticket 13 — Investigate DeepSeek for dossier + campaign properly [P4]
+### Ticket 13 — Investigate DeepSeek for dossier + campaign properly [P4 → P5, deprioritised]
+
+**Update 2026-04-19 (post second test run):** the step-1 hypothesis from this
+ticket (swap campaign primary from `deepseek-reasoner` to `deepseek-chat`,
+reduce campaign scope to 1 sequence × 2 tones) was tested. Output quality
+was **worse, not better**. User flipped back to OpenAI immediately and
+restored the full-scope prompt (commits after `ea5bd8b`).
+
+Two runs, two different configs, same verdict: DeepSeek does not match
+OpenAI quality on this pipeline. Likely NOT a config or prompt issue —
+more likely DeepSeek's training data + lack of web search produce
+categorically less useful content for UK recruitment-finance outreach,
+regardless of which model or how tight the budget is.
+
+Deprioritising from P4 to P5. The provider abstraction is still in
+place and dormant (zero cost); re-engage only if a compelling reason
+lands (e.g. DeepSeek ships web-search support, or costs become
+load-bearing). Steps 3 (parallelise campaign into 5 sub-calls) and 4
+(rewrite prompts for DeepSeek-reasoner's style) from below are still
+theoretically worth trying, but evidence from two runs suggests they
+won't close the gap.
+
+---
+
+### Ticket 13 — (original body, preserved) Investigate DeepSeek for dossier + campaign properly
 
 **Context**: during the 2026-04-19 session we wired DeepSeek in behind the `use_deepseek_for_*` toggles in `configs/app.toml`, ran ~10 real leads through `deepseek-reasoner`, and reverted. Outputs were noticeably weaker than the OpenAI path. This ticket captures what we saw so a second attempt starts from evidence rather than starting over.
 

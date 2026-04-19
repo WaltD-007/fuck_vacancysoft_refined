@@ -85,21 +85,14 @@ hm_search_context_size = "high"
 #
 # Both toggles default to false so current behaviour is unchanged
 # until you explicitly opt in.
-use_deepseek_for_dossier = true
-use_deepseek_for_campaign = true
+use_deepseek_for_dossier = false
+use_deepseek_for_campaign = false
 
 # Models used when the corresponding toggle is true.
 # deepseek-reasoner == R1 (highest-performance reasoning model).
 # deepseek-chat     == V3 (non-reasoning; faster, cheaper, better
 #                          tuned for creative writing).
 #
-# Campaign primary: swapped to deepseek-chat per ticket 13 step 1.
-# Reasoner was burning 60-80% of max_tokens on hidden chain-of-thought,
-# leaving only ~200 tokens per email in the 30-email JSON blob. chat
-# V3 has no reasoning step so its full budget goes to visible output,
-# and creative-writing tasks don't benefit from reasoning scaffolding
-# anyway. Revert to "deepseek-reasoner" if ticket 13 re-test shows
-# chat V3 is worse, not better.
 dossier_model_deepseek = "deepseek-reasoner"
-campaign_model_deepseek = "deepseek-chat"
+campaign_model_deepseek = "deepseek-reasoner"
 campaign_fallback_model_deepseek = "deepseek-chat"
