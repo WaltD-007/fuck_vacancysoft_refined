@@ -1,5 +1,56 @@
 # Deferred work
 
+## Ticket — Dedupe `_extract_employer_from_payload`
+
+**Goal**: get rid of the duplicate aggregator-employer extractor so adding
+a new aggregator (or fixing one) only needs a single edit.
+
+### What's wrong
+
+There are two implementations of `_extract_employer_from_payload`:
+
+| Location | Coverage |
+|---|---|
+| [`src/vacancysoft/pipelines/enrichment_persistence.py:40`](src/vacancysoft/pipelines/enrichment_persistence.py:40) | **Comprehensive** — knows Adzuna `company.display_name`, Reed `employerName`, Google Jobs `company_name`, eFinancialCareers `companyName` / `advertiserName` / `employer.name`, and a generic string-`company` fallback |
+| [`src/vacancysoft/api/server.py:522`](src/vacancysoft/api/server.py:522) | **Leaner** — only knows `company.display_name`, `employer_name`, `employerName` (just added), `companyName`, `company_name` |
+
+These have already drifted twice. Most recently the API version was
+missing Reed's `employerName`, which silently dropped 726 classified
+Reed leads from `/api/sources` because they had no extractable
+employer → no card to land on → no chip. Fixed in commit 6401fbb
+by adding one line to the API copy. Without dedupe, the next new
+aggregator will hit the same problem.
+
+### The fix
+
+1. Make the enrichment version the single source of truth — it's
+   already the more thorough one and is import-safe (no DB session
+   needed for the function itself, just imports `dict | None`).
+2. Move it to a neutral location, e.g.
+   `src/vacancysoft/intelligence/payload_extract.py` or
+   `src/vacancysoft/utils/aggregator_payloads.py`, so neither
+   `enrichment_persistence` nor `api/server` "owns" it.
+3. Replace both call sites with imports from the new location.
+4. Delete the duplicate.
+5. Verify: `grep -rn '_extract_employer_from_payload' src/` should
+   show definitions only in the new module, with imports everywhere
+   else.
+
+### Estimated effort
+
+~15 minutes plus a smoke test that one Reed source card and one
+Adzuna source card still surface employers correctly via
+`/api/sources`. No schema or migration work.
+
+### Out of scope
+
+- Adding new aggregators (do that as separate work, but they only
+  edit the new shared module).
+- Refactoring the broader API/enrichment split (this is a focused
+  dedup, not an architectural reshuffle).
+
+---
+
 ## Ticket — Per-user campaign-voice learning (few-shot, not fine-tuning)
 
 **Goal**: when a user edits a generated campaign email, store the edit and use
