@@ -20,8 +20,8 @@ from vacancysoft.db.models import (
     RawJob,
     Source,
 )
-from vacancysoft.intelligence.client import call_chat
 from vacancysoft.intelligence.prompts.resolver import resolve_campaign_prompt
+from vacancysoft.intelligence.providers import LLMProvider, call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -88,10 +88,24 @@ async def generate_campaign(
     messages = resolve_campaign_prompt(dossier.category_used, job_data, dossier_sections)
     config = _load_intel_config()
 
-    primary_model = config.get("campaign_model", "gpt-4o")
-    fallback_model = config.get("campaign_fallback_model", "gpt-4o")
+    # Provider toggle: set use_deepseek_for_campaign=true in configs/app.toml
+    # to route both the primary campaign call and its fallback through
+    # DeepSeek. The fallback kicks in if the reasoner returns empty content
+    # (either provider's reasoner can burn the full max_tokens budget on
+    # internal reasoning), and uses a non-reasoning model in the same
+    # provider family so it can't hit the same trap.
+    use_deepseek_campaign = bool(config.get("use_deepseek_for_campaign", False))
+    if use_deepseek_campaign:
+        campaign_provider = LLMProvider.DEEPSEEK
+        primary_model = config.get("campaign_model_deepseek", "deepseek-reasoner")
+        fallback_model = config.get("campaign_fallback_model_deepseek", "deepseek-chat")
+    else:
+        campaign_provider = LLMProvider.OPENAI
+        primary_model = config.get("campaign_model", "gpt-4o")
+        fallback_model = config.get("campaign_fallback_model", "gpt-4o")
 
-    result = await call_chat(
+    result = await call_llm(
+        provider=campaign_provider,
         model=primary_model,
         messages=messages,
         temperature=config.get("temperature", 0.4),
@@ -114,7 +128,8 @@ async def generate_campaign(
             primary_model, result["tokens_total"], result["tokens_completion"],
             fallback_model,
         )
-        result = await call_chat(
+        result = await call_llm(
+            provider=campaign_provider,
             model=fallback_model,
             messages=messages,
             temperature=config.get("temperature", 0.4),

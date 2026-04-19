@@ -62,3 +62,28 @@ hm_search_reasoning_effort = "medium"
 # upgrade is accuracy on real-person identification, which benefits
 # from broad web context. Small payload so cost stays bounded.
 hm_search_context_size = "high"
+
+# ── Provider selection ──
+# Flip these to route dossier / campaign calls to DeepSeek instead of
+# OpenAI. Hiring-manager search is hard-wired to OpenAI in dossier.py
+# (handles named real people; moving it is a policy decision, not a
+# config flip). Full discussion: docs/intelligence-providers.md.
+#
+# Caveats when a toggle is set to true:
+#  - web_search is silently dropped (DeepSeek has no web-search tool).
+#    For dossier specifically, this means the main call answers from
+#    training data only — less depth on company background.
+#  - reasoning_effort is silently ignored (DeepSeek uses a fixed
+#    internal reasoning budget).
+#
+# Both toggles default to false so current behaviour is unchanged
+# until you explicitly opt in.
+use_deepseek_for_dossier = false
+use_deepseek_for_campaign = false
+
+# Models used when the corresponding toggle is true.
+# deepseek-reasoner == R1 (highest-performance reasoning model).
+# deepseek-chat     == V3 (non-reasoning; campaign-side fallback).
+dossier_model_deepseek = "deepseek-reasoner"
+campaign_model_deepseek = "deepseek-reasoner"
+campaign_fallback_model_deepseek = "deepseek-chat"

@@ -24,9 +24,9 @@ from vacancysoft.db.models import (
     RawJob,
     Source,
 )
-from vacancysoft.intelligence.client import call_chat
 from vacancysoft.intelligence.prompts.category_blocks import CATEGORY_BLOCKS, DEFAULT_CATEGORY
 from vacancysoft.intelligence.prompts.resolver import resolve_dossier_prompt
+from vacancysoft.intelligence.providers import LLMProvider, call_llm
 
 logger = logging.getLogger(__name__)
 
@@ -168,15 +168,22 @@ async def generate_dossier(
 
     messages = resolve_dossier_prompt(category, job_data)
     config = _load_intel_config()
-    model = config.get("dossier_model", "gpt-4o")
 
-    # Call 1: Main dossier (sections 1-7) with web search for context.
-    # Uses the deeper reasoning model (configurable via dossier_model) and
-    # respects dossier_reasoning_effort (default "medium") so the operator
-    # can dial it down without changing models. dossier_search_context_size
-    # (default "low") caps the web-search tokens pulled in — the dominant
-    # cost driver on this call when running on gpt-5-mini.
-    result = await call_chat(
+    # Call 1: Main dossier (sections 1-7) with web search for context
+    # (OpenAI only — DeepSeek has no web-search tool). Provider toggle:
+    # set use_deepseek_for_dossier=true in configs/app.toml to route
+    # this call to DeepSeek's reasoner model. Web search will be
+    # silently dropped by the provider layer in that case; see
+    # docs/intelligence-providers.md for the trade-off.
+    use_deepseek_dossier = bool(config.get("use_deepseek_for_dossier", False))
+    if use_deepseek_dossier:
+        dossier_provider = LLMProvider.DEEPSEEK
+        model = config.get("dossier_model_deepseek", "deepseek-reasoner")
+    else:
+        dossier_provider = LLMProvider.OPENAI
+        model = config.get("dossier_model", "gpt-4o")
+    result = await call_llm(
+        provider=dossier_provider,
         model=model,
         messages=messages,
         temperature=config.get("temperature", 0.4),
@@ -188,14 +195,15 @@ async def generate_dossier(
     )
     parsed = result["parsed"]
 
-    # Call 2: Focused hiring manager search. This is structured web search,
-    # not analysis — so it uses a cheaper model (default gpt-4o) by default
-    # and "low" reasoning effort if the operator overrides to a reasoning
-    # model. Saves the bulk of the per-dossier cost without affecting the
-    # quality of the analytical sections that consumers actually read.
+    # Call 2: Focused hiring-manager search. Hard-wired to OPENAI — this
+    # call handles named individuals (real people from LinkedIn) and the
+    # privacy policy is that personal data stays on OpenAI only. If you
+    # ever want to move this, do it in a reviewed change, not by flipping
+    # a config toggle.
     hm_model = config.get("hm_search_model", "gpt-4o")
     hm_messages = _build_hm_prompt(job_data, category)
-    hm_result = await call_chat(
+    hm_result = await call_llm(
+        provider=LLMProvider.OPENAI,
         model=hm_model,
         messages=hm_messages,
         temperature=0.2,

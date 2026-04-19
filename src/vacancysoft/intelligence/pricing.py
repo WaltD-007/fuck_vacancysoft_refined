@@ -1,8 +1,13 @@
-"""OpenAI pricing tables for cost calculation.
+"""LLM pricing tables for cost calculation.
 
-Public list pricing as of 2026-Q2. Update when OpenAI changes prices or
-when your contracted tier rates differ. Costs computed here are estimates
-— actual billed amounts can differ if you're on a custom enterprise tier.
+Public list pricing as of 2026-Q2. Update when providers change
+prices or when your contracted tier rates differ. Costs computed
+here are estimates — actual billed amounts can differ if you're on
+a custom enterprise tier.
+
+Covers both OpenAI and DeepSeek models. Model-name prefix matching
+(see ``_resolve_rates``) disambiguates families so entries can be
+listed in one table without collisions.
 """
 
 from __future__ import annotations
@@ -30,6 +35,12 @@ PRICING: dict[str, tuple[float, float]] = {
     "o3":          (15.00, 60.00),
     "o3-mini":     ( 3.00, 12.00),
     "o4-mini":     ( 3.00, 12.00),
+    # DeepSeek family — standard-rate prices (cache-miss input).
+    # DeepSeek offers ~50% off during their designated off-peak window;
+    # compute_cost() does not currently model off-peak discounts.
+    # Verify at https://api-docs.deepseek.com/quick_start/pricing
+    "deepseek-reasoner": (0.55, 2.19),  # R1 — reasoning model, used when use_deepseek_for_* is on
+    "deepseek-chat":     (0.27, 1.10),  # V3 — general chat, used as the DeepSeek-side campaign fallback
 }
 
 # Used when no PRICING key matches. Errs on the conservative (high) side
@@ -56,7 +67,10 @@ def _resolve_rates(model: str) -> tuple[float, float]:
 
 
 def compute_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
-    """Return estimated USD cost for a single OpenAI call.
+    """Return estimated USD cost for a single LLM call.
+
+    Works for both OpenAI and DeepSeek model IDs — ``_resolve_rates``
+    looks them up in the same shared ``PRICING`` table.
 
     Cost is rounded to 6 decimal places (i.e. micro-dollars) so even
     cheap calls produce a non-zero figure that aggregates correctly.
