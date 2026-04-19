@@ -2,59 +2,18 @@
 
 import { useEffect, useState } from "react";
 import Sidebar from "../components/Sidebar";
+import {
+  AGGREGATOR_LABELS,
+  CATEGORY_COLORS,
+  type AddCompanyCandidate,
+  type DetectResult,
+  type ScoredJob,
+  type Source,
+  type Stats,
+  type SourceView,
+} from "./types";
 
 const API = "http://localhost:8000/api";
-
-type Source = {
-  id: number;
-  employer_name: string;
-  adapter_name: string;
-  base_url: string;
-  active: boolean;
-  seed_type: string;
-  ats_family: string | null;
-  jobs: number;
-  enriched: number;
-  scored: number;
-  categories: Record<string, number>;
-  categories_by_country: Record<string, Record<string, number>>;
-  sub_specialisms?: Record<string, Record<string, number>>;
-  aggregator_hits?: Record<string, number>;
-  employment_types?: Record<string, number>;
-  last_run_status: string | null;
-  last_run_error: string | null;
-};
-
-type Stats = {
-  total_sources: number;
-  active_sources: number;
-  total_jobs: number;
-  total_enriched: number;
-  total_scored: number;
-  adapters: Record<string, number>;
-  categories: Record<string, number>;
-};
-
-type ScoredJob = {
-  title: string;
-  company: string;
-  location: string | null;
-  country: string | null;
-  category: string | null;
-  sub_specialism: string | null;
-  score: number | null;
-  url: string | null;
-};
-
-type DetectResult = {
-  adapter: string;
-  slug: string | null;
-  url: string;
-  company_guess: string;
-  reachable: boolean;
-  job_count: number | null;
-  error: string | null;
-};
 
 export default function SourcesPage() {
   const [sources, setSources] = useState<Source[]>([]);
@@ -98,13 +57,6 @@ export default function SourcesPage() {
   const [showAddCompany, setShowAddCompany] = useState(false);
   const [addCompanyName, setAddCompanyName] = useState("");
   const [addCompanyState, setAddCompanyState] = useState<"idle" | "searching" | "confirming" | "scraping" | "done" | "error">("idle");
-  type AddCompanyCandidate = {
-    employer_name: string;
-    jobs_count: number;
-    sample_title: string | null;
-    sample_location: string | null;
-    already_in_db: boolean;
-  };
   const [addCompanyResult, setAddCompanyResult] = useState<{
     status: string;
     jobs_found: number;
@@ -118,7 +70,7 @@ export default function SourcesPage() {
   const [addCompanyError, setAddCompanyError] = useState("");
   // `highlightSourceId` pins a newly-added card to the top of the Sources list until the user interacts elsewhere.
   const [highlightSourceId, setHighlightSourceId] = useState<number | null>(null);
-  const [sourceView, setSourceView] = useState<"leads" | "no_jobs" | "not_relevant" | "broken" | "all">("leads");
+  const [sourceView, setSourceView] = useState<SourceView>("leads");
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
   const [iframeTitle, setIframeTitle] = useState("");
 
@@ -541,13 +493,6 @@ export default function SourcesPage() {
   const sortedAdapters = Object.entries(adapterCounts).sort((a, b) => b[1] - a[1]);
 
   // Aggregator chip counts — per-aggregator card count + job count across the current view
-  const AGGREGATOR_LABELS: Record<string, string> = {
-    adzuna: "Adzuna",
-    reed: "Reed",
-    efinancialcareers: "eFinancialCareers",
-    google_jobs: "Google Jobs",
-    coresignal: "Coresignal",
-  };
   const aggregatorCardCounts: Record<string, number> = {};
   const aggregatorJobCounts: Record<string, number> = {};
   viewFiltered.forEach((s) => {
@@ -576,15 +521,7 @@ export default function SourcesPage() {
       ? [pinnedOrRecent, ...filtered.filter((s) => s.id !== pinnedOrRecent.id)]
       : filtered;
 
-  const categoryColors: Record<string, string> = {
-    Risk: "var(--accent-light)",
-    Quant: "var(--blue)",
-    Compliance: "var(--green)",
-    Audit: "var(--amber)",
-    Cyber: "var(--red)",
-    Legal: "#fd79a8",
-    "Front Office": "#ffa500",
-  };
+  const categoryColors = CATEGORY_COLORS;
 
   return (
     <div className="min-h-screen" style={{ background: "var(--bg-primary)" }}>
