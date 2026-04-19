@@ -212,3 +212,171 @@ This ticket can't start until the multi-user system exists (`users` table,
 authentication, session/identity threaded through API requests). Reference
 the existing memory note in `~/.claude/projects/.../MEMORY.md`:
 "multi-user planned for later".
+
+---
+
+## Follow-ups flagged during the 2026-04-19 refactor session
+
+Priority scores use a 1–5 scale:
+**P1** = urgent / blocking · **P2** = high · **P3** = medium · **P4** = low · **P5** = trivial / cosmetic.
+
+| # | Ticket | Priority | Effort |
+|---|---|---|---|
+| 1 | Add minimal CI (GitHub Actions) | **P2** | 1 h |
+| 2 | Shared `_canonical_employer_norm()` helper | **P3** | 30 min |
+| 3 | Worker-side cache invalidation after `scrape_source` | **P3** | 20 min |
+| 4 | Migrate `@app.on_event` startup/shutdown to `lifespan` | **P3** | 1 h |
+| 5 | Kill legacy `models_v2.py` naming; decide on `db/repositories/` | **P3** | 1 h |
+| 6 | Fix or xfail `test_classification.py::test_relevant[Pricing Actuary]` | **P4** | 15 min |
+| 7 | Promote sources-page derived helpers into `web/src/app/sources/utils.ts` | **P4** | 20 min |
+| 8 | Add `response_model=` to the 9 dict-returning handlers | **P4** | 45 min |
+| 9 | Per-company aggregator probe for stronger "No Jobs Found" signal | **P4** | 2–3 h |
+| 10 | Fold the filter-label / "Clear filter" block into `StatsSection` | **P5** | 10 min |
+| 11 | Delete `_addcompany_count_jobs` if confirmed unused | **P5** | 5 min |
+| 12 | Composite index on `SourceRun(source_id, created_at)` if hotspot | **P5** | 15 min (conditional) |
+
+---
+
+### Ticket 1 — Add minimal CI (GitHub Actions) [P2]
+
+**Goal**: prevent silent regressions from landing on `chatgpt/adapter-updates` or `main` — one broken commit is currently all it takes.
+
+**What**: add `.github/workflows/ci.yml` that on push / PR runs, in order:
+- `pip install -e ".[dev]"`
+- `pytest`
+- `ruff check src tests`
+- `cd web && npm ci && npx tsc --noEmit`
+
+No deploy step, no Playwright install (keeps it under 60 s). Matrix can stay Python 3.12 only for now. Don't block on the pre-existing `Pricing Actuary` failure — see Ticket 6.
+
+**Why P2**: everything else in this list is cleanup. CI is the one that catches the problems that would otherwise need cleanup tickets next quarter.
+
+---
+
+### Ticket 2 — Shared `_canonical_employer_norm()` helper [P3]
+
+**Goal**: unify employer-name normalisation across the three sites that currently each do their own `.lower().strip()`, so employers with suffix mismatches (e.g. "Acme Inc." vs "Acme Inc") stop silently mis-bucketing on the Sources page.
+
+**Call sites today**:
+- [src/vacancysoft/api/ledger.py:530](src/vacancysoft/api/ledger.py:530) (aggregator side in `_build_source_card_ledger`)
+- [src/vacancysoft/api/ledger.py:605](src/vacancysoft/api/ledger.py:605) (`direct_by_emp` key)
+- [src/vacancysoft/api/ledger.py:726](src/vacancysoft/api/ledger.py:726) (aggregator `agg_matched_norms` in the injection pass)
+
+**Minimum viable**: new `_canonical_employer_norm(name: str) -> str` in `api/ledger.py` (or a sibling `utils.py`). v1 still does just `.lower().strip()` — the extraction is the win. v2 can add trailing `Inc./Ltd./Plc/GmbH/…` stripping, ampersand↔"and" folding, NBSP collapsing, etc. — applied everywhere atomically.
+
+**Why P3**: a real but low-volume bug; the three-site drift is the thing that makes it insidious.
+
+---
+
+### Ticket 3 — Worker-side cache invalidation after `scrape_source` [P3]
+
+**Goal**: when the ARQ worker (`src/vacancysoft/worker/tasks.py`) finishes a scrape, the next `/api/sources` request should rebuild the ledger, not wait up to 30 s for the `_SOURCES_CACHE_TTL` to expire.
+
+**What**: after each successful `scrape_source` completion in `worker/tasks.py`, call `clear_ledger_caches()` (already public in [src/vacancysoft/api/ledger.py:47](src/vacancysoft/api/ledger.py:47)). Caveat: the worker is a separate process — if the caches are in-process dicts, the worker calling `clear_ledger_caches()` clears *its* empty dicts, not the API server's. Real fix requires a shared signal: either (a) move caches to Redis, (b) have the worker send an HTTP POST to `/api/internal/invalidate-cache`, or (c) accept the 30 s TTL as good enough.
+
+**Why P3**: operational nicety; 30 s staleness is tolerable but users notice the "I just scraped — where is it?" gap. Stop short of option (a) unless Redis becomes mandatory anyway.
+
+---
+
+### Ticket 4 — Migrate `@app.on_event` → `lifespan` [P3]
+
+**Goal**: remove the FastAPI deprecation warning that `_startup` / `_shutdown` emit on every request and every pytest run (counted 55 during `pytest`).
+
+**What**: in [src/vacancysoft/api/server.py](src/vacancysoft/api/server.py), replace the two `@app.on_event` blocks with an `@asynccontextmanager` `lifespan(app)` function passed to `FastAPI(lifespan=lifespan)`. The startup side already does real DB work (re-enqueueing orphaned leads) — the migration is not purely mechanical, so write a short pytest that exercises the lifespan context before landing.
+
+**Why P3**: deprecation-only for now; `on_event` still works. Landing before FastAPI removes it is cheap insurance.
+
+---
+
+### Ticket 5 — Kill legacy `models_v2.py` naming + decide on `db/repositories/` [P3]
+
+**Goal**: drop the "v2" suffix that implies a "v1" that no longer exists; decide whether the 5 near-empty repository stubs stay or go.
+
+**What**:
+1. Rename [src/vacancysoft/db/models_v2.py](src/vacancysoft/db/models_v2.py) → `models.py` (currently a 31-line re-export shim). Every import `from vacancysoft.db.models import …` already uses the shim, so the rename is a `git mv` + delete-the-shim + sed across imports.
+2. [src/vacancysoft/db/repositories/](src/vacancysoft/db/repositories/) has 5 files totalling <60 lines, all near-empty stubs. Either flesh them out (become the canonical CRUD entry points) or delete and inline. Dead weight as-is.
+
+**Why P3**: new-engineer onboarding hazard. Not urgent; becomes urgent the first time someone actually tries to find "v1" and wastes an hour.
+
+---
+
+### Ticket 6 — Fix or xfail `test_classification.py::test_relevant[Pricing Actuary]` [P4]
+
+**Symptom**: pytest has shown 1 failing / 359 passing for every run this session. The test expects "Pricing Actuary" to be rated relevant, but the blocklist comment at [tests/test_classification.py:45-46](tests/test_classification.py:45) explicitly notes actuarial roles are blocklisted. So the test disagrees with the codebase, or the codebase disagrees with the test — one needs to change.
+
+**What**: either
+- flip the test to assert the title is *not* relevant (if the blocklist is the correct intent), or
+- remove "Pricing Actuary" from the blocklist (if the test is correct and the blocklist is too aggressive), or
+- mark it `@pytest.mark.xfail` with a reason pointing at whichever decision.
+
+**Why P4**: pre-existing and unrelated to everything we touched this session, but a red test on every CI run (once Ticket 1 lands) is noise that teaches people to ignore the failure column.
+
+---
+
+### Ticket 7 — Promote sources-page derived helpers into `web/src/app/sources/utils.ts` [P4]
+
+**Goal**: move the five closures that still live inline in `SourcesPage()` into a sibling module so both `SourceCard` and `StatsSection` can import them directly instead of receiving them as function props.
+
+**Helpers to move**: `isBroken(s)`, `getCats(s)`, `getScored(s)`, `effCatCount(s, cat)`, `effScored(s)`. Call sites today (post-Week-3):
+- defined in [web/src/app/sources/page.tsx:326-358](web/src/app/sources/page.tsx:326)
+- passed as props into `SourceCard` ([page.tsx:677-679](web/src/app/sources/page.tsx:677))
+- passed as props into `StatsSection` ([page.tsx:619-621](web/src/app/sources/page.tsx:619))
+
+**Shape**: the helpers close over `countryFilter`, `filters`, and `subFilters`. A clean extraction takes those as explicit parameters — e.g. `getCats(source, countryFilter)`, `effCatCount(source, cat, subFilters)`. Drop the prop-passing in both components.
+
+**Why P4**: cleanup, zero functional change. Mostly removes noise from the `<SourceCard ... />` prop list.
+
+---
+
+### Ticket 8 — Add `response_model=` to dict-returning handlers [P4]
+
+**Goal**: every endpoint in the OpenAPI schema should have a declared response shape so the generated docs are useful.
+
+**Handlers lacking `response_model`** (9 total):
+- [routes/leads.py](src/vacancysoft/api/routes/leads.py): `get_dashboard`, `queue_campaign`, `list_queue`, `send_to_campaign`, `remove_from_queue`
+- [routes/sources.py](src/vacancysoft/api/routes/sources.py): `scrape_source_endpoint`, `diagnose_source`, `delete_source`
+- [routes/campaigns.py](src/vacancysoft/api/routes/campaigns.py): `generate_lead_dossier`, `get_lead_dossier`, `generate_lead_campaign` (correction: 10 not 9 — re-count before implementing)
+
+**What**: define Pydantic models for each return shape in [api/schemas.py](src/vacancysoft/api/schemas.py), wire them in with `@router.post("/...", response_model=…)`. Purely additive — no wire-format change.
+
+**Why P4**: internal API; schema coverage improves discoverability and catches shape regressions.
+
+---
+
+### Ticket 9 — Per-company aggregator probe for stronger "No Jobs Found" signal [P4]
+
+**Goal**: upgrade the "genuine empty" signal in the card ledger ([api/ledger.py:663-774](src/vacancysoft/api/ledger.py:663)) from inferred ("aggregator ran recently and didn't mention this employer") to observed ("we asked Adzuna specifically for this employer's jobs in the last 24 h and got zero").
+
+**What**: add an adapter method like `AdzunaAdapter.count_by_employer(name, since)` that hits Adzuna's `?what_and=&company=` (or equivalent per-aggregator) endpoint. Call it on-demand from the injection pass when cross-checking. Cache per (employer, adapter, window) for the TTL.
+
+**Why P4**: improves the fidelity of a bucket that's already working acceptably. Not critical, but fixes the "Acme Inc." suffix-mismatch false-positive cleanly (the probe bypasses the normalisation issue entirely). Conditional on aggregator APIs supporting per-company queries — Adzuna and Reed do; Coresignal's credit cost would need weighing.
+
+---
+
+### Ticket 10 — Fold the filter-label / "Clear filter" block into `StatsSection` [P5]
+
+**Goal**: finish what Week 3 step 5 didn't. The filter-label + "Clear filter" button sits inline in [web/src/app/sources/page.tsx](web/src/app/sources/page.tsx) around the current line 760, reading `filters` and `subFilters` that `StatsSection` already owns.
+
+**What**: move the block into `StatsSection.tsx`, delete the inline copy. Passes through the existing `setFilters` / `setSubFilters` props already wired.
+
+**Why P5**: ~10 lines of cosmetic cleanup.
+
+---
+
+### Ticket 11 — Delete `_addcompany_count_jobs` if unused [P5]
+
+**Goal**: remove dead code noted during Week 4 step 5.
+
+**What**: confirm [routes/add_company.py::_addcompany_count_jobs](src/vacancysoft/api/routes/add_company.py) has no remaining call sites (`grep -rn _addcompany_count_jobs src/ tests/`). If truly unused, delete the function and its imports (`load_taxonomy_title_phrases`, `SEARCH_ENDPOINT`).
+
+**Why P5**: trivial.
+
+---
+
+### Ticket 12 — Composite index on `SourceRun(source_id, created_at)` if hot [P5]
+
+**Goal**: speed up the "latest SourceRun per source" grouped query in the ledger's injection pass and the existing step-4 metadata loop — IF profiling shows it matters.
+
+**What**: add an Alembic migration creating `ix_source_runs_source_id_created_at ON source_runs(source_id, created_at DESC)`. Leave `SourceRun.started_at`'s existing index intact. Don't land this speculatively — run `EXPLAIN` on the queries first and confirm a real win.
+
+**Why P5**: conditional / speculative. The ledger is already cached for 30 s so rebuild latency is hit at most twice a minute. Only relevant if an operator complains about first-request latency.
