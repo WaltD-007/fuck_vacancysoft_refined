@@ -208,8 +208,65 @@ Rollback: `git revert <sha-of-step-4>` — restores the five parent
 
 ## Step 5 — `StatsSection`
 
-_Pending._
+The stats header — five clickable bucket tiles + a Qualified Leads
+readout, seven category chips (Risk / Quant / Compliance / Audit /
+Cyber / Legal / Front Office), the conditional sub-specialism chip
+row, the adapter filter chip row, and the aggregator filter chip row
+— moves into `web/src/app/sources/components/StatsSection.tsx`.
+
+Prop surface is the largest of any extracted component because the
+section reads:
+  - precomputed counts (`withLeadsCount`, `noJobsCount`,
+    `notRelevantCount`, `brokenCount`)
+  - the full `sources` array (for running tile reducers)
+  - the derived helpers (`effScored`, `effCatCount`, `getCats`)
+  - every filter set and its setter (category, sub, adapter,
+    aggregator)
+  - the current view + a single `onSelectView(view)` callback that
+    consolidates the four parent-side resets a tile-click does:
+    `setSourceView(view); setAddedSourceId(null);
+     setAdapterFilter(""); setAggregatorFilter("");
+     setHighlightSourceId(null);`
+
+`AGGREGATOR_LABELS` is imported directly inside `StatsSection` from
+`../types`; the parent no longer imports it.
+
+Legacy behaviour preserved: when a category chip is toggled, the
+component calls a new `onFilterChipToggled` prop — the parent wires
+this to `() => setAddedSourceId(null)` so the green "recently added"
+highlight is cleared exactly as before.
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200
+
+Rollback: `git revert <sha-of-step-5>`.
 
 ## Final state
 
-_Pending._
+| File | Lines | Role |
+|---|---|---|
+| `web/src/app/sources/page.tsx` | **724** (was 1,330) | Top-level page — state, fetches, composes the components |
+| `web/src/app/sources/types.ts` | 82 | Shared types + constants (AGGREGATOR_LABELS, CATEGORY_COLORS) |
+| `web/src/app/sources/components/SourceFilters.tsx` | 65 | Company search + country + employment type dropdowns |
+| `web/src/app/sources/components/SourceJobsDrawer.tsx` | 114 | Expanded per-card job list |
+| `web/src/app/sources/components/SourceCard.tsx` | 251 | One employer row (composes `SourceJobsDrawer`) |
+| `web/src/app/sources/components/AddCompanyModal.tsx` | 276 | Coresignal taxonomy-sweep wizard |
+| `web/src/app/sources/components/StatsSection.tsx` | 248 | Bucket tiles + category / sub / adapter / aggregator chips |
+
+`page.tsx` dropped by 606 lines (-45%). Total line count across the
+split is higher than the original due to component prop interfaces and
+boilerplate, but every file is now individually readable.
+
+Deferred for later (not in scope of this week):
+- `isBroken`, `getCats`, `getScored`, `effCatCount`, `effScored` are
+  still closures in `page.tsx`, passed down as function props. When a
+  StatsSection or SourceCard change needs them standalone they can
+  move to `web/src/app/sources/utils.ts`.
+- The filter label + "Clear filter" button (around line 760 of the
+  current `page.tsx`) is still inline. It is logically coupled to the
+  category / sub-specialism chip state that now lives in
+  `StatsSection`; a future step could fold it in.
+
+To revert the entire week's work: `git revert 4f5f73b..HEAD` on the
+chatgpt/adapter-updates branch.

@@ -5,8 +5,8 @@ import Sidebar from "../components/Sidebar";
 import AddCompanyModal from "./components/AddCompanyModal";
 import SourceCard from "./components/SourceCard";
 import SourceFilters from "./components/SourceFilters";
+import StatsSection from "./components/StatsSection";
 import {
-  AGGREGATOR_LABELS,
   CATEGORY_COLORS,
   type DetectResult,
   type ScoredJob,
@@ -588,163 +588,39 @@ export default function SourcesPage() {
             </div>
           )}
 
-          {/* Stats */}
-          {stats && (
-            <div className="mb-5">
-              <div className="grid grid-cols-6 gap-2 mb-4">
-                {[
-                  { key: "leads" as const, label: "With Leads", count: withLeadsCount, color: "var(--green)" },
-                  { key: "no_jobs" as const, label: "No Jobs Found", count: noJobsCount, color: "var(--amber)" },
-                  { key: "not_relevant" as const, label: "Not Relevant", count: notRelevantCount, color: "var(--text-secondary)" },
-                  { key: "broken" as const, label: "Broken", count: brokenCount, color: "var(--red)" },
-                  { key: "all" as const, label: "All Sources", count: withLeadsCount + noJobsCount + notRelevantCount + brokenCount, color: "var(--text-primary)" },
-                ].map((v) => (
-                  <div
-                    key={v.key}
-                    className="px-3 py-3 rounded-lg cursor-pointer"
-                    onClick={() => { setSourceView(v.key); setAddedSourceId(null); setAdapterFilter(""); setAggregatorFilter(""); setHighlightSourceId(null); }}
-                    style={{ background: sourceView === v.key ? "var(--accent-glow)" : "var(--bg-card)", border: `1px solid ${sourceView === v.key ? "rgba(108,92,231,0.3)" : "var(--border-subtle)"}` }}
-                  >
-                    <div className="text-[10px] font-medium uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>{v.label}</div>
-                    <div className="text-xl font-extrabold tracking-tight" style={{ color: v.color }}>{v.count}</div>
-                  </div>
-                ))}
-                <div className="px-3 py-3 rounded-lg" style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}>
-                  <div className="text-[10px] font-medium uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Qualified Leads</div>
-                  <div className="text-xl font-extrabold tracking-tight" style={{ color: "var(--accent-light)" }}>{sources.reduce((sum, s) => sum + effScored(s), 0).toLocaleString()}</div>
-                </div>
-              </div>
-              <div className="grid grid-cols-7 gap-2">
-                {["Risk", "Quant", "Compliance", "Audit", "Cyber", "Legal", "Front Office"].map((cat) => {
-                  const isSelected = filters.includes(cat);
-                  return (
-                    <div
-                      key={cat}
-                      className="p-3 rounded-lg text-center cursor-pointer"
-                      onClick={() => {
-                        // Multi-select AND toggle. Clearing sub-filters on any category change
-                        // avoids stale sub chips that no longer belong to the selected set.
-                        setFilters((prev) => prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]);
-                        setSubFilters([]);
-                        setAddedSourceId(null);
-                      }}
-                      style={{
-                        background: isSelected ? "var(--accent-glow)" : "var(--bg-card)",
-                        border: `1px solid ${isSelected ? "rgba(108,92,231,0.3)" : "var(--border-subtle)"}`,
-                      }}
-                    >
-                      <div className="text-xl font-bold" style={{ color: categoryColors[cat] || "var(--text-primary)" }}>
-                        {sources.reduce((sum, s) => sum + effCatCount(s, cat), 0).toLocaleString()}
-                      </div>
-                      <div className="text-[10px] font-medium uppercase tracking-wider mt-1" style={{ color: "var(--text-muted)" }}>{cat}</div>
-                    </div>
-                  );
-                })}
-              </div>
-              {/* Sub-specialism chips: shown when at least one category chip is selected. Flat
-                  mixed row, each chip coloured by its parent category. Multi-select AND. */}
-              {filters.length > 0 && (() => {
-                const options: { sub: string; cat: string; count: number }[] = [];
-                const seen = new Set<string>();
-                const poolSources = sources.filter((s) => filters.every((c) => (getCats(s)[c] || 0) > 0));
-                for (const s of poolSources) {
-                  const subs = s.sub_specialisms || {};
-                  for (const cat of filters) {
-                    const bucket = subs[cat];
-                    if (!bucket) continue;
-                    for (const [sub, count] of Object.entries(bucket)) {
-                      const key = `${cat}::${sub}`;
-                      if (seen.has(key)) {
-                        const existing = options.find((o) => o.cat === cat && o.sub === sub);
-                        if (existing) existing.count += count as number;
-                      } else {
-                        seen.add(key);
-                        options.push({ sub, cat, count: count as number });
-                      }
-                    }
-                  }
-                }
-                if (options.length === 0) return null;
-                const sorted = options.sort((a, b) => b.count - a.count);
-                return (
-                  <div className="flex flex-wrap gap-1.5 mt-3">
-                    {sorted.map(({ sub, cat, count }) => {
-                      const isSel = subFilters.includes(sub);
-                      const color = categoryColors[cat] || "var(--text-primary)";
-                      return (
-                        <div
-                          key={`${cat}::${sub}`}
-                          className="text-[11px] px-2 py-1 rounded-md cursor-pointer"
-                          onClick={() =>
-                            setSubFilters((prev) => prev.includes(sub) ? prev.filter((x) => x !== sub) : [...prev, sub])
-                          }
-                          title={`${cat} · ${sub}`}
-                          style={{
-                            background: isSel ? "var(--accent-glow)" : "var(--bg-elevated)",
-                            border: `1px solid ${isSel ? color : "var(--border-subtle)"}`,
-                            color,
-                          }}
-                        >
-                          {sub} <span style={{ opacity: 0.6 }}>{count}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-              {/* Adapter filter chips */}
-              {sortedAdapters.length > 1 && (
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {sortedAdapters.map(([adapter, count]) => (
-                    <button
-                      key={adapter}
-                      onClick={() => setAdapterFilter(adapterFilter === adapter ? "" : adapter)}
-                      className="px-2.5 py-1 rounded-md text-[10px] font-semibold cursor-pointer"
-                      style={{
-                        background: adapterFilter === adapter ? "var(--accent-glow)" : "var(--bg-elevated)",
-                        border: `1px solid ${adapterFilter === adapter ? "rgba(108,92,231,0.3)" : "var(--border-subtle)"}`,
-                        color: adapterFilter === adapter ? "var(--accent-light)" : "var(--text-muted)",
-                      }}
-                    >
-                      {adapter} ({count})
-                    </button>
-                  ))}
-                </div>
-              )}
-              {/* Aggregator filter chips (audit which cards were contributed by each aggregator) */}
-              {sortedAggregators.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-2 items-center">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
-                    Aggregators:
-                  </span>
-                  {sortedAggregators.map(([agg, cardCount]) => (
-                    <button
-                      key={agg}
-                      onClick={() => setAggregatorFilter(aggregatorFilter === agg ? "" : agg)}
-                      className="px-2.5 py-1 rounded-md text-[10px] font-semibold cursor-pointer"
-                      style={{
-                        background: aggregatorFilter === agg ? "var(--accent-glow)" : "var(--bg-elevated)",
-                        border: `1px solid ${aggregatorFilter === agg ? "rgba(108,92,231,0.3)" : "var(--border-subtle)"}`,
-                        color: aggregatorFilter === agg ? "var(--accent-light)" : "var(--text-secondary)",
-                      }}
-                      title={`${aggregatorJobCounts[agg] || 0} jobs across ${cardCount} cards`}
-                    >
-                      {AGGREGATOR_LABELS[agg] || agg} · {cardCount} cards · {aggregatorJobCounts[agg] || 0} jobs
-                    </button>
-                  ))}
-                  {aggregatorFilter && (
-                    <button
-                      onClick={() => setAggregatorFilter("")}
-                      className="px-2 py-1 rounded-md text-[10px] cursor-pointer"
-                      style={{ background: "transparent", color: "var(--text-muted)" }}
-                    >
-                      clear ×
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+          {/* Stats tiles + category / sub-specialism / adapter / aggregator chips */}
+          <StatsSection
+            stats={stats}
+            sources={sources}
+            withLeadsCount={withLeadsCount}
+            noJobsCount={noJobsCount}
+            notRelevantCount={notRelevantCount}
+            brokenCount={brokenCount}
+            sourceView={sourceView}
+            onSelectView={(view) => {
+              setSourceView(view);
+              setAddedSourceId(null);
+              setAdapterFilter("");
+              setAggregatorFilter("");
+              setHighlightSourceId(null);
+            }}
+            filters={filters}
+            setFilters={setFilters}
+            onFilterChipToggled={() => setAddedSourceId(null)}
+            subFilters={subFilters}
+            setSubFilters={setSubFilters}
+            sortedAdapters={sortedAdapters}
+            adapterFilter={adapterFilter}
+            setAdapterFilter={setAdapterFilter}
+            sortedAggregators={sortedAggregators}
+            aggregatorFilter={aggregatorFilter}
+            setAggregatorFilter={setAggregatorFilter}
+            aggregatorJobCounts={aggregatorJobCounts}
+            effScored={effScored}
+            effCatCount={effCatCount}
+            getCats={getCats}
+            categoryColors={categoryColors}
+          />
 
           {/* Scrape queue status */}
           {(isQueueRunning || scrapeQueue.length > 0) && (
