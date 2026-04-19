@@ -220,20 +220,20 @@ the existing memory note in `~/.claude/projects/.../MEMORY.md`:
 Priority scores use a 1–5 scale:
 **P1** = urgent / blocking · **P2** = high · **P3** = medium · **P4** = low · **P5** = trivial / cosmetic.
 
-| # | Ticket | Priority | Effort |
-|---|---|---|---|
-| 1 | Add minimal CI (GitHub Actions) | **P2** | 1 h |
-| 2 | Shared `_canonical_employer_norm()` helper | **P3** | 30 min |
-| 3 | Worker-side cache invalidation after `scrape_source` | **P3** | 20 min |
-| 4 | Migrate `@app.on_event` startup/shutdown to `lifespan` | **P3** | 1 h |
-| 5 | Kill legacy `models_v2.py` naming; decide on `db/repositories/` | **P3** | 1 h |
-| 6 | Fix or xfail `test_classification.py::test_relevant[Pricing Actuary]` | **P4** | 15 min |
-| 7 | Promote sources-page derived helpers into `web/src/app/sources/utils.ts` | **P4** | 20 min |
-| 8 | Add `response_model=` to the 9 dict-returning handlers | **P4** | 45 min |
-| 9 | Per-company aggregator probe for stronger "No Jobs Found" signal | **P4** | 2–3 h |
-| 10 | Fold the filter-label / "Clear filter" block into `StatsSection` | **P5** | 10 min |
-| 11 | Delete `_addcompany_count_jobs` if confirmed unused | **P5** | 5 min |
-| 12 | Composite index on `SourceRun(source_id, created_at)` if hotspot | **P5** | 15 min (conditional) |
+| # | Ticket | Priority | Effort | Status |
+|---|---|---|---|---|
+| 1 | Add minimal CI (GitHub Actions) | **P2** | 1 h | ✅ `34d0561` |
+| 2 | Shared `_canonical_employer_norm()` helper | **P3** | 30 min | open |
+| 3 | Worker-side cache invalidation after `scrape_source` | **P3** | 20 min | open |
+| 4 | Migrate `@app.on_event` startup/shutdown to `lifespan` | **P3** | 1 h | open |
+| 5 | Kill legacy `models_v2.py` naming; decide on `db/repositories/` | **P3** | 1 h | ✅ `f1b2456` |
+| 6 | Fix or xfail `test_classification.py::test_relevant[Pricing Actuary]` | **P4** | 15 min | ✅ `163d8e9` (xfail) |
+| 7 | Promote sources-page derived helpers into `web/src/app/sources/utils.ts` | **P4** | 20 min | open |
+| 8 | Add `response_model=` to the 9 dict-returning handlers | **P4** | 45 min | open |
+| 9 | Per-company aggregator probe for stronger "No Jobs Found" signal | **P4** | 2–3 h | open |
+| 10 | Fold the filter-label / "Clear filter" block into `StatsSection` | **P5** | 10 min | open |
+| 11 | Delete `_addcompany_count_jobs` if confirmed unused | **P5** | 5 min | open |
+| 12 | Composite index on `SourceRun(source_id, created_at)` if hotspot | **P5** | 15 min (conditional) | open |
 
 ---
 
