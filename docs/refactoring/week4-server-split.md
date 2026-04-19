@@ -150,7 +150,47 @@ Rollback: `git revert <sha-of-step-2>`.
 
 ## Step 3 — `routes/leads.py`
 
-_Pending._
+First router extracted. Seven endpoints move into
+`src/vacancysoft/api/routes/leads.py` via an `APIRouter`:
+
+  GET    /api/stats                    `get_stats`
+  GET    /api/dashboard                `get_dashboard`
+  GET    /api/countries                `list_countries`
+  POST   /api/queue                    `queue_campaign`
+  GET    /api/queue                    `list_queue`
+  POST   /api/queue/{item_id}/send     `send_to_campaign`
+  DELETE /api/queue/{item_id}          `remove_from_queue`
+
+Plus the `_scrape_and_generate_dossier` background task (~100 lines)
+and the `_PLAYWRIGHT_SCRAPER_URL` constant it depends on — both move
+with `queue_campaign` since they're only used as its in-process
+fallback when Redis is unavailable.
+
+`queue_campaign` now receives `request: Request` as a FastAPI
+parameter and accesses the Redis pool via `request.app.state.redis`
+instead of closing over the module-level `app`. Behaviour identical.
+
+Also created:
+- `src/vacancysoft/api/routes/__init__.py` (package marker)
+
+`server.py` now:
+- imports `leads as leads_routes` from `api.routes`
+- calls `app.include_router(leads_routes.router)` right after the CORS
+  middleware wiring
+- drops `_category_counts`, `QueueRequest`, `StatsOut` from its import
+  block — all now used only by leads.py
+
+Verification:
+- route list vs baseline → identical (24 routes)
+- `pytest` → 359 passed, same pre-existing unrelated failure
+- `GET /api/stats` → `total_scored=46632 total_jobs=140076`
+- `GET /api/countries` → 12 entries, top = USA (20,949)
+
+File sizes:
+- `api/server.py`: 1,731 → 1,177 lines
+- `api/routes/leads.py`: 585 lines (new)
+
+Rollback: `git revert <sha-of-step-3>`.
 
 ## Step 4 — `routes/sources.py`
 
