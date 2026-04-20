@@ -49,12 +49,23 @@ def _build_job_ref(company: str, title: str, location: str, country: str, job_ur
     return f"lead-{_slug(company or 'company')}-{_slug(title or 'role')}-{_hash_string(fingerprint)}"
 
 
+_ROUTING_CACHE: dict[str, Any] | None = None
+
+
+def _cached_routing() -> dict[str, Any]:
+    global _ROUTING_CACHE
+    if _ROUTING_CACHE is None:
+        _ROUTING_CACHE = load_legacy_routing()
+    return _ROUTING_CACHE
+
+
 def row_to_legacy_lead(row: Any) -> dict[str, str]:
-    routing = load_legacy_routing()
+    routing = _cached_routing()
     mapping = row._mapping if hasattr(row, "_mapping") else dict(row)
 
     title = _safe_str(mapping.get("title"))
-    location_text = _safe_str(mapping.get("location_text"))
+    location_city = _safe_str(mapping.get("location_city"))
+    location_text = location_city or _safe_str(mapping.get("location_text"))
     raw_country = _safe_str(mapping.get("location_country"))
     company = _safe_str(mapping.get("employer_name"))
     job_url = _safe_str(mapping.get("discovered_url"))

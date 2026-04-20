@@ -23,5 +23,9 @@ taxonomy_keys = ["front_office", "quant"]
 include_export_decisions = ["accepted", "review"]
 
 [webhook]
-production_url = "https://antonyberou.app.n8n.cloud/webhook/fuck_vacancysoft"
+# Set production_url to your real downstream consumer when needed.
+# n8n was removed; this is now a generic outbound webhook config.
+# Can also be overridden at runtime via the WEBHOOK_URL env var
+# or by passing --url to the export CLI commands.
+production_url = ""
 timeout_seconds = 20

@@ -22,12 +22,15 @@ def persist_classification_for_enriched_job(session: Session, enriched_job: Enri
 
     values = {
         "enriched_job_id": enriched_job.id,
-        "classifier_version": "demo_classifier_v2",
+        "classifier_version": "rule_classifier_v2",
         "taxonomy_version": payload.taxonomy_version,
         "target_function": payload.primary_taxonomy_key,
         "target_domain": None,
         "primary_taxonomy_key": payload.primary_taxonomy_key,
         "secondary_taxonomy_keys": payload.secondary_taxonomy_keys,
+        "sub_specialism": payload.sub_specialism,
+        "sub_specialism_confidence": payload.sub_specialism_confidence,
+        "employment_type": payload.employment_type,
         "title_relevance_score": payload.title_relevance_score,
         "classification_confidence": payload.classification_confidence,
         "matched_terms": {"title": enriched_job.title},
@@ -53,7 +56,13 @@ def persist_classification_for_enriched_job(session: Session, enriched_job: Enri
 
 
 def classify_enriched_jobs(session: Session, limit: int | None = None) -> int:
-    stmt = select(EnrichedJob).order_by(EnrichedJob.created_at.desc())
+    already_classified = select(ClassificationResult.enriched_job_id)
+    stmt = (
+        select(EnrichedJob)
+        .where(~EnrichedJob.id.in_(already_classified))
+        .where(EnrichedJob.detail_fetch_status.notin_(["geo_filtered", "agency_filtered", "title_filtered"]))
+        .order_by(EnrichedJob.created_at.desc())
+    )
     if limit is not None:
         stmt = stmt.limit(limit)
     jobs = list(session.execute(stmt).scalars())

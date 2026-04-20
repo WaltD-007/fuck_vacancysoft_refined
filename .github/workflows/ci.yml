@@ -1,0 +1,76 @@
+name: CI
+
+# Runs on every push and every pull request. The goal is a green tick
+# before merge — same checks the human runs locally, just automated.
+
+on:
+  push:
+    branches-ignore:
+      - 'claude/**'     # agent worktrees push to their own branches; those don't need to spin up CI
+  pull_request:
+  workflow_dispatch:
+
+# If a newer commit lands on the same branch while a run is still in
+# flight, cancel the older one — we only care about the head commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (pytest + ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package + dev deps
+        run: pip install -e ".[dev]"
+
+      - name: Run pytest
+        # 359 passing, 1 xfailed (Pricing Actuary — see TODO ticket 6).
+        # strict=xfail means this run fails if Pricing Actuary ever starts
+        # passing — that's the trigger to resolve the real disagreement.
+        run: pytest -q --tb=short
+
+      - name: Run ruff
+        # Non-blocking for the first CI landing: pyproject has only
+        # line-length + target-version set, no explicit rule selection,
+        # so default rules (E, F) apply. Once the team agrees on a rule
+        # set, flip continue-on-error off (see TODO ticket 1 follow-up).
+        continue-on-error: true
+        run: ruff check src tests
+
+  frontend:
+    name: Frontend (tsc --noEmit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web deps
+        run: npm ci
+
+      - name: Type-check
+        # Same command the human runs after every component extraction.
+        # noEmit is set in tsconfig.json so this emits no artefacts.
+        run: npx tsc --noEmit

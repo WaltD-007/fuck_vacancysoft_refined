@@ -1,7 +1,7 @@
 [app]
-name = "fuck_vacancysoft_refined"
+name = "prospero"
 environment = "dev"
-database_url = "sqlite:///./.data/vacancysoft.db"
+database_url = "postgresql://localhost/prospero"
 log_level = "INFO"
 
 [discovery]
@@ -15,3 +15,119 @@ max_retries = 3
 
 [exports]
 default_profile = "accepted_only_excel"
+
+[worker]
+redis_url = "redis://localhost:6379"
+max_concurrent = 25
+# Single process_lead job has to fit: (optional description scrape 0-60s) +
+# dossier main call + dossier HM search + campaign pre-generation. On
+# DeepSeek that's ~300-360s end-to-end; on OpenAI with gpt-5-mini +
+# web_search at "high" context it can reach 400-500s. 300s was killing
+# the campaign step of every DeepSeek run mid-flight (dossier committed
+# before campaign starts, so the symptom was dossiers landing with no
+# matching campaign row). 900s = comfortable margin for both providers.
+job_timeout = 900
+max_retries = 3
+
+[intelligence]
+# Model routing (Apr 2026 cost-optimised configuration):
+#   - dossier main:       gpt-5-mini          (cheap reasoning, suffices for analytical sections)
+#   - hiring manager:     gpt-5.4 + medium    (small payload, accuracy matters for real-name lookup)
+#   - campaign:           gpt-5-mini + low    (structured email generation, doesn't need deep reasoning)
+dossier_model = "gpt-5-mini"
+# Campaign quality upgrade 2026-04-19: promoted gpt-5-mini → gpt-5.2
+# for the campaign primary. Rationale: the dossier body is already
+# rich (full stated_vs_actual + spec_risk explanations + candidate
+# outcomes + lead justification + HM name/title are now in the prompt),
+# so the campaign call is context-rich and the quality ceiling is
+# now the writing model, not the information it has. gpt-5.2 is 5×
+# the unit rate of gpt-5-mini but campaign tokens are small (~2.5k
+# prompt + ~1.5k completion with the new shape) so per-lead delta is
+# ~$0.010/campaign. Fits well inside the operator's $0.10/lead ceiling.
+campaign_model = "gpt-5.2"
+campaign_reasoning_effort = "low"
+# Fallback used if the primary campaign model returns empty content
+# (reasoning models occasionally burn the entire max_completion_tokens
+# budget on internal reasoning and produce no visible JSON). gpt-4o
+# has no reasoning step so it can't hit the same trap.
+campaign_fallback_model = "gpt-4o"
+temperature = 0.4
+max_tokens = 16000
+# Bumped from 120 to 300: gpt-5-mini with web_search at high context size
+# can take 130-180s for a dossier. The original 120s was timing out the
+# worker on legitimate calls, reverting items to pending and looking stuck.
+timeout_seconds = 300
+
+# Cost-control levers for the dossier pipeline:
+# - dossier_reasoning_effort: "low" | "medium" | "high". Lower values
+#   cut output (reasoning) tokens — the dominant cost — at some quality
+#   cost. Default "medium".
+# - hm_search_model: which model handles the hiring-manager search call
+#   (call 2 of the dossier). Originally a cheap non-reasoning model, but
+#   accuracy on real-person lookup pushed it back up to gpt-5.4.
+# - hm_search_reasoning_effort: only applied if hm_search_model is a
+#   reasoning model — otherwise silently ignored.
+dossier_reasoning_effort = "medium"
+# Web-search context size for the main dossier call. "high" allows
+# ~100K input tokens of web context (vs ~25K at "low"). Paired with
+# the doubled word caps in base_dossier.py to give each section room
+# to be richer. Adds ~$0.019/lead on gpt-5-mini input.
+dossier_search_context_size = "high"
+hm_search_model = "gpt-5.2"
+hm_search_reasoning_effort = "medium"
+# HM call deliberately stays at "high" — the whole point of the HM
+# upgrade is accuracy on real-person identification, which benefits
+# from broad web context. Small payload so cost stays bounded.
+hm_search_context_size = "high"
+
+# ── Alternative HM path: SerpApi + cheap-model extraction ──
+# When true, the HM call runs via SerpApi (LinkedIn site: searches hit
+# Google directly) + a small extraction model (default gpt-4o-mini),
+# instead of OpenAI Responses-API web_search_preview. Cuts per-dossier
+# HM cost ~60% ($0.064 → ~$0.025) and latency ~3-4× at similar quality
+# on named-individual extraction.
+#
+# If SERPAPI_KEY is missing or SerpApi raises, dossier.py falls back
+# to the OpenAI web_search route automatically — no dossier is lost.
+#
+# hm_serpapi_max_searches: how many of the category's pre-authored
+#   LinkedIn queries to run per lead. 5 covers head-of / director /
+#   chief variants comfortably. Cost scales linearly (~$0.015/search).
+# hm_extraction_model: the model that reads SerpApi snippets and
+#   extracts names. gpt-4o-mini is cheap, fast, and non-reasoning —
+#   avoids the max_tokens-burn-on-hidden-CoT trap.
+use_serpapi_hm_search = true
+# Default 3 searches lands cost around $0.046/lead vs $0.064 baseline
+# (~28% saving) at $0.015/search pricing. Going to 5 searches
+# (recall-first mode) pushes cost to ~$0.076 — slightly above the
+# OpenAI baseline but with 5x lower latency and higher recall on
+# obscure titles. Pick per your cost/quality trade-off.
+hm_serpapi_max_searches = 3
+hm_extraction_model = "gpt-4o-mini"
+
+# ── Provider selection ──
+# Flip these to route dossier / campaign calls to DeepSeek instead of
+# OpenAI. Hiring-manager search is hard-wired to OpenAI in dossier.py
+# (handles named real people; moving it is a policy decision, not a
+# config flip). Full discussion: docs/intelligence-providers.md.
+#
+# Caveats when a toggle is set to true:
+#  - web_search is silently dropped (DeepSeek has no web-search tool).
+#    For dossier specifically, this means the main call answers from
+#    training data only — less depth on company background.
+#  - reasoning_effort is silently ignored (DeepSeek uses a fixed
+#    internal reasoning budget).
+#
+# Both toggles default to false so current behaviour is unchanged
+# until you explicitly opt in.
+use_deepseek_for_dossier = false
+use_deepseek_for_campaign = false
+
+# Models used when the corresponding toggle is true.
+# deepseek-reasoner == R1 (highest-performance reasoning model).
+# deepseek-chat     == V3 (non-reasoning; faster, cheaper, better
+#                          tuned for creative writing).
+#
+dossier_model_deepseek = "deepseek-reasoner"
+campaign_model_deepseek = "deepseek-reasoner"
+campaign_fallback_model_deepseek = "deepseek-chat"

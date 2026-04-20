@@ -26,5 +26,18 @@ logs/
 .vscode/
 .idea/
 
-# Env
+# Env / secrets
 .env
+alembic/env
+
+# Build artifacts
+src/*.egg-info/
+node_modules/
+
+# Audit output / data files
+*.xlsx
+*_audit_results.json
+*_waterfall_audit_results.json
+
+# Claude Code worktrees and local agent metadata
+.claude/

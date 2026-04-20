@@ -1,0 +1,272 @@
+# Week 3 — Splitting `web/src/app/sources/page.tsx`
+
+One monolithic 1,330-line client component is being broken into smaller
+components under `web/src/app/sources/components/`. This log records every
+step so any individual change can be rolled back cleanly via `git revert`.
+
+## Ground rules
+- One component per commit.
+- Zero behaviour change per step — `npx tsc --noEmit` must stay clean, and
+  the page must still render and behave identically.
+- Shared types move into `web/src/app/sources/types.ts` the first time
+  more than one component needs them.
+
+## Verification per step
+- `cd web && npx tsc --noEmit` — must pass.
+- `cd web && npm run lint` — must pass (if it was passing before the step).
+- Manual smoke: load the sources page, confirm buckets, filters, modal,
+  card expand, and scrape-now all still work.
+
+## Rollback
+Each step is its own commit. To undo a single step:
+```
+git revert <commit-sha>
+```
+The commit messages reference this log entry so the mapping is explicit.
+
+---
+
+## Starting baseline
+- Branch: `chatgpt/adapter-updates`
+- Starting HEAD: `ad730c6` (before the refactor)
+- `page.tsx` size: 1,330 lines
+- `npx tsc --noEmit`: clean
+
+## Planned extractions (in execution order)
+
+Order comes from the structural exploration report: simpler / fewer
+dependencies first. The nominal feature order would be SourceCard →
+AddSourceModal → StatTile → SourceJobsDrawer → SourceFilters, but
+SourceCard embeds the drawer inline, so the drawer must come first.
+
+| # | Component | Lines (approx, in starting file) | Notes |
+|---|---|---|---|
+| 0 | `types.ts` | N/A (extraction of types at lines 8–57 + `AGGREGATOR_LABELS` at 544–550, `categoryColors` at 579–587) | Foundation — no UI change |
+| 1 | `SourceJobsDrawer` | 1218–1293 | Expanded per-card job list, currently embedded in the card IIFE |
+| 2 | `SourceFilters` | 607–625 + 1050–1062 | Country + employment dropdowns + filter-label / clear |
+| 3 | `SourceCard` | 1072–1295 + helper fns 466–476 | Composes `SourceJobsDrawer` as a child |
+| 4 | `AddCompanyModal` | 651–784 + handlers 163–245 | Multi-phase wizard — search → confirm → scrape |
+| 5 | `StatsSection` | 882–1035 | Stat tiles + category/adapter/aggregator chips |
+
+Each entry below gets filled in as the step is executed.
+
+---
+
+## Step 0 — Shared `types.ts`
+
+Created `web/src/app/sources/types.ts` with every cross-component type
+and constant. Swapped `page.tsx` to import from it instead of inlining.
+
+Moved:
+- `Source`, `Stats`, `ScoredJob`, `DetectResult` — were inline types at
+  the top of `page.tsx`
+- `AddCompanyCandidate` — was nested inside the `SourcesPage()` body
+- `SourceView` (new union alias) — the inline string-literal type
+  `"leads" | "no_jobs" | "not_relevant" | "broken" | "all"` was repeated
+  and now has a name
+- `AGGREGATOR_LABELS` — was a `const` defined mid-render at ~line 544
+- `CATEGORY_COLORS` — was `categoryColors` defined mid-render at ~line 579
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200 (user's dev server
+  picked up the change via HMR)
+
+Rollback: `git revert <sha-of-step-0>`.
+
+## Step 1 — `SourceJobsDrawer`
+
+Extracted the expanded per-card job list (the drawer that appears
+underneath a source card when it is expanded) into
+`web/src/app/sources/components/SourceJobsDrawer.tsx`.
+
+The drawer was previously an inline IIFE inside the `sources.map()`
+render at roughly lines 1155–1230 (post-step-0 numbering). It is now a
+proper component; `page.tsx` renders it with:
+
+```
+{expandedSource === src.id && <SourceJobsDrawer ... />}
+```
+
+Props passed in: `src`, `expandedCategory`, `countryFilter`,
+`sourceJobs` (the shared cache), `categoryColors`, `hotlist`,
+`setHotlist`, `apiBase` (= the `API` constant). The component owns no
+state; it reads rows out of `sourceJobs[jobKey]` using the same
+key-derivation rule the parent uses to populate the cache — critical
+because a mismatch here shows "Loading..." forever.
+
+Behaviour unchanged: same markup, same scroll container, same hotlist
+POST to `${apiBase}/queue`, same score colour coding.
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200
+
+Rollback: `git revert <sha-of-step-1>` (component file will be deleted,
+inline IIFE restored).
+
+## Step 2 — `SourceFilters`
+
+Extracted the three header filter controls (company search, country
+dropdown, employment-type dropdown) into
+`web/src/app/sources/components/SourceFilters.tsx`.
+
+Returned as a React Fragment so the parent's header flex container
+still lays out the "Add Company" button alongside. The parent passes
+`setSourceJobs({})` + `setExpandedSource(null)` inside the country /
+employment-type change handlers, exactly as before — filter changes
+still clear the job cache and collapse any expanded card.
+
+The filter-label / "Clear filter" block lower down (around the stats
+tiles) was left inline; it is coupled to the category + subfilter
+chips which move with StatsSection in step 5.
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200
+
+Rollback: `git revert <sha-of-step-2>`.
+
+## Step 3 — `SourceCard`
+
+The per-employer card (`~158` lines of inline JSX inside the
+`orderedSources.slice(...).map(...)` render) moves into
+`web/src/app/sources/components/SourceCard.tsx`. `SourceJobsDrawer`
+is now composed as a child of `SourceCard` rather than of the page —
+the card owns the `{expandedSource === src.id && <Drawer .../>}`
+check internally.
+
+The `SourceJobsDrawer` import is removed from `page.tsx` (the card
+imports it directly). The parent now just renders:
+
+```
+{orderedSources.slice(0, displayLimit).map((src) => (
+  <SourceCard key={src.id} src={src} ... />
+))}
+```
+
+Prop surface is wide (roughly 25 props) because the card reads many
+pieces of parent state (expand / scrape / delete / diagnose). All
+state stays parent-owned; the card mutates only through the `on*`
+callbacks. `getCats` / `getScored` / `effCatCount` are passed as
+function props so the card does not need to know about
+`countryFilter` or `subFilters` — step 5 (StatsSection) will decide
+whether to promote these to a shared utils module.
+
+Callback wiring:
+- `onDelete` → `handleDeleteSource`
+- `onRequestDelete` → `setConfirmDeleteId`
+- `onCancelDelete` → `() => setConfirmDeleteId(null)`
+- `onScrape` → `handleScrapeSource`
+- `onDiagnose` → `handleDiagnose`
+- `onToggleJobs` → `handleToggleJobs`
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200
+
+Rollback: `git revert <sha-of-step-3>` — restores the inline card
+block and re-imports `SourceJobsDrawer` directly into `page.tsx`.
+
+## Step 4 — `AddCompanyModal`
+
+The Coresignal "Add a Company" wizard — previously ~134 lines of modal
+markup plus the two handlers `handleAddCompanySearch` (~27 lines) and
+`handleAddCompanyConfirm` (~53 lines) — moves into
+`web/src/app/sources/components/AddCompanyModal.tsx`. The modal owns
+its own wizard state entirely:
+  `addCompanyName`, `addCompanyState`, `addCompanyResult`,
+  `addCompanyConfirmingFor`, `addCompanyError`.
+
+All five `useState` declarations and both async handlers are removed
+from `page.tsx`. Parent state kept: only `showAddCompany` (a boolean
+toggle for whether the panel is mounted).
+
+Because the modal is rendered via `{showAddCompany && <AddCompanyModal .../>}`,
+it unmounts when closed and remounts fresh when reopened, so there is
+no leftover state to reset. The "+ Add Company" button therefore
+simplifies to `onClick={() => setShowAddCompany((v) => !v)}`.
+
+Parent-side coordination after a successful add is exposed via two
+props:
+- `onCardAdded(sourceId)` → parent pins the new card via
+  `setHighlightSourceId`, clears `setSourceView("all")`, and resets
+  `setAdapterFilter("")` + `setAggregatorFilter("")`.
+- `onSourcesRefreshed(sources, stats)` → parent writes both back into
+  its own state after the modal re-fetches them.
+
+`AddCompanyCandidate` no longer needs to be imported at the page
+level — the type stays in `types.ts` and is imported by the modal.
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200
+
+Rollback: `git revert <sha-of-step-4>` — restores the five parent
+`useState`s, both handlers, the inline modal, and the
+`AddCompanyCandidate` import in `page.tsx`.
+
+## Step 5 — `StatsSection`
+
+The stats header — five clickable bucket tiles + a Qualified Leads
+readout, seven category chips (Risk / Quant / Compliance / Audit /
+Cyber / Legal / Front Office), the conditional sub-specialism chip
+row, the adapter filter chip row, and the aggregator filter chip row
+— moves into `web/src/app/sources/components/StatsSection.tsx`.
+
+Prop surface is the largest of any extracted component because the
+section reads:
+  - precomputed counts (`withLeadsCount`, `noJobsCount`,
+    `notRelevantCount`, `brokenCount`)
+  - the full `sources` array (for running tile reducers)
+  - the derived helpers (`effScored`, `effCatCount`, `getCats`)
+  - every filter set and its setter (category, sub, adapter,
+    aggregator)
+  - the current view + a single `onSelectView(view)` callback that
+    consolidates the four parent-side resets a tile-click does:
+    `setSourceView(view); setAddedSourceId(null);
+     setAdapterFilter(""); setAggregatorFilter("");
+     setHighlightSourceId(null);`
+
+`AGGREGATOR_LABELS` is imported directly inside `StatsSection` from
+`../types`; the parent no longer imports it.
+
+Legacy behaviour preserved: when a category chip is toggled, the
+component calls a new `onFilterChipToggled` prop — the parent wires
+this to `() => setAddedSourceId(null)` so the green "recently added"
+highlight is cleared exactly as before.
+
+Verification:
+- `cd web && npx tsc --noEmit` → clean
+- `curl http://localhost:3000/sources` → HTTP 200
+
+Rollback: `git revert <sha-of-step-5>`.
+
+## Final state
+
+| File | Lines | Role |
+|---|---|---|
+| `web/src/app/sources/page.tsx` | **724** (was 1,330) | Top-level page — state, fetches, composes the components |
+| `web/src/app/sources/types.ts` | 82 | Shared types + constants (AGGREGATOR_LABELS, CATEGORY_COLORS) |
+| `web/src/app/sources/components/SourceFilters.tsx` | 65 | Company search + country + employment type dropdowns |
+| `web/src/app/sources/components/SourceJobsDrawer.tsx` | 114 | Expanded per-card job list |
+| `web/src/app/sources/components/SourceCard.tsx` | 251 | One employer row (composes `SourceJobsDrawer`) |
+| `web/src/app/sources/components/AddCompanyModal.tsx` | 276 | Coresignal taxonomy-sweep wizard |
+| `web/src/app/sources/components/StatsSection.tsx` | 248 | Bucket tiles + category / sub / adapter / aggregator chips |
+
+`page.tsx` dropped by 606 lines (-45%). Total line count across the
+split is higher than the original due to component prop interfaces and
+boilerplate, but every file is now individually readable.
+
+Deferred for later (not in scope of this week):
+- `isBroken`, `getCats`, `getScored`, `effCatCount`, `effScored` are
+  still closures in `page.tsx`, passed down as function props. When a
+  StatsSection or SourceCard change needs them standalone they can
+  move to `web/src/app/sources/utils.ts`.
+- The filter label + "Clear filter" button (around line 760 of the
+  current `page.tsx`) is still inline. It is logically coupled to the
+  category / sub-specialism chip state that now lives in
+  `StatsSection`; a future step could fold it in.
+
+To revert the entire week's work: `git revert 4f5f73b..HEAD` on the
+chatgpt/adapter-updates branch.

@@ -1,0 +1,2185 @@
+city_rules:
+- keyword: cheadle
+  city: Cheadle
+  country: UK
+- keyword: glasgow
+  city: Glasgow
+  country: UK
+- keyword: edinburgh
+  city: Edinburgh
+  country: UK
+- keyword: belfast
+  city: Belfast
+  country: UK
+- keyword: cardiff
+  city: Cardiff
+  country: UK
+- keyword: sheffield
+  city: Sheffield
+  country: UK
+- keyword: manchester
+  city: Manchester
+  country: UK
+- keyword: bristol
+  city: Bristol
+  country: UK
+- keyword: birmingham
+  city: Birmingham
+  country: UK
+- keyword: peterborough
+  city: Peterborough
+  country: UK
+- keyword: warwick
+  city: Warwick
+  country: UK
+- keyword: brighton
+  city: Brighton
+  country: UK
+- keyword: chelmsford
+  city: Chelmsford
+  country: UK
+- keyword: reigate
+  city: Reigate
+  country: UK
+- keyword: skipton
+  city: Skipton
+  country: UK
+- keyword: solihull
+  city: Solihull
+  country: UK
+- keyword: stafford
+  city: Stafford
+  country: UK
+- keyword: sunbury
+  city: Sunbury
+  country: UK
+- keyword: bridgend
+  city: Bridgend
+  country: UK
+- keyword: lincoln
+  city: Lincoln
+  country: UK
+- keyword: leeds
+  city: Leeds
+  country: UK
+- keyword: city of london
+  city: London
+  country: UK
+- keyword: lloyd's uk
+  city: London
+  country: UK
+- keyword: lloyd's belgium
+  city: Brussels
+  country: Belgium
+- keyword: jersey / london
+  city: London
+  country: UK
+- keyword: london
+  city: London
+  country: UK
+- keyword: st helier
+  city: St Helier
+  country: Jersey
+- keyword: jersey city
+  city: Jersey City
+  country: USA
+- keyword: new jersey
+  city: New Jersey
+  country: USA
+- keyword: jersey
+  city: Jersey
+  country: Jersey
+- keyword: guernsey
+  city: Guernsey
+  country: Guernsey
+- keyword: st peter port
+  city: St Peter Port
+  country: Guernsey
+- keyword: leicester
+  city: Leicester
+  country: UK
+- keyword: nottingham
+  city: Nottingham
+  country: UK
+- keyword: liverpool
+  city: Liverpool
+  country: UK
+- keyword: newcastle
+  city: Newcastle
+  country: UK
+- keyword: coventry
+  city: Coventry
+  country: UK
+- keyword: reading
+  city: Reading
+  country: UK
+- keyword: oxford
+  city: Oxford
+  country: UK
+- keyword: cambridge
+  city: Cambridge
+  country: UK
+- keyword: bath
+  city: Bath
+  country: UK
+- keyword: exeter
+  city: Exeter
+  country: UK
+- keyword: norwich
+  city: Norwich
+  country: UK
+- keyword: ipswich
+  city: Ipswich
+  country: UK
+- keyword: aberdeen
+  city: Aberdeen
+  country: UK
+- keyword: dundee
+  city: Dundee
+  country: UK
+- keyword: inverness
+  city: Inverness
+  country: UK
+- keyword: swansea
+  city: Swansea
+  country: UK
+- keyword: newport
+  city: Newport
+  country: UK
+- keyword: guildford
+  city: Guildford
+  country: UK
+- keyword: croydon
+  city: Croydon
+  country: UK
+- keyword: watford
+  city: Watford
+  country: UK
+- keyword: luton
+  city: Luton
+  country: UK
+- keyword: crawley
+  city: Crawley
+  country: UK
+- keyword: basildon
+  city: Basildon
+  country: UK
+- keyword: st albans
+  city: St Albans
+  country: UK
+- keyword: farnborough
+  city: Farnborough
+  country: UK
+- keyword: woking
+  city: Woking
+  country: UK
+- keyword: bournemouth
+  city: Bournemouth
+  country: UK
+- keyword: swindon
+  city: Swindon
+  country: UK
+- keyword: southampton
+  city: Southampton
+  country: UK
+- keyword: borehamwood
+  city: Borehamwood
+  country: UK
+- keyword: wimbledon
+  city: Wimbledon
+  country: UK
+- keyword: chester
+  city: Chester
+  country: UK
+- keyword: chatham
+  city: Chatham
+  country: UK
+- keyword: dorking
+  city: Dorking
+  country: UK
+- keyword: staines
+  city: Staines
+  country: UK
+- keyword: sunderland
+  city: Sunderland
+  country: UK
+- keyword: plymouth
+  city: Plymouth
+  country: UK
+- keyword: derby
+  city: Derby
+  country: UK
+- keyword: harrogate
+  city: Harrogate
+  country: UK
+- keyword: stockport
+  city: Stockport
+  country: UK
+- keyword: bolton
+  city: Bolton
+  country: UK
+- keyword: preston
+  city: Preston
+  country: UK
+- keyword: blackburn
+  city: Blackburn
+  country: UK
+- keyword: halifax
+  city: Halifax
+  country: UK
+- keyword: huddersfield
+  city: Huddersfield
+  country: UK
+- keyword: doncaster
+  city: Doncaster
+  country: UK
+- keyword: wakefield
+  city: Wakefield
+  country: UK
+- keyword: colchester
+  city: Colchester
+  country: UK
+- keyword: maidstone
+  city: Maidstone
+  country: UK
+- keyword: tunbridge wells
+  city: Tunbridge Wells
+  country: UK
+- keyword: sevenoaks
+  city: Sevenoaks
+  country: UK
+- keyword: epsom
+  city: Epsom
+  country: UK
+- keyword: kingston upon thames
+  city: Kingston
+  country: UK
+- keyword: canary wharf
+  city: London
+  country: UK
+- keyword: haywards heath
+  city: Haywards Heath
+  country: UK
+- keyword: barnet
+  city: Barnet
+  country: UK
+- keyword: bellshill
+  city: Bellshill
+  country: UK
+- keyword: bexhill
+  city: Bexhill
+  country: UK
+- keyword: bradford
+  city: Bradford
+  country: UK
+- keyword: dagenham
+  city: Dagenham
+  country: UK
+- keyword: lichfield
+  city: Lichfield
+  country: UK
+- keyword: markham
+  city: Markham
+  country: Canada
+- keyword: milton keynes
+  city: Milton Keynes
+  country: UK
+- keyword: pontefract
+  city: Pontefract
+  country: UK
+- keyword: rochdale
+  city: Rochdale
+  country: UK
+- keyword: stirling
+  city: Stirling
+  country: UK
+- keyword: uxbridge
+  city: Uxbridge
+  country: UK
+- keyword: walkden
+  city: Walkden
+  country: UK
+- keyword: walsall
+  city: Walsall
+  country: UK
+- keyword: wilmslow
+  city: Wilmslow
+  country: UK
+- keyword: worthing
+  city: Worthing
+  country: UK
+- keyword: yeadon
+  city: Yeadon
+  country: UK
+- keyword: fareham
+  city: Fareham
+  country: UK
+- keyword: maidenhead
+  city: Maidenhead
+  country: UK
+- keyword: surrey
+  city: Surrey
+  country: UK
+- keyword: west midlands
+  city: West Midlands
+  country: UK
+- keyword: hampshire
+  city: Hampshire
+  country: UK
+- keyword: west sussex
+  city: West Sussex
+  country: UK
+- keyword: bedford
+  city: Bedford
+  country: USA
+- keyword: foster city
+  city: Foster City
+  country: USA
+- keyword: troy
+  city: Troy
+  country: USA
+- keyword: sofia
+  city: Sofia
+  country: Bulgaria
+- keyword: gibraltar
+  city: Gibraltar
+  country: UK
+- keyword: new york
+  city: New York
+  country: USA
+- keyword: 1 columbus circle
+  city: New York
+  country: USA
+- keyword: 300 vesey
+  city: New York
+  country: USA
+- keyword: 1185 ave of america
+  city: New York
+  country: USA
+- keyword: ny-new york
+  city: New York
+  country: USA
+- keyword: ' nyc'
+  city: New York
+  country: USA
+- keyword: ny,
+  city: New York
+  country: USA
+- keyword: 'ny '
+  city: New York
+  country: USA
+- keyword: york
+  city: York
+  country: UK
+- keyword: newark
+  city: Newark
+  country: USA
+- keyword: chicago
+  city: Chicago
+  country: USA
+- keyword: 20 s. wacker
+  city: Chicago
+  country: USA
+- keyword: boston
+  city: Boston
+  country: USA
+- keyword: atlanta
+  city: Atlanta
+  country: USA
+- keyword: charlotte
+  city: Charlotte
+  country: USA
+- keyword: houston
+  city: Houston
+  country: USA
+- keyword: dallas
+  city: Dallas
+  country: USA
+- keyword: allen, texas
+  city: Allen
+  country: USA
+- keyword: usa-allen
+  city: Allen
+  country: USA
+- keyword: st. louis
+  city: St. Louis
+  country: USA
+- keyword: usa-st. louis
+  city: St. Louis
+  country: USA
+- keyword: philadelphia
+  city: Philadelphia
+  country: USA
+- keyword: los angeles
+  city: Los Angeles
+  country: USA
+- keyword: san francisco
+  city: San Francisco
+  country: USA
+- keyword: san antonio
+  city: San Antonio
+  country: USA
+- keyword: newport beach
+  city: Newport Beach
+  country: USA
+- keyword: austin
+  city: Austin
+  country: USA
+- keyword: tampa
+  city: Tampa
+  country: USA
+- keyword: miami
+  city: Miami
+  country: USA
+- keyword: irving
+  city: Irving
+  country: USA
+- keyword: washington
+  city: Washington DC
+  country: USA
+- keyword: denver
+  city: Denver
+  country: USA
+- keyword: minneapolis
+  city: Minneapolis
+  country: USA
+- keyword: jacksonville
+  city: Jacksonville
+  country: USA
+- keyword: chattanooga
+  city: Chattanooga
+  country: USA
+- keyword: morristown
+  city: Morristown
+  country: USA
+- keyword: wilmington
+  city: Wilmington
+  country: USA
+- keyword: baltimore
+  city: Baltimore
+  country: USA
+- keyword: merrimack
+  city: Merrimack
+  country: USA
+- keyword: smithfield
+  city: Smithfield
+  country: USA
+- keyword: o'fallon
+  city: O'Fallon
+  country: USA
+- keyword: ofallon
+  city: O'Fallon
+  country: USA
+- keyword: ft. lauderdale
+  city: Fort Lauderdale
+  country: USA
+- keyword: fort lauderdale
+  city: Fort Lauderdale
+  country: USA
+- keyword: purchase, new york
+  city: Purchase
+  country: USA
+- keyword: getzville
+  city: Getzville
+  country: USA
+- keyword: oaks
+  city: Oaks
+  country: USA
+- keyword: stamford
+  city: Stamford
+  country: USA
+- keyword: greenwich
+  city: Greenwich
+  country: USA
+- keyword: el segundo
+  city: El Segundo
+  country: USA
+- keyword: carmel
+  city: Carmel
+  country: USA
+- keyword: san jose
+  city: San Jose
+  country: USA
+- keyword: detroit
+  city: Detroit
+  country: USA
+- keyword: pittsburgh
+  city: Pittsburgh
+  country: USA
+- keyword: salt lake city
+  city: Salt Lake City
+  country: USA
+- keyword: portland
+  city: Portland
+  country: USA
+- keyword: raleigh
+  city: Raleigh
+  country: USA
+- keyword: nashville
+  city: Nashville
+  country: USA
+- keyword: orlando
+  city: Orlando
+  country: USA
+- keyword: phoenix
+  city: Phoenix
+  country: USA
+- keyword: san diego
+  city: San Diego
+  country: USA
+- keyword: columbus
+  city: Columbus
+  country: USA
+- keyword: indianapolis
+  city: Indianapolis
+  country: USA
+- keyword: milwaukee
+  city: Milwaukee
+  country: USA
+- keyword: des moines
+  city: Des Moines
+  country: USA
+- keyword: hoboken
+  city: Hoboken
+  country: USA
+- keyword: hartford
+  city: Hartford
+  country: USA
+- keyword: st louis
+  city: St. Louis
+  country: USA
+- keyword: kansas city
+  city: Kansas City
+  country: USA
+- keyword: richmond
+  city: Richmond
+  country: USA
+- keyword: omaha
+  city: Omaha
+  country: USA
+- keyword: plano
+  city: Plano
+  country: USA
+- keyword: arlington
+  city: Arlington
+  country: USA
+- keyword: sacramento
+  city: Sacramento
+  country: USA
+- keyword: cleveland
+  city: Cleveland
+  country: USA
+- keyword: cincinnati
+  city: Cincinnati
+  country: USA
+- keyword: memphis
+  city: Memphis
+  country: USA
+- keyword: louisville
+  city: Louisville
+  country: USA
+- keyword: oklahoma city
+  city: Oklahoma City
+  country: USA
+- keyword: tucson
+  city: Tucson
+  country: USA
+- keyword: las vegas
+  city: Las Vegas
+  country: USA
+- keyword: reno
+  city: Reno
+  country: USA
+- keyword: albuquerque
+  city: Albuquerque
+  country: USA
+- keyword: new haven
+  city: New Haven
+  country: USA
+- keyword: ann arbor
+  city: Ann Arbor
+  country: USA
+- keyword: boulder
+  city: Boulder
+  country: USA
+- keyword: durham
+  city: Durham
+  country: USA
+- keyword: chapel hill
+  city: Chapel Hill
+  country: USA
+- keyword: madison
+  city: Madison
+  country: USA
+- keyword: irvine
+  city: Irvine
+  country: USA
+- keyword: pasadena
+  city: Pasadena
+  country: USA
+- keyword: santa monica
+  city: Santa Monica
+  country: USA
+- keyword: palo alto
+  city: Palo Alto
+  country: USA
+- keyword: menlo park
+  city: Menlo Park
+  country: USA
+- keyword: mountain view
+  city: Mountain View
+  country: USA
+- keyword: sunnyvale
+  city: Sunnyvale
+  country: USA
+- keyword: cupertino
+  city: Cupertino
+  country: USA
+- keyword: redmond
+  city: Redmond
+  country: USA
+- keyword: seattle
+  city: Seattle
+  country: USA
+- keyword: birmingham
+  city: Birmingham
+  country: USA
+- keyword: cambridge
+  city: Cambridge
+  country: USA
+- keyword: windsor
+  city: Windsor
+  country: USA
+- keyword: kingston
+  city: Kingston
+  country: USA
+- keyword: victoria
+  city: Victoria
+  country: USA
+- keyword: hamilton
+  city: Hamilton
+  country: USA
+- keyword: remote - usa
+  city: Remote
+  country: USA
+- keyword: united states-remote
+  city: Remote
+  country: USA
+- keyword: united states work at home
+  city: Remote
+  country: USA
+- keyword: flexible - us
+  city: Remote
+  country: USA
+- keyword: mississauga
+  city: Mississauga
+  country: Canada
+- keyword: toronto
+  city: Toronto
+  country: Canada
+- keyword: montreal
+  city: Montreal
+  country: Canada
+- keyword: vancouver
+  city: Vancouver
+  country: Canada
+- keyword: calgary
+  city: Calgary
+  country: Canada
+- keyword: ottawa
+  city: Ottawa
+  country: Canada
+- keyword: winnipeg
+  city: Winnipeg
+  country: Canada
+- keyword: edmonton
+  city: Edmonton
+  country: Canada
+- keyword: london
+  city: London
+  country: Canada
+- keyword: hamilton
+  city: Hamilton
+  country: Canada
+- keyword: kingston
+  city: Kingston
+  country: Canada
+- keyword: victoria
+  city: Victoria
+  country: Canada
+- keyword: windsor
+  city: Windsor
+  country: Canada
+- keyword: cambridge
+  city: Cambridge
+  country: Canada
+- keyword: canada - qc
+  city: Remote
+  country: Canada
+- keyword: letterkenny
+  city: Letterkenny
+  country: Ireland
+- keyword: loughlinstown
+  city: Loughlinstown
+  country: Ireland
+- keyword: limerick
+  city: Limerick
+  country: Ireland
+- keyword: dublin
+  city: Dublin
+  country: Ireland
+- keyword: cork
+  city: Cork
+  country: Ireland
+- keyword: galway
+  city: Galway
+  country: Ireland
+- keyword: massy
+  city: Massy
+  country: France
+- keyword: paris
+  city: Paris
+  country: France
+- keyword: lyon
+  city: Lyon
+  country: France
+- keyword: marseille
+  city: Marseille
+  country: France
+- keyword: nice
+  city: Nice
+  country: France
+- keyword: toulouse
+  city: Toulouse
+  country: France
+- keyword: frankfurt
+  city: Frankfurt
+  country: Germany
+- keyword: kronberg
+  city: Frankfurt
+  country: Germany
+- keyword: munich
+  city: Munich
+  country: Germany
+- keyword: berlin
+  city: Berlin
+  country: Germany
+- keyword: hamburg
+  city: Hamburg
+  country: Germany
+- keyword: dusseldorf
+  city: Düsseldorf
+  country: Germany
+- keyword: düsseldorf
+  city: Düsseldorf
+  country: Germany
+- keyword: cologne
+  city: Cologne
+  country: Germany
+- keyword: amsterdam
+  city: Amsterdam
+  country: Netherlands
+- keyword: rotterdam
+  city: Rotterdam
+  country: Netherlands
+- keyword: utrecht
+  city: Utrecht
+  country: Netherlands
+- keyword: the hague
+  city: The Hague
+  country: Netherlands
+- keyword: eindhoven
+  city: Eindhoven
+  country: Netherlands
+- keyword: antwerp
+  city: Antwerp
+  country: Belgium
+- keyword: brussels
+  city: Brussels
+  country: Belgium
+- keyword: bruselas
+  city: Brussels
+  country: Belgium
+- keyword: madrid
+  city: Madrid
+  country: Spain
+- keyword: barcelona
+  city: Barcelona
+  country: Spain
+- keyword: milan
+  city: Milan
+  country: Italy
+- keyword: rome
+  city: Rome
+  country: Italy
+- keyword: turin
+  city: Turin
+  country: Italy
+- keyword: warsaw
+  city: Warsaw
+  country: Poland
+- keyword: krakow
+  city: Krakow
+  country: Poland
+- keyword: poznan
+  city: Poznań
+  country: Poland
+- keyword: wroclaw
+  city: Wrocław
+  country: Poland
+- keyword: budapest
+  city: Budapest
+  country: Hungary
+- keyword: szeged
+  city: Szeged
+  country: Hungary
+- keyword: prague
+  city: Prague
+  country: Czech Republic
+- keyword: bucharest
+  city: Bucharest
+  country: Romania
+- keyword: athens
+  city: Athens
+  country: Greece
+- keyword: zurich
+  city: Zurich
+  country: Switzerland
+- keyword: geneva
+  city: Geneva
+  country: Switzerland
+- keyword: basel
+  city: Basel
+  country: Switzerland
+- keyword: luxembourg
+  city: Luxembourg City
+  country: Luxembourg
+- keyword: vienna
+  city: Vienna
+  country: Austria
+- keyword: salzburg
+  city: Salzburg
+  country: Austria
+- keyword: lisbon
+  city: Lisbon
+  country: Portugal
+- keyword: porto
+  city: Porto
+  country: Portugal
+- keyword: stockholm
+  city: Stockholm
+  country: Sweden
+- keyword: gothenburg
+  city: Gothenburg
+  country: Sweden
+- keyword: oslo
+  city: Oslo
+  country: Norway
+- keyword: bergen
+  city: Bergen
+  country: Norway
+- keyword: copenhagen
+  city: Copenhagen
+  country: Denmark
+- keyword: aarhus
+  city: Aarhus
+  country: Denmark
+- keyword: koege
+  city: Køge
+  country: Denmark
+- keyword: helsinki
+  city: Helsinki
+  country: Finland
+- keyword: tallinn
+  city: Tallinn
+  country: Estonia
+- keyword: riga
+  city: Riga
+  country: Latvia
+- keyword: vilnius
+  city: Vilnius
+  country: Lithuania
+- keyword: dubai
+  city: Dubai
+  country: UAE
+- keyword: abu dhabi
+  city: Abu Dhabi
+  country: UAE
+- keyword: doha
+  city: Doha
+  country: Qatar
+- keyword: riyadh
+  city: Riyadh
+  country: Saudi Arabia
+- keyword: jeddah
+  city: Jeddah
+  country: Saudi Arabia
+- keyword: manama
+  city: Manama
+  country: Bahrain
+- keyword: kuwait city
+  city: Kuwait City
+  country: Kuwait
+- keyword: tel aviv
+  city: Tel Aviv
+  country: Israel
+- keyword: jerusalem
+  city: Jerusalem
+  country: Israel
+- keyword: haifa
+  city: Haifa
+  country: Israel
+- keyword: johannesburg
+  city: Johannesburg
+  country: South Africa
+- keyword: cape town
+  city: Cape Town
+  country: South Africa
+- keyword: sandton
+  city: Sandton
+  country: South Africa
+- keyword: cairo
+  city: Cairo
+  country: Egypt
+- keyword: nairobi
+  city: Nairobi
+  country: Kenya
+- keyword: lagos
+  city: Lagos
+  country: Nigeria
+- keyword: casablanca
+  city: Casablanca
+  country: Morocco
+- keyword: singapore
+  city: Singapore
+  country: Singapore
+- keyword: hong kong
+  city: Hong Kong
+  country: Hong Kong
+- keyword: hk-
+  city: Hong Kong
+  country: Hong Kong
+- keyword: gurugram
+  city: Gurugram
+  country: India
+- keyword: gurgaon
+  city: Gurugram
+  country: India
+- keyword: noida
+  city: Noida
+  country: India
+- keyword: mumbai
+  city: Mumbai
+  country: India
+- keyword: new delhi
+  city: New Delhi
+  country: India
+- keyword: delhi
+  city: New Delhi
+  country: India
+- keyword: bangalore
+  city: Bangalore
+  country: India
+- keyword: bengaluru
+  city: Bangalore
+  country: India
+- keyword: hyderabad
+  city: Hyderabad
+  country: India
+- keyword: pune
+  city: Pune
+  country: India
+- keyword: chennai
+  city: Chennai
+  country: India
+- keyword: kolkata
+  city: Kolkata
+  country: India
+- keyword: shanghai
+  city: Shanghai
+  country: China
+- keyword: beijing
+  city: Beijing
+  country: China
+- keyword: shenzhen
+  city: Shenzhen
+  country: China
+- keyword: tokyo
+  city: Tokyo
+  country: Japan
+- keyword: osaka
+  city: Osaka
+  country: Japan
+- keyword: seoul
+  city: Seoul
+  country: South Korea
+- keyword: kuala lumpur
+  city: Kuala Lumpur
+  country: Malaysia
+- keyword: jakarta
+  city: Jakarta
+  country: Indonesia
+- keyword: bangkok
+  city: Bangkok
+  country: Thailand
+- keyword: taipei
+  city: Taipei
+  country: Taiwan
+- keyword: manila
+  city: Manila
+  country: Philippines
+- keyword: ho chi minh
+  city: Ho Chi Minh City
+  country: Vietnam
+- keyword: sydney
+  city: Sydney
+  country: Australia
+- keyword: melbourne
+  city: Melbourne
+  country: Australia
+- keyword: brisbane
+  city: Brisbane
+  country: Australia
+- keyword: perth
+  city: Perth
+  country: Australia
+- keyword: sao paulo
+  city: São Paulo
+  country: Brazil
+- keyword: rio de janeiro
+  city: Rio de Janeiro
+  country: Brazil
+- keyword: bogota
+  city: Bogotá
+  country: Colombia
+- keyword: santiago
+  city: Santiago
+  country: Chile
+- keyword: buenos aires
+  city: Buenos Aires
+  country: Argentina
+- keyword: mexico city
+  city: Mexico City
+  country: Mexico
+- keyword: ciudad de mexico
+  city: Mexico City
+  country: Mexico
+- keyword: bermuda
+  city: Hamilton
+  country: Bermuda
+- keyword: cheltenham
+  city: Cheltenham
+  country: UK
+- keyword: bury st edmunds
+  city: Bury St Edmunds
+  country: UK
+- keyword: leatherhead
+  city: Leatherhead
+  country: UK
+- keyword: huntingdon
+  city: Huntingdon
+  country: UK
+- keyword: haverhill
+  city: Haverhill
+  country: UK
+- keyword: wrexham
+  city: Wrexham
+  country: UK
+- keyword: redhill
+  city: Redhill
+  country: UK
+- keyword: kildean
+  city: Stirling
+  country: UK
+- keyword: uk shrewsbury
+  city: Shrewsbury
+  country: UK
+- keyword: shrewsbury
+  city: Shrewsbury
+  country: UK
+- keyword: llandudno
+  city: Llandudno
+  country: UK
+- keyword: 'gbr '
+  city: UK
+  country: UK
+- keyword: evansville
+  city: Evansville
+  country: USA
+- keyword: radnor
+  city: Radnor
+  country: USA
+- keyword: alpharetta
+  city: Alpharetta
+  country: USA
+- keyword: conshohocken
+  city: Conshohocken
+  country: USA
+- keyword: rosemont
+  city: Rosemont
+  country: USA
+- keyword: henderson
+  city: Henderson
+  country: USA
+- keyword: schaumburg
+  city: Schaumburg
+  country: USA
+- keyword: highland park
+  city: Highland Park
+  country: USA
+- keyword: bloomington
+  city: Bloomington
+  country: USA
+- keyword: edina
+  city: Edina
+  country: USA
+- keyword: scottsdale
+  city: Scottsdale
+  country: USA
+- keyword: sun prairie
+  city: Sun Prairie
+  country: USA
+- keyword: eau claire
+  city: Eau Claire
+  country: USA
+- keyword: hunt valley
+  city: Hunt Valley
+  country: USA
+- keyword: lake mary
+  city: Lake Mary
+  country: USA
+- keyword: media - pennsylvania
+  city: Media
+  country: USA
+- keyword: exton
+  city: Exton
+  country: USA
+- keyword: duluth
+  city: Duluth
+  country: USA
+- keyword: lone tree
+  city: Lone Tree
+  country: USA
+- keyword: minnetonka
+  city: Minnetonka
+  country: USA
+- keyword: fort worth
+  city: Fort Worth
+  country: USA
+- keyword: parsippany
+  city: Parsippany
+  country: USA
+- keyword: buffalo
+  city: Buffalo
+  country: USA
+- keyword: heilbronn
+  city: Heilbronn
+  country: Germany
+- keyword: heppenheim
+  city: Heppenheim
+  country: Germany
+- keyword: essen
+  city: Essen
+  country: Germany
+- keyword: leipzig
+  city: Leipzig
+  country: Germany
+- keyword: kiel
+  city: Kiel
+  country: Germany
+- keyword: mainz
+  city: Mainz
+  country: Germany
+- keyword: bonn
+  city: Bonn
+  country: Germany
+- keyword: nürnberg
+  city: Nürnberg
+  country: Germany
+- keyword: stuttgart
+  city: Stuttgart
+  country: Germany
+- keyword: mönchengladbach
+  city: Mönchengladbach
+  country: Germany
+- keyword: oberhaching
+  city: Oberhaching
+  country: Germany
+- keyword: köln
+  city: Cologne
+  country: Germany
+- keyword: münchen
+  city: Munich
+  country: Germany
+- keyword: eutin
+  city: Eutin
+  country: Germany
+- keyword: duesseldorf
+  city: Düsseldorf
+  country: Germany
+- keyword: nld schiphol
+  city: Schiphol
+  country: Netherlands
+- keyword: schiphol
+  city: Schiphol
+  country: Netherlands
+- keyword: amstelveen
+  city: Amstelveen
+  country: Netherlands
+- keyword: hoogeveen
+  city: Hoogeveen
+  country: Netherlands
+- keyword: heerenveen
+  city: Heerenveen
+  country: Netherlands
+- keyword: capelle aan den ijssel
+  city: Capelle aan den IJssel
+  country: Netherlands
+- keyword: zaventem
+  city: Zaventem
+  country: Belgium
+- keyword: diegem
+  city: Diegem
+  country: Belgium
+- keyword: waregem
+  city: Waregem
+  country: Belgium
+- keyword: gent
+  city: Ghent
+  country: Belgium
+- keyword: leuven
+  city: Leuven
+  country: Belgium
+- keyword: nanterre
+  city: Nanterre
+  country: France
+- keyword: courbevoie
+  city: Courbevoie
+  country: France
+- keyword: levallois-perret
+  city: Levallois-Perret
+  country: France
+- keyword: chilly mazarin
+  city: Chilly-Mazarin
+  country: France
+- keyword: boadilla del monte
+  city: Madrid
+  country: Spain
+- keyword: valencia
+  city: Valencia
+  country: Spain
+- keyword: torino
+  city: Turin
+  country: Italy
+- keyword: hvidovre
+  city: Hvidovre
+  country: Denmark
+- keyword: taastrup
+  city: Taastrup
+  country: Denmark
+- keyword: farum
+  city: Farum
+  country: Denmark
+- keyword: aalborg
+  city: Aalborg
+  country: Denmark
+- keyword: wien
+  city: Vienna
+  country: Austria
+- keyword: lisboa
+  city: Lisbon
+  country: Portugal
+- keyword: glattbrugg
+  city: Glattbrugg
+  country: Switzerland
+- keyword: zrich
+  city: Zurich
+  country: Switzerland
+- keyword: zürich
+  city: Zurich
+  country: Switzerland
+- keyword: kilkenny
+  city: Kilkenny
+  country: Ireland
+- keyword: carlow
+  city: Carlow
+  country: Ireland
+- keyword: munsbach
+  city: Munsbach
+  country: Luxembourg
+- keyword: gdynia
+  city: Gdynia
+  country: Poland
+- keyword: saint-léonard
+  city: Montreal
+  country: Canada
+- keyword: moncton
+  city: Moncton
+  country: Canada
+- keyword: georgia - duluth
+  city: Duluth
+  country: USA
+- keyword: california - santa ana
+  city: Santa Ana
+  country: USA
+- keyword: colorado - lone tree
+  city: Lone Tree
+  country: USA
+- keyword: minnesota - minnetonka
+  city: Minnetonka
+  country: USA
+- keyword: can-telecommute
+  city: Remote
+  country: Canada
+- keyword: can telecommute
+  city: Remote
+  country: Canada
+- keyword: us telecommuter
+  city: Remote
+  country: USA
+- keyword: illinois work at home
+  city: Remote
+  country: USA
+- keyword: manhattan
+  city: New York
+  country: USA
+- keyword: grand central
+  city: New York
+  country: USA
+- keyword: chantilly
+  city: Chantilly
+  country: USA
+- keyword: herndon
+  city: Herndon
+  country: USA
+- keyword: livonia
+  city: Livonia
+  country: USA
+- keyword: fort belvoir
+  city: Fort Belvoir
+  country: USA
+- keyword: fort george g meade
+  city: Fort Meade
+  country: USA
+- keyword: pierre, hughes
+  city: Pierre
+  country: USA
+- keyword: topeka
+  city: Topeka
+  country: USA
+- keyword: boise
+  city: Boise
+  country: USA
+- keyword: salem, marion
+  city: Salem
+  country: USA
+- keyword: trenton, mercer
+  city: Trenton
+  country: USA
+- keyword: helena, lewis
+  city: Helena
+  country: USA
+- keyword: bismarck
+  city: Bismarck
+  country: USA
+- keyword: frankfort, franklin
+  city: Frankfort
+  country: USA
+- keyword: augusta, kennebec
+  city: Augusta
+  country: USA
+- keyword: jackson, hinds
+  city: Jackson
+  country: USA
+- keyword: annapolis
+  city: Annapolis
+  country: USA
+- keyword: carson mall
+  city: Carson City
+  country: USA
+- keyword: saint paul, ramsey
+  city: Saint Paul
+  country: USA
+- keyword: tumwater
+  city: Tumwater
+  country: USA
+- keyword: wake island
+  city: Honolulu
+  country: USA
+- keyword: edgewood, richland
+  city: Columbia
+  country: USA
+- keyword: cammack village
+  city: Little Rock
+  country: USA
+- keyword: state house, lancaster
+  city: Lincoln
+  country: USA
+- keyword: cedar, cole
+  city: Jefferson City
+  country: USA
+- keyword: five corners, hudson
+  city: Jersey City
+  country: USA
+- keyword: uptown, marion
+  city: Indianapolis
+  country: USA
+- keyword: five points, wake
+  city: Raleigh
+  country: USA
+- keyword: grandview heights
+  city: Columbus
+  country: USA
+- keyword: wellston, saint louis
+  city: St. Louis
+  country: USA
+- keyword: savage, anne arundel
+  city: Savage
+  country: USA
+- keyword: archer, laramie
+  city: Cheyenne
+  country: USA
+- keyword: international, king
+  city: Seattle
+  country: USA
+- keyword: chisolm, montgomery
+  city: Montgomery
+  country: USA
+- keyword: lostock
+  city: Bolton
+  country: UK
+- keyword: beaconsfield
+  city: Beaconsfield
+  country: UK
+- keyword: knotty green
+  city: Beaconsfield
+  country: UK
+- keyword: west drayton
+  city: West Drayton
+  country: UK
+- keyword: kidderminster
+  city: Kidderminster
+  country: UK
+- keyword: hilsea
+  city: Portsmouth
+  country: UK
+- keyword: portsmouth
+  city: Portsmouth
+  country: UK
+- keyword: tiverton
+  city: Tiverton
+  country: UK
+- keyword: cullompton
+  city: Cullompton
+  country: UK
+- keyword: québec
+  city: Quebec
+  country: Canada
+- keyword: dorval
+  city: Montreal
+  country: Canada
+- keyword: bas-saint-laurent
+  city: Bas-Saint-Laurent
+  country: Canada
+- keyword: stevenage
+  city: Stevenage
+  country: UK
+- keyword: tamworth
+  city: Tamworth
+  country: UK
+- keyword: warrington
+  city: Warrington
+  country: UK
+- keyword: cheshire
+  city: Cheshire
+  country: UK
+- keyword: hertfordshire
+  city: Hertfordshire
+  country: UK
+- keyword: st. albans
+  city: St Albans
+  country: UK
+- keyword: horsham
+  city: Horsham
+  country: UK
+- keyword: cheltenham
+  city: Cheltenham
+  country: UK
+- keyword: sittingbourne
+  city: Sittingbourne
+  country: UK
+- keyword: letchworth
+  city: Letchworth
+  country: UK
+- keyword: redditch
+  city: Redditch
+  country: UK
+- keyword: witham
+  city: Witham
+  country: UK
+- keyword: ashford
+  city: Ashford
+  country: UK
+- keyword: penrith
+  city: Penrith
+  country: UK
+- keyword: whitehaven
+  city: Whitehaven
+  country: UK
+- keyword: workington
+  city: Workington
+  country: UK
+- keyword: carlisle
+  city: Carlisle
+  country: UK
+- keyword: barrow-in-furness
+  city: Barrow-in-Furness
+  country: UK
+- keyword: kendal
+  city: Kendal
+  country: UK
+- keyword: brampton
+  city: Brampton
+  country: Canada
+- keyword: westmount
+  city: Montreal
+  country: Canada
+- keyword: guelph
+  city: Guelph
+  country: Canada
+- keyword: oakville
+  city: Oakville
+  country: Canada
+- keyword: peel region
+  city: Brampton
+  country: Canada
+- keyword: halton
+  city: Oakville
+  country: Canada
+- keyword: wellington region
+  city: Guelph
+  country: Canada
+- keyword: hampton roads
+  city: Hampton Roads
+  country: USA
+- keyword: poquoson
+  city: Poquoson
+  country: USA
+- keyword: alexandria, alexandria
+  city: Alexandria
+  country: USA
+- keyword: castlewood
+  city: Denver
+  country: USA
+- keyword: centennial
+  city: Denver
+  country: USA
+- keyword: san juan
+  city: San Juan
+  country: USA
+- keyword: puerto rico
+  city: Puerto Rico
+  country: USA
+- keyword: aguadilla
+  city: Aguadilla
+  country: USA
+- keyword: urbanización
+  city: San Juan
+  country: USA
+- keyword: hammersmith
+  city: London
+  country: UK
+- keyword: chilworth
+  city: Southampton
+  country: UK
+- keyword: gloucester
+  city: Gloucester
+  country: UK
+- keyword: gloucestershire
+  city: Gloucester
+  country: UK
+- keyword: norfolk, norfolk city
+  city: Norfolk
+  country: USA
+- keyword: north bay
+  city: North Bay
+  country: Canada
+- keyword: nipissing
+  city: North Bay
+  country: Canada
+- keyword: fort mcmurray
+  city: Fort McMurray
+  country: Canada
+- keyword: anzac
+  city: Fort McMurray
+  country: Canada
+- keyword: hato rey
+  city: San Juan
+  country: USA
+- keyword: ebene
+  city: Ebene
+  country: Mauritius
+- keyword: sumida-ku
+  city: Tokyo
+  country: Japan
+- keyword: birchwood
+  city: Warrington
+  country: UK
+- keyword: marlow
+  city: Marlow
+  country: UK
+- keyword: high wycombe
+  city: High Wycombe
+  country: UK
+- keyword: kings langley
+  city: Kings Langley
+  country: UK
+- keyword: dudley
+  city: Dudley
+  country: UK
+- keyword: stonehouse
+  city: Stonehouse
+  country: UK
+- keyword: christchurch
+  city: Christchurch
+  country: UK
+- keyword: knutsford
+  city: Knutsford
+  country: UK
+- keyword: dartford
+  city: Dartford
+  country: UK
+- keyword: nelson
+  city: Nelson
+  country: UK
+- keyword: macclesfield
+  city: Macclesfield
+  country: UK
+- keyword: basingstoke
+  city: Basingstoke
+  country: UK
+- keyword: worsley
+  city: Manchester
+  country: UK
+- keyword: newtownabbey
+  city: Newtownabbey
+  country: UK
+- keyword: barnstaple
+  city: Barnstaple
+  country: UK
+- keyword: poole
+  city: Poole
+  country: UK
+- keyword: burton-on-trent
+  city: Burton-on-Trent
+  country: UK
+- keyword: grays
+  city: Grays
+  country: UK
+- keyword: bromley
+  city: London
+  country: UK
+- keyword: harlow
+  city: Harlow
+  country: UK
+- keyword: hemel hempstead
+  city: Hemel Hempstead
+  country: UK
+- keyword: sale
+  city: Sale
+  country: UK
+- keyword: wolverhampton
+  city: Wolverhampton
+  country: UK
+- keyword: barnsley
+  city: Barnsley
+  country: UK
+- keyword: slough
+  city: Slough
+  country: UK
+- keyword: runcorn
+  city: Runcorn
+  country: UK
+- keyword: bridgwater
+  city: Bridgwater
+  country: UK
+- keyword: scunthorpe
+  city: Scunthorpe
+  country: UK
+- keyword: wigan
+  city: Wigan
+  country: UK
+- keyword: gravesend
+  city: Gravesend
+  country: UK
+- keyword: addlestone
+  city: Addlestone
+  country: UK
+- keyword: birkenhead
+  city: Birkenhead
+  country: UK
+- keyword: morley
+  city: Leeds
+  country: UK
+- keyword: great yarmouth
+  city: Great Yarmouth
+  country: UK
+- keyword: yeovil
+  city: Yeovil
+  country: UK
+- keyword: didcot
+  city: Didcot
+  country: UK
+- keyword: alfreton
+  city: Alfreton
+  country: UK
+- keyword: aylesford
+  city: Aylesford
+  country: UK
+- keyword: brighouse
+  city: Brighouse
+  country: UK
+- keyword: cramlington
+  city: Cramlington
+  country: UK
+- keyword: glenrothes
+  city: Glenrothes
+  country: UK
+- keyword: banbury
+  city: Banbury
+  country: UK
+- keyword: bicester
+  city: Bicester
+  country: UK
+- keyword: oldbury
+  city: Oldbury
+  country: UK
+- keyword: bognor regis
+  city: Bognor Regis
+  country: UK
+- keyword: cannock
+  city: Cannock
+  country: UK
+- keyword: bridgnorth
+  city: Bridgnorth
+  country: UK
+- keyword: henley-on-thames
+  city: Henley-on-Thames
+  country: UK
+- keyword: northampton
+  city: Northampton
+  country: UK
+- keyword: thatcham
+  city: Thatcham
+  country: UK
+- keyword: aldershot
+  city: Aldershot
+  country: UK
+- keyword: nantwich
+  city: Nantwich
+  country: UK
+- keyword: newtownards
+  city: Newtownards
+  country: UK
+- keyword: rugby
+  city: Rugby
+  country: UK
+- keyword: hereford
+  city: Hereford
+  country: UK
+- keyword: stoke-on-trent
+  city: Stoke-on-Trent
+  country: UK
+- keyword: felixstowe
+  city: Felixstowe
+  country: UK
+- keyword: sudbury
+  city: Sudbury
+  country: UK
+- keyword: tadworth
+  city: Tadworth
+  country: UK
+- keyword: aylesbury
+  city: Aylesbury
+  country: UK
+- keyword: eastbourne
+  city: Eastbourne
+  country: UK
+- keyword: east grinstead
+  city: East Grinstead
+  country: UK
+- keyword: hastings
+  city: Hastings
+  country: UK
+- keyword: weymouth
+  city: Weymouth
+  country: UK
+- keyword: redcar
+  city: Redcar
+  country: UK
+- keyword: blackpool
+  city: Blackpool
+  country: UK
+- keyword: bromsgrove
+  city: Bromsgrove
+  country: UK
+- keyword: malmesbury
+  city: Malmesbury
+  country: UK
+- keyword: enfield
+  city: London
+  country: UK
+- keyword: epping
+  city: Epping
+  country: UK
+- keyword: ingatestone
+  city: Ingatestone
+  country: UK
+- keyword: stratford-upon-avon
+  city: Stratford-upon-Avon
+  country: UK
+- keyword: clitheroe
+  city: Clitheroe
+  country: UK
+- keyword: salisbury
+  city: Salisbury
+  country: UK
+- keyword: brierley hill
+  city: Brierley Hill
+  country: UK
+- keyword: caerphilly
+  city: Caerphilly
+  country: UK
+- keyword: selby
+  city: Selby
+  country: UK
+- keyword: romsey
+  city: Romsey
+  country: UK
+- keyword: hatfield
+  city: Hatfield
+  country: UK
+- keyword: telford
+  city: Telford
+  country: UK
+- keyword: lowestoft
+  city: Lowestoft
+  country: UK
+- keyword: airdrie
+  city: Airdrie
+  country: UK
+- keyword: sutton coldfield
+  city: Sutton Coldfield
+  country: UK
+- keyword: billericay
+  city: Billericay
+  country: UK
+- keyword: leigh
+  city: Leigh
+  country: UK
+- keyword: bootle
+  city: Bootle
+  country: UK
+- keyword: goole
+  city: Goole
+  country: UK
+- keyword: cwmbran
+  city: Cwmbran
+  country: UK
+- keyword: woodbridge
+  city: Woodbridge
+  country: UK
+- keyword: malvern
+  city: Malvern
+  country: UK
+- keyword: seascale
+  city: Seascale
+  country: UK
+- keyword: pontypool
+  city: Pontypool
+  country: UK
+- keyword: wellingborough
+  city: Wellingborough
+  country: UK
+- keyword: leiston
+  city: Leiston
+  country: UK
+- keyword: queens
+  city: New York
+  country: USA
+- keyword: long island city
+  city: New York
+  country: USA
+- keyword: brooklyn
+  city: New York
+  country: USA
+- keyword: flatbush
+  city: New York
+  country: USA
+- keyword: chesapeake
+  city: Chesapeake
+  country: USA
+- keyword: metairie
+  city: New Orleans
+  country: USA
+- keyword: harrisonburg
+  city: Harrisonburg
+  country: USA
+- keyword: pearl city
+  city: Honolulu
+  country: USA
+- keyword: lynchburg
+  city: Lynchburg
+  country: USA
+- keyword: fairbanks
+  city: Fairbanks
+  country: USA
+- keyword: ljubljana
+  city: Ljubljana
+  country: Slovenia
+- keyword: slovenia
+  city: Ljubljana
+  country: Slovenia
+- keyword: monaco
+  city: Monaco
+  country: Monaco
+- keyword: gift city
+  city: GIFT City
+  country: India
+- keyword: malaysia
+  city: Malaysia
+  country: Malaysia
+# ── Missing UK towns (added from N/A audit) ──
+- keyword: stoke
+  city: Stoke-on-Trent
+  country: UK
+- keyword: bury
+  city: Bury
+  country: UK
+- keyword: utica
+  city: Utica
+  country: USA
+- keyword: battle
+  city: Battle
+  country: UK
+- keyword: beckenham
+  city: Beckenham
+  country: UK
+- keyword: weybridge
+  city: Weybridge
+  country: UK
+- keyword: hainault
+  city: Hainault
+  country: UK
+- keyword: outwood
+  city: Outwood
+  country: UK
+- keyword: erith
+  city: Erith
+  country: UK
+- keyword: taplow
+  city: Taplow
+  country: UK
+- keyword: brentwood
+  city: Brentwood
+  country: UK
+- keyword: harrow
+  city: Harrow
+  country: UK
+- keyword: chiswick
+  city: Chiswick
+  country: UK
+- keyword: surbiton
+  city: Surbiton
+  country: UK
+- keyword: hoddesdon
+  city: Hoddesdon
+  country: UK
+- keyword: chertsey
+  city: Chertsey
+  country: UK
+- keyword: whyteleafe
+  city: Whyteleafe
+  country: UK
+- keyword: accrington
+  city: Accrington
+  country: UK
+- keyword: failsworth
+  city: Failsworth
+  country: UK
+- keyword: atherstone
+  city: Atherstone
+  country: UK
+- keyword: rednal
+  city: Rednal
+  country: UK
+- keyword: stourbridge
+  city: Stourbridge
+  country: UK
+- keyword: larne
+  city: Larne
+  country: UK
+- keyword: covent garden
+  city: London
+  country: UK
+- keyword: colindale
+  city: London
+  country: UK
+- keyword: gerrards cross
+  city: Gerrards Cross
+  country: UK
+- keyword: alderley edge
+  city: Alderley Edge
+  country: UK
+- keyword: tameside
+  city: Tameside
+  country: UK
+- keyword: glossop
+  city: Glossop
+  country: UK
+- keyword: rugeley
+  city: Rugeley
+  country: UK
+- keyword: swadlincote
+  city: Swadlincote
+  country: UK
+- keyword: alcester
+  city: Alcester
+  country: UK
+- keyword: burntwood
+  city: Burntwood
+  country: UK
+- keyword: nuneaton
+  city: Nuneaton
+  country: UK
+- keyword: falkirk
+  city: Falkirk
+  country: UK
+- keyword: renfrewshire
+  city: Renfrewshire
+  country: UK
+- keyword: keynsham
+  city: Keynsham
+  country: UK
+- keyword: trowbridge
+  city: Trowbridge
+  country: UK
+- keyword: weston-super-mare
+  city: Weston-super-Mare
+  country: UK
+- keyword: glastonbury
+  city: Glastonbury
+  country: UK
+- keyword: chepstow
+  city: Chepstow
+  country: UK
+- keyword: wells
+  city: Wells
+  country: UK
+- keyword: castleford
+  city: Castleford
+  country: UK
+- keyword: pudsey
+  city: Pudsey
+  country: UK
+- keyword: bargoed
+  city: Bargoed
+  country: UK
+- keyword: westerham
+  city: Westerham
+  country: UK
+- keyword: langley
+  city: Langley
+  country: UK
+- keyword: kennett square
+  city: Kennett Square
+  country: USA
+- keyword: auckland
+  city: Auckland
+  country: New Zealand
+- keyword: guadalajara
+  city: Guadalajara
+  country: Mexico
+- keyword: makati city
+  city: Makati City
+  country: Philippines
+- keyword: são paulo
+  city: São Paulo
+  country: Brazil
+- keyword: sao paulo
+  city: São Paulo
+  country: Brazil
+- keyword: almaty
+  city: Almaty
+  country: Kazakhstan
+- keyword: kyiv
+  city: Kyiv
+  country: Ukraine
+country_only:
+  united kingdom: UK
+  england: UK
+  scotland: UK
+  wales: UK
+  northern ireland: UK
+  united states: USA
+  america: USA
+  ireland: Ireland
+  france: France
+  germany: Germany
+  italy: Italy
+  spain: Spain
+  poland: Poland
+  netherlands: Netherlands
+  belgium: Belgium
+  switzerland: Switzerland
+  austria: Austria
+  portugal: Portugal
+  hungary: Hungary
+  czech republic: Czech Republic
+  romania: Romania
+  greece: Greece
+  finland: Finland
+  sweden: Sweden
+  norway: Norway
+  denmark: Denmark
+  croatia: Croatia
+  bulgaria: Bulgaria
+  serbia: Serbia
+  latvia: Latvia
+  lithuania: Lithuania
+  estonia: Estonia
+  iceland: Iceland
+  cyprus: Cyprus
+  malta: Malta
+  canada: Canada
+  australia: Australia
+  singapore: Singapore
+  hong kong: Hong Kong
+  india: India
+  china: China
+  japan: Japan
+  south korea: South Korea
+  israel: Israel
+  south africa: South Africa
+  brazil: Brazil
+  mexico: Mexico
+  colombia: Colombia
+  uae: UAE
+  united arab emirates: UAE
+  saudi arabia: Saudi Arabia
+  qatar: Qatar
+  bahrain: Bahrain
+  kuwait: Kuwait
+allowed_countries:
+- Canada
+- France
+- Germany
+- Hong Kong
+- Luxembourg
+- Netherlands
+- Saudi Arabia
+- Singapore
+- Switzerland
+- UAE
+- UK
+- USA

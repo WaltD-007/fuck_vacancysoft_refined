@@ -4,15 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from vacancysoft.db.models import ClassificationResult, EnrichedJob, ScoreResult
-from vacancysoft.scoring.engine import compute_export_score
-
-
-def _decision_from_score(score: float) -> str:
-    if score >= 0.75:
-        return "accepted"
-    if score >= 0.45:
-        return "review"
-    return "rejected"
+from vacancysoft.scoring.engine import compute_export_score, decision_from_score
 
 
 def persist_score_for_enriched_job(session: Session, enriched_job: EnrichedJob) -> ScoreResult | None:
@@ -36,7 +28,7 @@ def persist_score_for_enriched_job(session: Session, enriched_job: EnrichedJob) 
         completeness=completeness,
         classification_confidence=classification_confidence,
     )
-    export_decision = _decision_from_score(score)
+    export_decision = decision_from_score(score)
 
     existing = session.execute(
         select(ScoreResult).where(ScoreResult.enriched_job_id == enriched_job.id)
@@ -44,7 +36,7 @@ def persist_score_for_enriched_job(session: Session, enriched_job: EnrichedJob) 
 
     values = {
         "enriched_job_id": enriched_job.id,
-        "scoring_version": "demo_scoring_v1",
+        "scoring_version": "scoring_v1",
         "title_relevance_score": title_relevance,
         "location_confidence_score": location_confidence,
         "freshness_confidence_score": freshness_confidence,
@@ -72,7 +64,13 @@ def persist_score_for_enriched_job(session: Session, enriched_job: EnrichedJob) 
 
 
 def score_enriched_jobs(session: Session, limit: int | None = None) -> int:
-    stmt = select(EnrichedJob).order_by(EnrichedJob.created_at.desc())
+    already_scored = select(ScoreResult.enriched_job_id)
+    stmt = (
+        select(EnrichedJob)
+        .where(~EnrichedJob.id.in_(already_scored))
+        .where(EnrichedJob.detail_fetch_status.notin_(["geo_filtered", "agency_filtered", "title_filtered"]))
+        .order_by(EnrichedJob.created_at.desc())
+    )
     if limit is not None:
         stmt = stmt.limit(limit)
     jobs = list(session.execute(stmt).scalars())
