@@ -12,6 +12,14 @@ Two generations coexist here, selected at runtime by
   ``~/Desktop/Prospero_Prompts.xlsx`` Campaign sheet. Does not use
   ``{outreach_angle}``.
 
+  Revision 2026-04-20b: added two global rules requiring every
+  email to close with a concrete offer of value (call, shortlist
+  sample, market briefing, etc.) varied across the five-sequence
+  arc, so the hiring manager receives five distinct concrete
+  offers over the campaign rather than five "happy to chat" nudges.
+  Compatible with the existing "do not ask the reader for more
+  information" rule — offering is not asking.
+
 - **v1 (legacy, dormant)**: ``CAMPAIGN_TEMPLATE_V1``. "Same message,
   different voice" philosophy — all six tones within a sequence
   convey the same core message, just re-voiced. Uses
@@ -152,6 +160,8 @@ Every Sequence 5 variant must feel like a genuine sign-off, not another nudge. S
 - No em-dashes. No bolding. Do not use "shifted" in place of "change".
 - Never salesy. Light, empathetic, gently persuasive.
 - Do not ask the reader for more information — this is one-way automation.
+- Every email must close with one concrete offer of value the sender is willing to give — e.g. a call, a shortlisted CV, a short market briefing, a salary benchmark, a trend observation, a competitor-hiring datapoint, an intro to someone adjacent, a pen portrait of a candidate pattern. Never end with a vague "let me know if interested" or "happy to chat". The offer is what the sender is prepared to give, not a request for the reader to act on. This is compatible with the previous rule — offering is not asking.
+- Vary the offer across the five sequences within each tone-arc. No two sequential emails in the same arc should close with the same offer. The Sequence 5 CTA is already tone-specific; the offers used in Sequences 1-4 must be different from each other and from that CTA, so the hiring manager receives five distinct concrete offers over the campaign.
 - Do not name the hiring manager by their real name even if identified above. Refer to them by title or generically ("your team", "the risk team").
 - Do not invent dossier details. If a dossier section is thin, lean on what IS there rather than fabricating.
 
@@ -184,6 +194,7 @@ Before returning, verify:
 - within each tone, no sequence could plausibly sit inside a different tone's campaign
 - sequence 1 feels introductory for all 6 tones
 - sequence 5 is a genuine sign-off with a tone-appropriate CTA referencing the anchor
+- every email closes with one concrete offer of value (not a vague "happy to chat"); the five offers within each tone-arc are distinct from each other
 - no email names the hiring manager by first name
 - no em-dashes, no bolding, no "shifted" in place of "change"
 - every email ends with "Kind regards" or similar

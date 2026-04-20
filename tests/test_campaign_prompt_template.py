@@ -83,6 +83,23 @@ class TestTemplateVersions:
         assert "{outreach_angle}" not in CAMPAIGN_TEMPLATE_V2
         assert "{outreach_angle}" in CAMPAIGN_TEMPLATE_V1
 
+    def test_v2_has_offer_of_value_rule(self) -> None:
+        """Every email must close with a concrete offer of value (v2 rev
+        2026-04-20b). Guards against accidental removal of the rule."""
+        # Global-rules bullet
+        assert "concrete offer of value" in CAMPAIGN_TEMPLATE_V2
+        # Anti-pattern the rule explicitly forbids
+        assert 'vague "let me know if interested"' in CAMPAIGN_TEMPLATE_V2
+        # Variation requirement
+        assert "Vary the offer across the five sequences" in CAMPAIGN_TEMPLATE_V2
+        # Self-check line at the end
+        assert "five offers within each tone-arc are distinct from each other" in CAMPAIGN_TEMPLATE_V2
+
+    def test_v1_does_not_have_offer_of_value_rule(self) -> None:
+        """v1 is frozen; the new rule lives only on v2 so rollback is clean."""
+        assert "concrete offer of value" not in CAMPAIGN_TEMPLATE_V1
+        assert "Vary the offer across the five sequences" not in CAMPAIGN_TEMPLATE_V1
+
 
 # ── resolve_campaign_prompt selects by flag ───────────────────────
 
