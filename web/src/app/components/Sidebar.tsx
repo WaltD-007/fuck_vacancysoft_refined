@@ -4,8 +4,19 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "../lib/swr";
+import { FEATURES } from "../lib/features";
 
 const sections = ["OVERVIEW", "PIPELINE", "SETTINGS"];
+
+type NavItem = {
+  label: string;
+  href: string;
+  icon: string;
+  section: string;
+  badge?: string;
+  badgeColor?: string;
+  disabled?: boolean;
+};
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -16,15 +27,17 @@ export default function Sidebar() {
   });
   const queueCount = queueData?.length ?? 0;
 
-  const nav = [
+  // Nav items include a `disabled` flag sourced from FEATURES. Disabled
+  // items render greyed-out and non-clickable with a "Coming soon" tooltip.
+  const nav: NavItem[] = [
     { label: "Dashboard", href: "/", icon: "▣", section: "OVERVIEW" },
     { label: "Lead List", href: "/leads", icon: "★", section: "OVERVIEW", badge: queueCount > 0 ? queueCount.toString() : undefined, badgeColor: "#00d2a0" },
     { label: "Sources", href: "/sources", icon: "⊙", section: "PIPELINE", badge: undefined, badgeColor: "#6c5ce7" },
     { label: "Campaign Builder", href: "/builder", icon: "✎", section: "PIPELINE" },
-    { label: "Campaigns", href: "/campaigns", icon: "✉", section: "PIPELINE", badge: undefined, badgeColor: "#ffd93d" },
-    { label: "Scoring Rules", href: "/settings/scoring", icon: "⚙", section: "SETTINGS" },
-    { label: "Integrations", href: "/settings/integrations", icon: "⇶", section: "SETTINGS" },
-    { label: "Team", href: "/settings/team", icon: "☷", section: "SETTINGS" },
+    { label: "Campaigns", href: "/campaigns", icon: "✉", section: "PIPELINE", badge: undefined, badgeColor: "#ffd93d", disabled: !FEATURES.campaignsManager },
+    { label: "Scoring Rules", href: "/settings/scoring", icon: "⚙", section: "SETTINGS", disabled: !FEATURES.scoringRules },
+    { label: "Integrations", href: "/settings/integrations", icon: "⇶", section: "SETTINGS", disabled: !FEATURES.integrations },
+    { label: "Team", href: "/settings/team", icon: "☷", section: "SETTINGS", disabled: !FEATURES.team },
   ];
 
   return (
@@ -43,6 +56,22 @@ export default function Sidebar() {
             <div className="text-[10px] font-semibold uppercase px-2 mb-2" style={{ color: "#555570", letterSpacing: "1.2px" }}>{section}</div>
             {nav.filter((n) => n.section === section).map((item) => {
               const active = pathname === item.href;
+              if (item.disabled) {
+                // Rendered as a non-clickable div so routing can't navigate
+                // to pages that don't exist. Tooltip explains why.
+                return (
+                  <div
+                    key={item.href}
+                    title="Coming soon"
+                    className="flex items-center gap-2.5 px-3 py-[9px] rounded-lg text-[13.5px] font-medium mb-0.5 cursor-not-allowed"
+                    style={{ color: "#3a3a4a", border: "1px solid transparent", opacity: 0.55 }}
+                  >
+                    <span className="w-[18px] text-center text-[15px]">{item.icon}</span>
+                    {item.label}
+                    <span className="ml-auto text-[9px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wider" style={{ background: "#1e1e2a", color: "#555570", letterSpacing: "0.5px" }}>Soon</span>
+                  </div>
+                );
+              }
               return (
                 <Link
                   key={item.href}

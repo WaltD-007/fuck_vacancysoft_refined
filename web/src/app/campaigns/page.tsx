@@ -1,5 +1,6 @@
 "use client";
 import Sidebar from "../components/Sidebar";
+import { FEATURES } from "../lib/features";
 
 const catColors: Record<string, string> = { Risk: "#a29bfe", Quant: "#4dabf7", Compliance: "#00d2a0", Audit: "#ffd93d", Cyber: "#ff6b6b", Legal: "#fd79a8", "Quant Risk": "#4dabf7", "Front Office": "#ffa500" };
 
@@ -18,6 +19,10 @@ const leads = [
 const filters = ["All (47)", "In Sequence (32)", "Replied (8)", "Meeting Booked (4)", "No Response (3)"];
 
 export default function CampaignsPage() {
+  // While FEATURES.campaignsManager is false, the rows below are static
+  // mock data — flag this loudly at the top of the page so colleagues
+  // don't mistake it for a live dashboard.
+  const isMock = !FEATURES.campaignsManager;
   return (
     <div className="min-h-screen" style={{ background: "#0a0a0f", color: "#e8e8f0", fontFamily: "'Inter', sans-serif" }}>
       <Sidebar />
@@ -35,13 +40,35 @@ export default function CampaignsPage() {
         </div>
 
         <div className="p-7">
+          {/* Coming-soon banner — shown while the Campaign Manager is still */}
+          {/* a mock. Flip FEATURES.campaignsManager to true to hide. */}
+          {isMock && (
+            <div className="mb-6 px-5 py-3 rounded-xl flex items-center gap-3" style={{ background: "rgba(255,217,61,0.06)", border: "1px solid rgba(255,217,61,0.25)" }}>
+              <span className="text-[14px]">⚠</span>
+              <div>
+                <div className="text-[13px] font-semibold" style={{ color: "#ffd93d" }}>Preview only — not live data</div>
+                <div className="text-[11px]" style={{ color: "#8888a0" }}>Shows what the Campaigns page will look like. The rows, counts, and stats below are hardcoded placeholders. Real tracking ships with the email-send feature.</div>
+              </div>
+            </div>
+          )}
+
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
             <div>
               <div className="text-xl font-bold">Campaigns</div>
-              <div className="text-sm mt-1" style={{ color: "#555570" }}>5 campaigns · 1,247 contacts enrolled · 68% avg open rate</div>
+              <div className="text-sm mt-1" style={{ color: "#555570" }}>
+                {isMock ? "Placeholder data — see banner above" : "5 campaigns · 1,247 contacts enrolled · 68% avg open rate"}
+              </div>
             </div>
-            <button className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white" style={{ background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)", boxShadow: "0 2px 12px rgba(108,92,231,0.3)" }}>+ New Campaign</button>
+            <button
+              disabled={isMock}
+              title={isMock ? "Coming soon" : undefined}
+              className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white"
+              style={isMock
+                ? { background: "#1e1e2a", color: "#555570", border: "1px solid #2a2a3a", cursor: "not-allowed" }
+                : { background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)", boxShadow: "0 2px 12px rgba(108,92,231,0.3)" }
+              }
+            >+ New Campaign</button>
           </div>
 
           {/* Stats */}

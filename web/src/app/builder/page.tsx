@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import Sidebar from "../components/Sidebar";
 import { API, fetcher } from "../lib/swr";
+import { FEATURES } from "../lib/features";
 
 type ToneKey = "formal" | "informal" | "consultative" | "direct" | "candidate_spec" | "technical";
 
@@ -208,8 +209,24 @@ export default function BuilderPage() {
               </select>
             </div>
             <div className="flex gap-2 shrink-0">
-              <button className="px-4 py-2.5 rounded-lg text-sm font-semibold" style={{ background: "transparent", color: "#8888a0", border: "1px solid #2a2a3a" }}>Save Draft</button>
-              <button className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white" style={{ background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)", boxShadow: "0 2px 12px rgba(108,92,231,0.3)" }}>Launch Campaign</button>
+              <button
+                disabled={!FEATURES.campaignSaveDraft}
+                title={!FEATURES.campaignSaveDraft ? "Coming soon" : undefined}
+                className="px-4 py-2.5 rounded-lg text-sm font-semibold"
+                style={!FEATURES.campaignSaveDraft
+                  ? { background: "transparent", color: "#3a3a4a", border: "1px solid #1f1f2f", cursor: "not-allowed" }
+                  : { background: "transparent", color: "#8888a0", border: "1px solid #2a2a3a" }
+                }
+              >Save Draft</button>
+              <button
+                disabled={!FEATURES.campaignLaunch}
+                title={!FEATURES.campaignLaunch ? "Coming soon" : undefined}
+                className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white"
+                style={!FEATURES.campaignLaunch
+                  ? { background: "#1e1e2a", color: "#555570", border: "1px solid #2a2a3a", boxShadow: "none", cursor: "not-allowed" }
+                  : { background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)", boxShadow: "0 2px 12px rgba(108,92,231,0.3)" }
+                }
+              >Launch Campaign</button>
             </div>
           </div>
 
