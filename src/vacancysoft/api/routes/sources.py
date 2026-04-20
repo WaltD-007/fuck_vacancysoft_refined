@@ -121,7 +121,7 @@ def get_source_jobs(
       * negative source_id — treated as a virtual card; ?company= must be set.
     """
     from vacancysoft.db.models import ClassificationResult
-    from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_category, map_sub_specialism
+    from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_category
 
     routing = load_legacy_routing()
     ledger = _get_cached_ledger(country=country)
@@ -172,6 +172,7 @@ def get_source_jobs(
                 EnrichedJob.location_city,
                 EnrichedJob.location_country,
                 ClassificationResult.primary_taxonomy_key,
+                ClassificationResult.sub_specialism,
                 ScoreResult.export_eligibility_score,
                 RawJob.discovered_url,
             )
@@ -186,9 +187,9 @@ def get_source_jobs(
         rows = s.execute(q.order_by(ScoreResult.export_eligibility_score.desc().nullslast())).all()
 
     # OR across sub_specialism filter values — matches the chip semantics on
-    # the Sources page. Computed here (not at the DB) because sub_specialism
-    # isn't a column; it's derived from the title via map_sub_specialism
-    # against the same routing snapshot the card counts used.
+    # the Sources page. sub_specialism is now read straight from the
+    # ClassificationResult column (2026-04-20 change); previously this was
+    # recomputed via map_sub_specialism() against configs/legacy_routing.yaml.
     sub_allowed: set[str] | None = (
         {s for s in sub_specialism if s} if sub_specialism else None
     )
@@ -197,7 +198,7 @@ def get_source_jobs(
     for r in rows:
         title = r[1] or ""
         cat_label = map_category(r[4], routing)
-        sub_spec = map_sub_specialism(title, cat_label, routing)
+        sub_spec = r[5] or "Other"
         if sub_allowed is not None and sub_spec not in sub_allowed:
             continue
         result.append(ScoredJobOut(
@@ -207,8 +208,8 @@ def get_source_jobs(
             country=r[3],
             category=cat_label,
             sub_specialism=sub_spec,
-            score=round(r[5], 1) if r[5] else None,
-            url=r[6],
+            score=round(r[6], 1) if r[6] else None,
+            url=r[7],
         ))
     return result
 

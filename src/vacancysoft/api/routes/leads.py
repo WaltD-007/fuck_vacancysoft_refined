@@ -122,7 +122,7 @@ def get_dashboard():
         return cached[1]
 
     from vacancysoft.db.models import ClassificationResult, SourceRun
-    from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_category, map_sub_specialism
+    from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_category
     from datetime import datetime, timedelta, timezone
     from sqlalchemy import text as _sql_text
 
@@ -244,6 +244,7 @@ def get_dashboard():
                 Source.base_url,
                 ScoreResult.export_eligibility_score,
                 ClassificationResult.employment_type,
+                ClassificationResult.sub_specialism,
             )
             .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
             .join(Source, RawJob.source_id == Source.id)
@@ -264,7 +265,10 @@ def get_dashboard():
             payload = r[8]
             score_raw = r[10]
             category = map_category(tax_key, routing)
-            sub = map_sub_specialism(title, category, routing)
+            # sub_specialism now read directly from the DB column (2026-04-20);
+            # previously recomputed via map_sub_specialism() against the
+            # legacy YAML, which was stale vs the taxonomy code.
+            sub = r[12] or "Other"
 
             # For aggregator jobs, extract the real employer from payload.
             # Uses the shared extractor (which knows Reed's employerName,

@@ -125,15 +125,21 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
     detail-view counts are always equal.
     """
     from vacancysoft.db.models import ClassificationResult, SourceRun
-    from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_category, map_sub_specialism
+    from vacancysoft.exporters.legacy_mapping import load_legacy_routing, map_category
     routing = load_legacy_routing()
 
     # ---- 1) Fetch every core-market lead from active sources ----
+    # Sub-specialism comes from ClassificationResult.sub_specialism (populated
+    # by classify_against_legacy_taxonomy at classify-time). Previously this
+    # aggregator called map_sub_specialism() against configs/legacy_routing.yaml,
+    # which carried the old pre-reduction taxonomy — leading to the Sources
+    # page showing stale chips after the 2026-04-20 taxonomy refactor.
     q = (
         select(
             RawJob.id, RawJob.source_id, RawJob.listing_payload, RawJob.discovered_url,
             EnrichedJob.id, EnrichedJob.title, EnrichedJob.location_country,
             ClassificationResult.primary_taxonomy_key,
+            ClassificationResult.sub_specialism,
             ScoreResult.export_eligibility_score,
             Source.id, Source.employer_name, Source.adapter_name, Source.base_url,
             Source.active, Source.seed_type, Source.ats_family,
@@ -156,7 +162,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
     for r in rows:
         (_raw_id, _raw_source_id, payload, _url,
          enriched_id, title, loc_country,
-         cat_key, _score,
+         cat_key, sub_spec, _score,
          src_id, src_employer_name, src_adapter, _src_base_url,
          _src_active, _src_seed, _src_ats, employment_type) = r
 
@@ -177,6 +183,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             "enriched_id": enriched_id,
             "title": title or "",
             "cat_key": cat_key,
+            "sub_spec": sub_spec,
             "country": loc_country,
             "src_id": src_id,
             "adapter": src_adapter,
@@ -232,9 +239,13 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
         card["categories_by_country"][country_key][cat_label] = (
             card["categories_by_country"][country_key].get(cat_label, 0) + 1
         )
-        # Sub-specialism bucket per (category, sub) — resolved from the lead's title + category
-        # via the same rules that drive export-time sub-specialism labelling.
-        sub_label = map_sub_specialism(lead["title"], cat_label, routing) or "Other"
+        # Sub-specialism bucket per (category, sub). Read straight from the
+        # ClassificationResult.sub_specialism column (populated by the
+        # title-taxonomy classifier at classify-time). Fall back to "Other"
+        # for rows classified before the sub_specialism column existed
+        # (should be zero after the 2026-04-20 reclassify, but kept as a
+        # safety net in case a new lead slips through without classification).
+        sub_label = lead["sub_spec"] or "Other"
         card["sub_specialisms"].setdefault(cat_label, {})
         card["sub_specialisms"][cat_label][sub_label] = (
             card["sub_specialisms"][cat_label].get(sub_label, 0) + 1

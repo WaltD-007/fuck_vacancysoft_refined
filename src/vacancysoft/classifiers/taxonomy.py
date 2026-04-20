@@ -34,23 +34,28 @@ _CATEGORY_DEFAULT_SUB_SPEC: dict[str, str] = {
 # Sub-specialism strings mirror the Sub Specialisms tab of the taxonomy xlsx.
 _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
     "risk": [
-        # Enterprise Risk — senior / cross-cutting roles
+        # Enterprise Risk — senior / cross-cutting roles. 'chief risk' and
+        # 'cro' used to be tagged 'all sub specialisms' in the xlsx sentinel
+        # style; mapped to Enterprise Risk per the 2026-04-20 retag session.
         ("chief risk", 1.0, "Enterprise Risk"), ("cro ", 0.9, "Enterprise Risk"),
-        ("enterprise risk", 1.0, "Enterprise Risk"), ("head of risk", 1.0, "Enterprise Risk"),
-        ("risk appetite", 0.9, "Enterprise Risk"),
         # Credit Risk
         ("counterparty credit", 1.0, "Credit Risk"), ("counterparty risk", 1.0, "Credit Risk"),
         ("credit quality assurance", 1.0, "Credit Risk"), ("credit risk", 1.0, "Credit Risk"),
         ("credit quality", 0.9, "Credit Risk"), ("retail credit risk", 0.9, "Credit Risk"),
         ("wholesale credit", 0.9, "Credit Risk"),
-        ("asset liability", 0.85, "Prudential Risk"), ("credit analyst", 0.85, "Credit Risk"),
+        # 'risk appetite' and 'asset liability' routed to Credit Risk per
+        # user's 2026-04-20 xlsx mapping (unusual — normally Enterprise /
+        # Prudential respectively — but documented here as the user's choice).
+        ("risk appetite", 0.9, "Credit Risk"),
+        ("asset liability", 0.85, "Credit Risk"), ("credit analyst", 0.85, "Credit Risk"),
         ("credit assessment", 0.85, "Credit Risk"), ("credit officer", 0.85, "Credit Risk"),
         ("credit portfolio", 0.85, "Credit Risk"), ("credit strategy", 0.85, "Credit Risk"),
         ("credit portolio management", 0.6, "Credit Risk"),
-        # Market Risk
+        # Market Risk — per user's 2026-04-20 xlsx mapping, 'investment risk'
+        # rolls up to Market Risk (removes Investment Risk's only rule).
         ("market risk", 1.0, "Market Risk"), ("market risk assurance", 1.0, "Market Risk"),
         ("value at risk", 1.0, "Market Risk"),
-        ("investment risk", 0.9, "Investment Risk"), ("trading risk", 0.9, "Market Risk"),
+        ("investment risk", 0.9, "Market Risk"), ("trading risk", 0.9, "Market Risk"),
         ("cva", 0.8, "Market Risk"), ("xva", 0.8, "Market Risk"),
         # Quant Risk — quant-flavoured risk roles route to Risk so the Risk
         # team owns model risk, validation, and risk-analytics quant work.
@@ -75,15 +80,20 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("liquidity management", 0.8, "Prudential Risk"),
         ("prudential", 0.7, "Prudential Risk"),
         ("alm", 0.6, "Prudential Risk"), ("treasury", 0.6, "Prudential Risk"),
-        # Operational Risk
+        # Operational Risk — per user's 2026-04-20 xlsx mapping,
+        # 'enterprise risk', 'head of risk', 'risk framework', 'risk governance'
+        # all roll up to Operational Risk (Enterprise Risk sub-spec remains
+        # populated only by 'chief risk' and 'cro').
+        ("enterprise risk", 1.0, "Operational Risk"), ("head of risk", 1.0, "Operational Risk"),
         ("non financial risk", 1.0, "Operational Risk"), ("op risk", 1.0, "Operational Risk"),
         ("operational risk", 1.0, "Operational Risk"), ("ops risk", 1.0, "Operational Risk"),
-        ("risk controls", 0.9, "Operational Risk"), ("risk framework", 0.9, "Enterprise Risk"),
-        ("risk governance", 0.9, "Enterprise Risk"), ("risk reporting", 0.9, "Operational Risk"),
-        # Risk Management (catch-all, lowest specificity last)
+        ("risk controls", 0.9, "Operational Risk"), ("risk framework", 0.9, "Operational Risk"),
+        ("risk governance", 0.9, "Operational Risk"), ("risk reporting", 0.9, "Operational Risk"),
+        # Risk Management (catch-all, lowest specificity last). 'risk
+        # assurance' rolls up here per the 2026-04-20 retag.
         ("insurance risk", 1.0, "Risk Management"), ("risk management", 1.0, "Risk Management"),
         ("risk advisory", 0.9, "Risk Management"), ("risk assessment", 0.9, "Risk Management"),
-        ("risk associate", 0.9, "Risk Management"), ("risk assurance", 0.9, "Operational Risk"),
+        ("risk associate", 0.9, "Risk Management"), ("risk assurance", 0.9, "Risk Management"),
         ("risk consultant", 0.9, "Risk Management"),
         ("risk", 0.7, "Risk Management"),
     ],
@@ -130,7 +140,7 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("trading data scientist", 0.9, "Data Science"),
         ("financial data scientist", 0.85, "Data Science"),
         ("alpha data scientist", 0.9, "Data Science"),
-        ("machine learning quant", 0.95, "Data Science"),
+        ("machine learning quant", 0.95, "AI Engineer"),
         ("ml quant", 0.9, "Data Science"),
         ("quant ml", 0.9, "Data Science"),
         ("trading ml engineer", 0.9, "Data Science"),
@@ -187,7 +197,7 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("low latency developer", 0.85, "Quantitative Development"),
         ("quant data engineer", 0.85, "Quantitative Development"),
         ("trading data engineer", 0.8, "Quantitative Development"),
-        ("ml researcher trading", 0.85, "Data Science"),
+        ("ml researcher trading", 0.85, "Quantitative Trading"),
         ("quantitative modelling", 0.95, "Quantitative (General)"),
         ("quantitative modeling", 0.95, "Quantitative (General)"),
         ("derivatives modelling", 0.9, "Quantitative (General)"),
@@ -198,12 +208,18 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("derivatives", 0.6, "Quantitative (General)"),
     ],
     "compliance": [
+        # Per user's 2026-04-20 xlsx mapping, the *-compliance phrases
+        # (sanctions compliance, kyc compliance, know your customer,
+        # transaction monitoring, kyc) route to Regulatory Compliance rather
+        # than Financial Crime. Pure financial-crime keywords (MLRO, AML,
+        # anti-money-laundering, fraud risk, money-laundering-reporting)
+        # stay in Financial Crime.
         ("financial crime compliance", 1.0, "Financial Crime"), ("aml compliance", 1.0, "Financial Crime"),
-        ("sanctions compliance", 1.0, "Financial Crime"), ("kyc compliance", 1.0, "Financial Crime"),
+        ("sanctions compliance", 1.0, "Regulatory Compliance"), ("kyc compliance", 1.0, "Regulatory Compliance"),
         ("corporate governance", 0.85, "Governance"), ("governance risk compliance", 0.9, "Governance"),
         ("financial crime", 0.95, "Financial Crime"), ("anti money laundering", 0.95, "Financial Crime"),
-        ("know your customer", 0.95, "Financial Crime"),
-        ("transaction monitoring", 0.95, "Financial Crime"), ("fraud risk", 0.9, "Financial Crime"),
+        ("know your customer", 0.95, "Regulatory Compliance"),
+        ("transaction monitoring", 0.95, "Regulatory Compliance"), ("fraud risk", 0.9, "Financial Crime"),
         ("mlro", 1.0, "Financial Crime"), ("money laundering reporting", 1.0, "Financial Crime"),
         ("compliance officer", 1.0, "Regulatory Compliance"), ("compliance manager", 1.0, "Regulatory Compliance"),
         ("compliance analyst", 1.0, "Regulatory Compliance"), ("compliance advisor", 0.9, "Regulatory Compliance"),
@@ -212,7 +228,7 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("smcr", 0.9, "Regulatory Compliance"), ("mifid", 0.9, "Regulatory Compliance"),
         ("dodd frank", 0.9, "Regulatory Compliance"), ("emir", 0.8, "Regulatory Compliance"),
         ("surveillance", 0.8, "Regulatory Compliance"), ("aml", 0.9, "Financial Crime"),
-        ("kyc", 0.9, "Financial Crime"),
+        ("kyc", 0.9, "Regulatory Compliance"),
         ("compliance", 0.8, "Regulatory Compliance"), ("governance", 0.55, "Governance"),
         ("regulatory", 0.6, "Regulatory Compliance"),
     ],
@@ -220,28 +236,39 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         # External audit intentionally excluded — we do not recruit that market.
         # See _TITLE_BLOCKLIST for the hard exclusion. Keyword still listed so
         # any leak past the blocklist still gets the right sub-spec tag.
+        # Senior audit titles (manager, director, head of, auditor) now
+        # route to Internal Audit per the user's 2026-04-20 xlsx mapping,
+        # along with 'statutory audit' (new). 'controls testing' is new and
+        # was tagged 'Assurance' in the xlsx but merged into Audit (General)
+        # per Decision 3 (no Assurance sub-spec).
         ("internal audit", 1.0, "Internal Audit"), ("internal auditor", 1.0, "Internal Audit"),
         ("it audit", 1.0, "IT Audit"), ("it auditor", 1.0, "IT Audit"),
         ("technology audit", 1.0, "IT Audit"),
         ("systems audit", 0.9, "IT Audit"), ("cyber audit", 0.9, "IT Audit"),
-        ("audit manager", 1.0, "Audit (General)"), ("audit director", 1.0, "Audit (General)"),
-        ("head of audit", 1.0, "Audit (General)"),
+        ("audit manager", 1.0, "Internal Audit"), ("audit director", 1.0, "Internal Audit"),
+        ("head of audit", 1.0, "Internal Audit"),
+        ("statutory audit", 0.9, "Internal Audit"),
         ("assurance", 0.6, "Audit (General)"), ("audit", 0.85, "Audit (General)"),
-        ("auditor", 0.85, "Audit (General)"),
+        ("auditor", 0.85, "Internal Audit"),
+        ("controls testing", 0.6, "Audit (General)"),
     ],
     "cyber": [
+        # 2026-04-20 retag:
+        #   - Threat Detection → Threat Defence (sub-spec rename)
+        #   - application security / appsec → Cyber Security (was Security Engineering)
+        #   - infosec → Cyber GRC (was Cyber Security)
         ("security engineer", 0.9, "Security Engineering"), ("security engineering", 0.9, "Security Engineering"),
-        ("appsec", 0.9, "Security Engineering"), ("application security", 0.9, "Security Engineering"),
+        ("appsec", 0.9, "Cyber Security"), ("application security", 0.9, "Cyber Security"),
         ("devsecops", 0.9, "Security Engineering"),
         ("cloud security engineer", 0.9, "Security Engineering"),
         ("security architect", 0.9, "Security Architecture"),
         ("security architecture", 0.9, "Security Architecture"),
         ("security design", 0.85, "Security Architecture"),
-        ("soc analyst", 0.9, "Threat Detection"), ("security operations", 0.85, "Threat Detection"),
-        ("incident response", 0.85, "Threat Detection"), ("siem", 0.9, "Threat Detection"),
-        ("detection engineer", 0.9, "Threat Detection"),
-        ("threat intelligence", 0.9, "Threat Detection"), ("threat hunting", 0.9, "Threat Detection"),
-        ("threat detect", 0.9, "Threat Detection"),
+        ("soc analyst", 0.9, "Threat Defence"), ("security operations", 0.85, "Threat Defence"),
+        ("incident response", 0.85, "Threat Defence"), ("siem", 0.9, "Threat Defence"),
+        ("detection engineer", 0.9, "Threat Defence"),
+        ("threat intelligence", 0.9, "Threat Defence"), ("threat hunting", 0.9, "Threat Defence"),
+        ("threat detect", 0.9, "Threat Defence"),
         ("penetration test", 0.9, "Offensive Security"), ("pentest", 0.9, "Offensive Security"),
         ("red team", 0.9, "Offensive Security"),
         ("offensive security", 0.9, "Offensive Security"), ("ethical hack", 0.9, "Offensive Security"),
@@ -251,28 +278,36 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("nist cyber", 0.85, "Cyber GRC"),
         ("security compliance", 0.8, "Cyber GRC"), ("security risk", 0.8, "Cyber GRC"),
         ("information risk", 0.8, "Cyber GRC"),
+        ("infosec", 0.9, "Cyber GRC"),
         ("operational resilience", 0.9, "Resilience"), ("business continuity", 0.85, "Resilience"),
         ("disaster recovery", 0.8, "Resilience"), ("crisis management", 0.75, "Resilience"),
         ("resilience", 0.7, "Resilience"),
         ("cyber security", 1.0, "Cyber Security"), ("cybersecurity", 1.0, "Cyber Security"),
         ("information security", 1.0, "Cyber Security"),
-        ("infosec", 0.9, "Cyber Security"), ("security analyst", 0.85, "Cyber Security"),
+        ("security analyst", 0.85, "Cyber Security"),
         ("security manager", 0.85, "Cyber Security"),
         ("security consultant", 0.85, "Cyber Security"), ("ciso", 1.0, "Cyber Security"),
         ("cyber", 0.8, "Cyber Security"),
     ],
     "legal": [
+        # 2026-04-20 retag:
+        #   - Sub-spec rename: Solicitor → Lawyer (user: barristers and
+        #     solicitors are both Lawyers — the right shared sub-heading).
+        #   - 'procurement legal' → Legal (General) (was Contracts)
+        #   - 'legal assistant' sub-spec was 'LE' in xlsx (truncation); set
+        #     to Paralegal per the user's 2026-04-20 cleanup.
         ("contract manager", 0.85, "Contracts"), ("contracts manager", 0.85, "Contracts"),
         ("contract analyst", 0.85, "Contracts"),
-        ("contract negotiat", 0.8, "Contracts"), ("procurement legal", 0.8, "Contracts"),
+        ("contract negotiat", 0.8, "Contracts"),
+        ("procurement legal", 0.8, "Legal (General)"),
         ("legal counsel", 1.0, "Legal Counsel"), ("general counsel", 1.0, "Legal Counsel"),
         ("associate counsel", 0.9, "Legal Counsel"),
         ("deputy general counsel", 1.0, "Legal Counsel"), ("in-house counsel", 1.0, "Legal Counsel"),
-        ("solicitor", 0.9, "Solicitor"),
+        ("solicitor", 0.9, "Lawyer"),
         ("paralegal", 0.8, "Paralegal"), ("legal assistant", 0.75, "Paralegal"),
         ("legal secretary", 0.75, "Paralegal"),
-        ("lawyer", 0.9, "Solicitor"), ("attorney", 0.9, "Solicitor"),
-        ("barrister", 0.9, "Solicitor"),
+        ("lawyer", 0.9, "Lawyer"), ("attorney", 0.9, "Lawyer"),
+        ("barrister", 0.9, "Lawyer"),
         ("legal", 0.75, "Legal (General)"), ("counsel", 0.65, "Legal Counsel"),
     ],
     "front_office": [
