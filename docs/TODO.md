@@ -1,5 +1,10 @@
 # Deferred work
 
+> **For active sequencing and forward planning, see [launch_plan.md](launch_plan.md).**
+> That document supersedes this file as the "what to do next" tracker. This
+> file remains the decision log — deeper per-ticket rationale that the
+> launch plan only summarises.
+
 ## Ticket — Surface zero-classification direct sources on the Sources page
 
 **Symptom**: No Jobs Found tab on `/sources` is permanently empty.
