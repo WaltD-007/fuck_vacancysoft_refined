@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
-from vacancysoft.db.models import ClassificationResult, EnrichedJob
+from vacancysoft.db.models import ClassificationResult, EnrichedJob, RawJob, Source
 from vacancysoft.pipelines.classification import build_classification_payload
 
 
@@ -55,14 +55,35 @@ def persist_classification_for_enriched_job(session: Session, enriched_job: Enri
     return existing
 
 
-def classify_enriched_jobs(session: Session, limit: int | None = None) -> int:
-    already_classified = select(ClassificationResult.enriched_job_id)
+def classify_enriched_jobs(
+    session: Session,
+    limit: int | None = None,
+    adapter_name: str | None = None,
+) -> int:
+    """Classify every EnrichedJob that hasn't been classified yet.
+
+    Uses NOT EXISTS (not NOT IN) for the same reason enrich_raw_jobs does
+    — Postgres can use the unique index on classification_results.enriched_job_id
+    as an anti-semi-join. See the 2026-04-20 investigation notes on the
+    pipeline stall.
+
+    When `adapter_name` is set, narrows to EnrichedJobs whose source
+    adapter matches — supports `prospero pipeline run --adapter <x>`.
+    """
     stmt = (
         select(EnrichedJob)
-        .where(~EnrichedJob.id.in_(already_classified))
+        .where(
+            ~exists().where(ClassificationResult.enriched_job_id == EnrichedJob.id)
+        )
         .where(EnrichedJob.detail_fetch_status.notin_(["geo_filtered", "agency_filtered", "title_filtered"]))
-        .order_by(EnrichedJob.created_at.desc())
     )
+    if adapter_name is not None:
+        stmt = (
+            stmt.join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
+            .join(Source, RawJob.source_id == Source.id)
+            .where(Source.adapter_name == adapter_name)
+        )
+    stmt = stmt.order_by(EnrichedJob.created_at.desc())
     if limit is not None:
         stmt = stmt.limit(limit)
     jobs = list(session.execute(stmt).scalars())

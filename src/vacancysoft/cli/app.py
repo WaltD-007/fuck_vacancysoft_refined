@@ -1462,17 +1462,22 @@ def run_pipeline(
                             f"{source.employer_name:40s} | {source.adapter_name:18s} | "
                             f"{_page_jobs_counted} jobs persisted before {type(exc).__name__}, enriching..."
                         )
+                        # Scope the post-failure enrich/classify/score to the
+                        # adapter being run so we don't scan the whole 140k+
+                        # raw_jobs table just because one Lever source
+                        # partially succeeded. --adapter=None → full run
+                        # retains old behaviour.
                         with SessionLocal() as session:
-                            e = enrich_raw_jobs(session, limit=None)
+                            e = enrich_raw_jobs(session, limit=None, adapter_name=adapter)
                             total_enriched += e
                         with SessionLocal() as session:
                             d = backfill_detail_for_enriched_jobs(session, limit=50, concurrency=5)
                             total_backfilled += d
                         with SessionLocal() as session:
-                            c = classify_enriched_jobs(session, limit=None)
+                            c = classify_enriched_jobs(session, limit=None, adapter_name=adapter)
                             total_classified += c
                         with SessionLocal() as session:
-                            s = score_enriched_jobs(session, limit=None)
+                            s = score_enriched_jobs(session, limit=None, adapter_name=adapter)
                             total_scored += s
                             scored_since_snapshot += s
                     else:
@@ -1500,17 +1505,21 @@ def run_pipeline(
 
                 # --- Enrich / Detail backfill / Classify / Score ---
                 # Final pass to catch any records the callback didn't process.
+                # Scope to the --adapter being run so each source doesn't drag
+                # the whole 140k+ raw_jobs table through enrich/classify/score
+                # (the cause of the 2026-04-20 stall). adapter=None → full run
+                # retains old behaviour.
                 with SessionLocal() as session:
-                    e = enrich_raw_jobs(session, limit=None)
+                    e = enrich_raw_jobs(session, limit=None, adapter_name=adapter)
                     total_enriched += e
                 with SessionLocal() as session:
                     d = backfill_detail_for_enriched_jobs(session, limit=50, concurrency=5)
                     total_backfilled += d
                 with SessionLocal() as session:
-                    c = classify_enriched_jobs(session, limit=None)
+                    c = classify_enriched_jobs(session, limit=None, adapter_name=adapter)
                     total_classified += c
                 with SessionLocal() as session:
-                    s = score_enriched_jobs(session, limit=None)
+                    s = score_enriched_jobs(session, limit=None, adapter_name=adapter)
                     total_scored += s
                     scored_since_snapshot += s
 
