@@ -130,7 +130,6 @@ still blocked on configuring them.
 |---|---|---|
 | `playwright-runner.bluecliff-1ceb6690.uksouth.azurecontainerapps.io` | Legacy Playwright runner from a previous deployment; used by the parked `url_scrape.py` paste-URL feature | Pre-existing infra; decision pending whether to replace or depend on |
 | `docs.google.com` | Sourced at runtime by `legacy_mapping.py` to sync taxonomy from a Google Sheet | Optional — only if `live_source.enabled=true` in `configs/legacy_routing.yaml` |
-| `N8N_WEBHOOK_URL` | External automation webhook (present in `.env`); memory note says "no n8n" so this is legacy | Slated for removal per [project_architecture.md] memory note |
 
 ---
 
@@ -177,7 +176,6 @@ All loaded from `.env` via `python-dotenv` in the CLI, API, and worker entrypoin
 | Key | Purpose |
 |---|---|
 | `DEEPSEEK_API_KEY` | Only consulted if `use_deepseek_for_*=true` in `configs/app.toml` |
-| `N8N_WEBHOOK_URL` / `WEBHOOK_URL` | Legacy webhook; slated for removal |
 
 ### 6d. Deployment-time (added by option-A refactor)
 
