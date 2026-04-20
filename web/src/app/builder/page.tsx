@@ -57,7 +57,7 @@ const defaultSteps = (): EmailStep[] => [
   { num: 2, title: "Candidate Spec",            tone: "candidate_spec", desc: "Reference a live candidate profile",    day: "Day 3",  active: true,  wait: 4,  variants: emptyVariants() },
   { num: 3, title: "Technical Angle",           tone: "technical",      desc: "Domain-specific follow-up",             day: "Day 7",  active: true,  wait: 7,  variants: emptyVariants() },
   { num: 4, title: "Market Observation",        tone: "consultative",   desc: "Share a wider-market view",             day: "Day 14", active: true,  wait: 16, variants: emptyVariants() },
-  { num: 5, title: "Re-engagement — New Angle", tone: "informal",       desc: "Fresh approach, new candidates",        day: "Day 30", active: false, wait: 0,  variants: emptyVariants() },
+  { num: 5, title: "Re-engagement — New Angle", tone: "informal",       desc: "Fresh approach, new candidates",        day: "Day 30", active: true,  wait: 0,  variants: emptyVariants() },
 ];
 
 const waitOptions = [1, 2, 3, 4, 5, 7, 10, 14, 16, 21, 30, 45, 60];
@@ -79,6 +79,7 @@ export default function BuilderPage() {
   const [activeStep, setActiveStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verifiedHmEmail, setVerifiedHmEmail] = useState("");
 
   // When leadId changes, fetch the campaign and populate variants
   useEffect(() => {
@@ -185,21 +186,13 @@ export default function BuilderPage() {
 
         <div className="p-7">
           {/* Header */}
-          <div className="flex justify-between items-center mb-6">
-            <div>
+          <div className="flex justify-between items-center mb-6 gap-4">
+            <div className="shrink-0">
               <div className="text-xl font-bold">Campaign Builder</div>
               <div className="text-sm mt-1" style={{ color: "#555570" }}>Design your outreach sequence, choose tone per step, preview with merge variables</div>
             </div>
-            <div className="flex gap-2">
-              <button className="px-4 py-2.5 rounded-lg text-sm font-semibold" style={{ background: "transparent", color: "#8888a0", border: "1px solid #2a2a3a" }}>Save Draft</button>
-              <button className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white" style={{ background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)", boxShadow: "0 2px 12px rgba(108,92,231,0.3)" }}>Launch Campaign</button>
-            </div>
-          </div>
-
-          {/* Settings bar */}
-          <div className="grid grid-cols-3 gap-3 mb-6">
-            <div className="p-4 rounded-xl" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
-              <div className="text-[11px] uppercase tracking-wider mb-2" style={{ color: "#555570", letterSpacing: "0.8px" }}>LEAD (READY)</div>
+            <div className="flex-1 max-w-md">
+              <div className="text-[11px] uppercase tracking-wider mb-1" style={{ color: "#555570", letterSpacing: "0.8px" }}>LEAD (READY)</div>
               <select
                 value={leadId}
                 onChange={(e) => onLeadChange(e.target.value)}
@@ -214,18 +207,9 @@ export default function BuilderPage() {
                 ))}
               </select>
             </div>
-            <div className="p-4 rounded-xl" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
-              <div className="text-[11px] uppercase tracking-wider mb-2" style={{ color: "#555570", letterSpacing: "0.8px" }}>TARGET CATEGORY</div>
-              <select className="w-full px-3 py-2 rounded-lg text-sm outline-none cursor-pointer" style={{ background: "#1e1e2a", border: "1px solid #2a2a3a", color: "#e8e8f0" }}>
-                <option>Risk</option><option>Quant</option><option>Compliance</option><option>Audit</option><option>Cyber</option><option>Legal</option><option>Front Office</option><option>All Categories</option>
-              </select>
-            </div>
-            <div className="p-4 rounded-xl" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
-              <div className="text-[11px] uppercase tracking-wider mb-2" style={{ color: "#555570", letterSpacing: "0.8px" }}>MIN SCORE THRESHOLD</div>
-              <div className="flex items-center gap-3">
-                <input type="range" min="1" max="10" defaultValue="7" className="flex-1" style={{ accentColor: "#6c5ce7" }} />
-                <span className="text-base font-bold" style={{ color: "#a29bfe", fontFamily: "'JetBrains Mono', monospace" }}>7.0</span>
-              </div>
+            <div className="flex gap-2 shrink-0">
+              <button className="px-4 py-2.5 rounded-lg text-sm font-semibold" style={{ background: "transparent", color: "#8888a0", border: "1px solid #2a2a3a" }}>Save Draft</button>
+              <button className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white" style={{ background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)", boxShadow: "0 2px 12px rgba(108,92,231,0.3)" }}>Launch Campaign</button>
             </div>
           </div>
 
@@ -267,7 +251,7 @@ export default function BuilderPage() {
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold">{step.title}</span>
+                              <span className="text-sm font-semibold">Step {step.num}</span>
                               <select
                                 onClick={(e) => e.stopPropagation()}
                                 value={step.tone}
@@ -303,7 +287,6 @@ export default function BuilderPage() {
                     </div>
                   );
                 })}
-                <button className="w-full py-3 rounded-xl text-sm font-semibold mt-2" style={{ background: "transparent", color: "#8888a0", border: "1px solid #2a2a3a" }}>+ Add Step</button>
               </div>
             </div>
 
@@ -318,16 +301,18 @@ export default function BuilderPage() {
                 )}
               </div>
               <div className="p-5 rounded-xl mb-4" style={{ background: "#0a0a0f", border: "1px solid #1f1f2f", lineHeight: 1.8 }}>
-                <div className="pb-3 mb-3" style={{ borderBottom: "1px solid #1f1f2f" }}>
-                  <input
-                    type="text"
-                    value={currentVariant.subject}
-                    onChange={(e) => updateVariant({ subject: e.target.value })}
-                    placeholder="Subject"
-                    className="w-full font-semibold text-[14px] outline-none"
-                    style={{ background: "transparent", color: "#e8e8f0", border: "none" }}
-                  />
-                </div>
+                {activeStep === 1 && (
+                  <div className="pb-3 mb-3" style={{ borderBottom: "1px solid #1f1f2f" }}>
+                    <input
+                      type="text"
+                      value={currentVariant.subject}
+                      onChange={(e) => updateVariant({ subject: e.target.value })}
+                      placeholder="Subject"
+                      className="w-full font-semibold text-[14px] outline-none"
+                      style={{ background: "transparent", color: "#e8e8f0", border: "none" }}
+                    />
+                  </div>
+                )}
                 <textarea
                   value={currentVariant.body}
                   onChange={(e) => updateVariant({ body: e.target.value })}
@@ -344,43 +329,17 @@ export default function BuilderPage() {
                 />
               </div>
 
-              {/* Hiring Manager Source */}
+              {/* Verified Hiring Manager Email */}
               <div className="p-4 rounded-xl" style={{ background: "#0a0a0f", border: "1px solid #1f1f2f" }}>
-                <div className="text-[11px] uppercase tracking-wider mb-3" style={{ color: "#555570", letterSpacing: "0.8px" }}>DEFAULT HIRING MANAGER SOURCE</div>
-                <div className="flex flex-col gap-2">
-                  <label className="flex items-center gap-3 p-3 rounded-lg cursor-pointer" style={{ background: "#16161f", border: "2px solid #6c5ce7" }}>
-                    <input type="radio" name="hm" defaultChecked style={{ accentColor: "#6c5ce7" }} />
-                    <div className="flex-1">
-                      <div className="text-[13px] font-semibold">AI Auto-Match</div>
-                      <div className="text-[11px]" style={{ color: "#555570" }}>Automatically find up to 3 hiring managers per lead · Manual override per lead</div>
-                    </div>
-                    <span className="text-[9px] font-semibold px-2 py-0.5 rounded" style={{ background: "rgba(108,92,231,0.15)", color: "#a29bfe", border: "1px solid rgba(108,92,231,0.2)" }}>Recommended</span>
-                  </label>
-                  <label className="flex items-center gap-3 p-3 rounded-lg cursor-pointer" style={{ background: "#16161f", border: "2px solid #1f1f2f" }}>
-                    <input type="radio" name="hm" style={{ accentColor: "#6c5ce7" }} />
-                    <div>
-                      <div className="text-[13px] font-semibold">Manual Only</div>
-                      <div className="text-[11px]" style={{ color: "#555570" }}>You enter hiring manager details for each lead before sending</div>
-                    </div>
-                  </label>
-                  <label className="flex items-center gap-3 p-3 rounded-lg cursor-pointer" style={{ background: "#16161f", border: "2px solid #1f1f2f" }}>
-                    <input type="radio" name="hm" style={{ accentColor: "#6c5ce7" }} />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[13px] font-semibold">Bullhorn CRM</span>
-                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded" style={{ background: "rgba(0,210,160,0.08)", color: "#00d2a0", border: "1px solid rgba(0,210,160,0.2)" }}>CONNECTED</span>
-                      </div>
-                      <div className="text-[11px]" style={{ color: "#555570" }}>Match hiring managers from your Bullhorn contacts by company name & job title</div>
-                    </div>
-                  </label>
-                  <label className="flex items-center gap-3 p-3 rounded-lg cursor-pointer" style={{ background: "#16161f", border: "2px solid #1f1f2f" }}>
-                    <input type="radio" name="hm" style={{ accentColor: "#6c5ce7" }} />
-                    <div>
-                      <div className="text-[13px] font-semibold">CSV Upload</div>
-                      <div className="text-[11px]" style={{ color: "#555570" }}>Bulk import contact list with company, name, email columns</div>
-                    </div>
-                  </label>
-                </div>
+                <div className="text-[11px] uppercase tracking-wider mb-3" style={{ color: "#555570", letterSpacing: "0.8px" }}>VERIFIED HIRING MANAGER EMAIL</div>
+                <input
+                  type="email"
+                  value={verifiedHmEmail}
+                  onChange={(e) => setVerifiedHmEmail(e.target.value)}
+                  placeholder="enter verified hiring manager email here"
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                  style={{ background: "#1e1e2a", border: "1px solid #2a2a3a", color: "#e8e8f0" }}
+                />
               </div>
             </div>
           </div>
