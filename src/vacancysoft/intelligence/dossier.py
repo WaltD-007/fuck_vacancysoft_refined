@@ -34,7 +34,7 @@ from vacancysoft.intelligence.providers import LLMProvider, call_llm
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1.2"  # 2026-04-20: dossier gpt-5-mini → gpt-5.2, reasoning medium → low; marker for cost_report segmentation
+PROMPT_VERSION = "v1.3"  # 2026-04-21: search_context high → medium; spec_risk cap 2 → 4; stated_vs_actual 2 → up to 4
 
 _KNOWN_FAKE_NAMES = {
     "john doe", "jane doe", "john smith", "jane smith",

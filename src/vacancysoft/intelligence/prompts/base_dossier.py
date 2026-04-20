@@ -87,11 +87,11 @@ If you only have material for 2 of the 4, return 2. Do not invent context to hit
 ### 2. The Core Business Problem (core_problem) — MAX 120 words
 One paragraph. The real problem beneath the role and what the business risks if the hire is delayed. No preamble.
 
-### 3. Stated Need vs Actual Need (stated_vs_actual) — EXACTLY 2 rows
-Two rows only. Pick the two biggest gaps between what the JD asks for and what the business likely needs. Each of `jd_asks_for` and `business_likely_needs` is MAX 40 words.
+### 3. Stated Need vs Actual Need (stated_vs_actual) — UP TO 4 rows
+Return between 2 and 4 rows. Each row captures one meaningful gap between what the JD asks for and what the business likely needs. Pick the biggest gaps first; stop when you cannot identify a further genuine gap — do not pad with near-duplicates or weak restatements. Each of `jd_asks_for` and `business_likely_needs` is MAX 40 words.
 
-### 4. Specification and Execution Risk (spec_risk) — 1 OR 2 items (not more)
-Only real risks present in THIS JD. `explanation` is MAX 60 words (one or two sentences). Omit any risk you cannot tie to a specific JD detail.
+### 4. Specification and Execution Risk (spec_risk) — UP TO 4 items
+Return between 1 and 4 items — only real risks present in THIS JD. Pick the most consequential first; stop when you cannot tie a further risk to a specific JD detail. `explanation` is MAX 60 words (one or two sentences). Omit any risk you cannot tie to a specific JD detail; never pad the list to hit 4.
 
 Categories to check (include only if genuinely present in the JD):
 - Over-specification that eliminates viable candidates
