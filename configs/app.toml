@@ -30,11 +30,32 @@ job_timeout = 900
 max_retries = 3
 
 [intelligence]
-# Model routing (Apr 2026 cost-optimised configuration):
-#   - dossier main:       gpt-5-mini          (cheap reasoning, suffices for analytical sections)
-#   - hiring manager:     gpt-5.4 + medium    (small payload, accuracy matters for real-name lookup)
-#   - campaign:           gpt-5-mini + low    (structured email generation, doesn't need deep reasoning)
-dossier_model = "gpt-5-mini"
+# Model routing (2026-04-20 quality upgrade):
+#   - dossier main:       gpt-5.2 + low reasoning  (heavier model; reasoning
+#                                                   effort dropped from medium
+#                                                   to low since gpt-5.2's base
+#                                                   quality already exceeds
+#                                                   mini+medium on analytical
+#                                                   sections — avoids paying
+#                                                   for quality twice)
+#   - hiring manager:     gpt-5.2 + medium         (small payload, accuracy on
+#                                                   real-name lookup matters)
+#   - campaign:           gpt-5.4 + low            (writing quality is now the
+#                                                   ceiling for outreach copy;
+#                                                   low reasoning keeps latency
+#                                                   sane and JSON output stable)
+#
+# Cost envelope (observed/estimated, per lead):
+#   dossier   ~$0.060-0.080   (38k prompt / 2k completion on gpt-5.2 @ low)
+#   campaign  ~$0.025-0.030   (2.5k prompt / 1.5k completion on gpt-5.4)
+#   HM        ~$0.046         (unchanged — SerpApi + gpt-4o-mini extraction)
+#   total     ~$0.135/lead    (vs ~$0.08 on previous mini/5.2 config).
+#
+# Rollback: revert this commit or flip back to:
+#   dossier_model = "gpt-5-mini", dossier_reasoning_effort = "medium"
+#   campaign_model = "gpt-5.2", timeout_seconds = 300
+# Config is re-read per call by _load_intel_config(); no code deploy needed.
+dossier_model = "gpt-5.2"
 # Campaign quality upgrade 2026-04-19: promoted gpt-5-mini → gpt-5.2
 # for the campaign primary. Rationale: the dossier body is already
 # rich (full stated_vs_actual + spec_risk explanations + candidate
@@ -44,7 +65,14 @@ dossier_model = "gpt-5-mini"
 # the unit rate of gpt-5-mini but campaign tokens are small (~2.5k
 # prompt + ~1.5k completion with the new shape) so per-lead delta is
 # ~$0.010/campaign. Fits well inside the operator's $0.10/lead ceiling.
-campaign_model = "gpt-5.2"
+#
+# Campaign quality upgrade 2026-04-20: promoted gpt-5.2 → gpt-5.4.
+# Rationale: with dossier now on gpt-5.2 the analytical input to the
+# campaign is richer; the writing model became the new ceiling on
+# outreach copy quality. gpt-5.4 is ~1.6× the unit rate of gpt-5.2
+# on a ~4k-token call so per-lead delta is ~+$0.011. Still within
+# the total $0.15/lead envelope above.
+campaign_model = "gpt-5.4"
 campaign_reasoning_effort = "low"
 # Fallback used if the primary campaign model returns empty content
 # (reasoning models occasionally burn the entire max_completion_tokens
@@ -53,10 +81,13 @@ campaign_reasoning_effort = "low"
 campaign_fallback_model = "gpt-4o"
 temperature = 0.4
 max_tokens = 16000
-# Bumped from 120 to 300: gpt-5-mini with web_search at high context size
-# can take 130-180s for a dossier. The original 120s was timing out the
-# worker on legitimate calls, reverting items to pending and looking stuck.
-timeout_seconds = 300
+# Bumped from 120 to 300 (2026-04): gpt-5-mini with web_search at high
+# context size can take 130-180s for a dossier.
+# Bumped from 300 to 450 (2026-04-20): gpt-5.2 at reasoning="low" with
+# web_search="high" is typically 150-220s but heavy leads (long JDs,
+# deep company history) can touch 280s. 450s gives comfortable margin
+# while still fitting inside the worker's 900s job_timeout.
+timeout_seconds = 450
 
 # Cost-control levers for the dossier pipeline:
 # - dossier_reasoning_effort: "low" | "medium" | "high". Lower values
@@ -67,7 +98,15 @@ timeout_seconds = 300
 #   accuracy on real-person lookup pushed it back up to gpt-5.4.
 # - hm_search_reasoning_effort: only applied if hm_search_model is a
 #   reasoning model — otherwise silently ignored.
-dossier_reasoning_effort = "medium"
+#
+# Dropped from "medium" → "low" (2026-04-20) alongside the dossier
+# model swap to gpt-5.2. gpt-5.2's base output quality at "low" effort
+# already exceeds gpt-5-mini at "medium", so paying for medium-effort
+# reasoning on top double-counts the quality boost and burns ~60% more
+# completion tokens (reasoning dominates dossier completion cost).
+# Flip back to "medium" if the Campaign Builder starts producing
+# noticeably shallower copy or lead_score reasoning feels thin.
+dossier_reasoning_effort = "low"
 # Web-search context size for the main dossier call. "high" allows
 # ~100K input tokens of web context (vs ~25K at "low"). Paired with
 # the doubled word caps in base_dossier.py to give each section room
