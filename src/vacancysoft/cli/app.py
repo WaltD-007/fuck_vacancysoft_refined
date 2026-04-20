@@ -44,7 +44,7 @@ from vacancysoft.exporters.webhook_sender import send_new_leads_to_webhook, send
 from vacancysoft.pipelines.classification_persistence import classify_enriched_jobs
 from vacancysoft.pipelines.enrichment_persistence import enrich_raw_jobs
 from vacancysoft.pipelines.maintenance import cleanup_orphaned_classification_results
-from vacancysoft.pipelines.persistence import persist_discovery_batch
+from vacancysoft.pipelines.persistence import persist_discovery_batch, persist_discovery_failure
 from vacancysoft.pipelines.detail_backfill import backfill_detail_for_enriched_jobs
 from vacancysoft.pipelines.scoring_persistence import score_enriched_jobs
 from vacancysoft.source_registry.seed_loader import seed_sources_from_yaml
@@ -1452,6 +1452,23 @@ def run_pipeline(
                 except Exception as exc:
                     _log(f"[red]FAIL[/red] {source.source_key}: {type(exc).__name__}: {exc}")
                     fail_count += 1
+
+                    # Persist the failure as a SourceRun row with status='error'
+                    # so operators can query `source_runs WHERE status='error'`
+                    # to find out which sources failed, with what, when.
+                    # Before 2026-04-20 this information was stdout-only.
+                    try:
+                        with SessionLocal() as session:
+                            src_for_fail = session.execute(
+                                select(Source).where(Source.source_key == source.source_key)
+                            ).scalar_one()
+                            persist_discovery_failure(
+                                session=session, source=src_for_fail, exc=exc, trigger="pipeline_discover",
+                            )
+                    except Exception as persist_exc:
+                        # Don't let a secondary bookkeeping failure mask the
+                        # primary one — log and carry on.
+                        _log(f"[red]FAIL[/red] {source.source_key}: (also failed to persist SourceRun: {persist_exc})")
 
                     # Jobs may have been persisted by the callback before the timeout.
                     # Still run enrich/classify/score so they're not lost.

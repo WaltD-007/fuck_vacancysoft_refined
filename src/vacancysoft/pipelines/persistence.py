@@ -118,6 +118,57 @@ def _record_in_target_geo(record: DiscoveredJobRecord) -> bool:
     return is_allowed_country(normalise_location(record.location_raw).get("country"))
 
 
+def persist_discovery_failure(
+    session: Session,
+    source: Source,
+    exc: BaseException,
+    trigger: str = "manual",
+) -> SourceRun:
+    """Persist a failed discovery attempt as a SourceRun + ExtractionAttempt.
+
+    Mirrors persist_discovery_batch's shape but for the failure path.
+    Without this, source-level exceptions raised by the adapter (e.g.
+    `ValueError: Lever source_config requires slug`, `httpx.ReadTimeout`)
+    only get printed to stdout and leave no DB trace — so operators
+    running `prospero db stats` or querying `source_runs WHERE status='error'`
+    after the fact can't tell which sources failed.
+
+    Added 2026-04-20 after the Lever pipeline run surfaced that the first
+    4 of 113 sources failed without persisting anything.
+    """
+    source_run = SourceRun(
+        source_id=source.id,
+        run_type="discovery",
+        status="error",
+        trigger=trigger,
+        errors_count=1,
+        finished_at=datetime.utcnow(),
+        diagnostics_blob={
+            "error_type": type(exc).__name__,
+            "error_message": str(exc)[:2000],  # cap to keep the JSON small
+            "error": f"{type(exc).__name__}: {exc}",
+        },
+    )
+    session.add(source_run)
+    session.flush()
+
+    attempt = ExtractionAttempt(
+        source_run_id=source_run.id,
+        source_id=source.id,
+        stage="discover",
+        method="site_rescue",
+        endpoint_url=source.base_url,
+        success=False,
+        error_type=type(exc).__name__,
+        error_message=str(exc)[:2000],
+        diagnostics_blob={"trigger": trigger},
+    )
+    session.add(attempt)
+    session.flush()
+    session.commit()
+    return source_run
+
+
 def persist_discovery_batch(
     session: Session,
     source: Source,
