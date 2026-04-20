@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +18,27 @@ from vacancysoft.adapters.base import (
 from vacancysoft.source_registry.legacy_board_mappings import lookup_company
 
 API_BASE = "https://api.lever.co/v0/postings"
+
+# Lever board URLs follow the pattern https://jobs.lever.co/<slug>[/...].
+# When a source's config_blob has `job_board_url` but no `slug` (happens
+# when the source was registered via the generic URL-detection flow rather
+# than an explicit Lever integration), we can derive the slug from the URL
+# rather than hard-failing. This regex extracts group 1 as the slug.
+_LEVER_SLUG_RE = re.compile(r"^https?://jobs\.lever\.co/([^/?#]+)", re.IGNORECASE)
+
+
+def _derive_slug_from_url(url: str | None) -> str | None:
+    """Extract the Lever board slug from a jobs.lever.co URL.
+
+    Returns None if the URL is empty, not a Lever URL, or malformed.
+    Used as a fallback when `source_config["slug"]` is missing.
+    """
+    if not url:
+        return None
+    m = _LEVER_SLUG_RE.match(url.strip())
+    if not m:
+        return None
+    return m.group(1).strip() or None
 
 
 def _clean(value: Any) -> str | None:
@@ -83,9 +105,21 @@ class LeverAdapter(SourceAdapter):
     )
 
     async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
+        # Prefer explicit `slug`; fall back to extracting it from
+        # `job_board_url` when the URL is a Lever one. This covers sources
+        # that were registered via the generic URL-detection flow (which
+        # only populated `job_board_url`) — previously these hard-failed
+        # with ValueError at discover-time, e.g. Octopus Energy, Simply
+        # Business, Titan on 2026-04-20.
         slug = str(source_config.get("slug") or "").strip()
         if not slug:
-            raise ValueError("Lever source_config requires slug")
+            slug = _derive_slug_from_url(source_config.get("job_board_url")) or ""
+        if not slug:
+            url_hint = source_config.get("job_board_url") or "(none)"
+            raise ValueError(
+                f"Lever source_config requires slug — none provided and "
+                f"job_board_url ({url_hint}) is not a jobs.lever.co URL"
+            )
         board = {
             "slug": slug,
             "company": source_config.get("company"),
@@ -97,7 +131,12 @@ class LeverAdapter(SourceAdapter):
         if since is not None:
             diagnostics.warnings.append("LeverAdapter does not enforce incremental sync at source. since was ignored.")
 
-        async with httpx.AsyncClient(timeout=float(source_config.get("timeout_seconds", 20))) as client:
+        # Timeout bumped from 20 → 60 s on 2026-04-20. Lever returns all
+        # postings in one uncompressed JSON response — 200+ posting boards
+        # (Contentsquare/Hotjar: 188, Farfetch) occasionally needed more
+        # than 20 s. 60 s keeps bounded but handles the large boards.
+        # Per-source override via `source_config["timeout_seconds"]` still works.
+        async with httpx.AsyncClient(timeout=float(source_config.get("timeout_seconds", 60))) as client:
             response = await client.get(f"{API_BASE}/{slug}", params={"mode": "json"})
             response.raise_for_status()
             data = response.json()
