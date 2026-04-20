@@ -79,6 +79,20 @@ campaign_reasoning_effort = "low"
 # budget on internal reasoning and produce no visible JSON). gpt-4o
 # has no reasoning step so it can't hit the same trap.
 campaign_fallback_model = "gpt-4o"
+
+# ── Campaign prompt template version ──
+# "v2" (default, 2026-04-20+): "tone controls content" shape. Each
+#   of the six tones has a FIXED home dossier section and one
+#   concrete anchor that persists across all five sequences.
+#   Produces six distinct five-email arcs (not six voicings of the
+#   same message). Source: operator's Prospero_Prompts.xlsx.
+# "v1" (legacy): "same message, different voice" shape. All six
+#   tones within a sequence convey the same core message, re-voiced.
+#   Uses the {outreach_angle} slot from category_blocks.py. Kept as
+#   a hot-swap rollback target. Flip this to "v1" and restart the
+#   API + worker to revert without a code deploy.
+campaign_template_version = "v2"
+
 temperature = 0.4
 max_tokens = 16000
 # Bumped from 120 to 300 (2026-04): gpt-5-mini with web_search at high

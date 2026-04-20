@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from vacancysoft.intelligence.prompts.base_campaign import CAMPAIGN_SYSTEM, CAMPAIGN_TEMPLATE
+from vacancysoft.intelligence.prompts.base_campaign import (
+    CAMPAIGN_SYSTEM,
+    CAMPAIGN_TEMPLATE_V1,
+    CAMPAIGN_TEMPLATE_V2,
+)
 from vacancysoft.intelligence.prompts.base_dossier import DOSSIER_SYSTEM, DOSSIER_TEMPLATE
 from vacancysoft.intelligence.prompts.category_blocks import CATEGORY_BLOCKS, DEFAULT_CATEGORY
 
@@ -47,6 +51,7 @@ def resolve_campaign_prompt(
     category: str,
     job_data: dict[str, Any],
     dossier_sections: dict[str, Any],
+    template_version: str = "v2",
 ) -> list[dict[str, str]]:
     """Assemble the campaign prompt.
 
@@ -141,7 +146,15 @@ def resolve_campaign_prompt(
     else:
         hiring_manager_line = "Not identified"
 
-    user_content = CAMPAIGN_TEMPLATE.format(
+    # Template selection: v2 (default, 2026-04-20+) reshapes the prompt so
+    # tone determines content-source, not just register. v1 is the legacy
+    # "same message, different voice" shape and is kept behind the flag
+    # for hot-swap rollback. v2 ignores {outreach_angle} — .format() is
+    # permissive about unused kwargs so we pass it either way.
+    tv = (template_version or "v2").lower()
+    template = CAMPAIGN_TEMPLATE_V1 if tv == "v1" else CAMPAIGN_TEMPLATE_V2
+
+    user_content = template.format(
         title=job_data.get("title", ""),
         company=job_data.get("company", ""),
         location=job_data.get("location", ""),

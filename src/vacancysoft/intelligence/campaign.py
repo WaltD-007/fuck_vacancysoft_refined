@@ -88,8 +88,21 @@ async def generate_campaign(
         "hiring_managers": dossier.hiring_managers or [],
     }
 
-    messages = resolve_campaign_prompt(dossier.category_used, job_data, dossier_sections)
     config = _load_intel_config()
+    # Campaign prompt template selector (2026-04-20): flip
+    # campaign_template_version in configs/app.toml between "v2" (new
+    # "tone controls content" shape, default) and "v1" (legacy "same
+    # message, different voice" shape) without a code deploy. See
+    # base_campaign.py docstring for the full rationale.
+    campaign_template_version = str(
+        config.get("campaign_template_version", "v2") or "v2"
+    ).lower()
+    messages = resolve_campaign_prompt(
+        dossier.category_used,
+        job_data,
+        dossier_sections,
+        template_version=campaign_template_version,
+    )
 
     # Provider toggle: set use_deepseek_for_campaign=true in configs/app.toml
     # to route both the primary campaign call and its fallback through
