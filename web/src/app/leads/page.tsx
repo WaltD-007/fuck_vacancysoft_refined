@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import Sidebar from "../components/Sidebar";
 import { API, fetcher } from "../lib/swr";
@@ -247,6 +247,76 @@ export default function LeadsPage() {
   const [loadingDossier, setLoadingDossier] = useState<Set<string>>(new Set());
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
 
+  // Paste-a-URL flow state. The URL field is the only thing the operator
+  // supplies — title / company / location come from the Playwright runner.
+  // The input lives behind a + Add Lead button in the header to keep the
+  // default layout clean; clicking the button expands it inline.
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteUrl, setPasteUrl] = useState("");
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [pasteError, setPasteError] = useState<string | null>(null);
+  const [pasteStatus, setPasteStatus] = useState<string | null>(null);
+  const pasteInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Auto-focus the URL input the moment the bar opens so the operator can
+  // paste immediately without a second click.
+  useEffect(() => {
+    if (pasteOpen) pasteInputRef.current?.focus();
+  }, [pasteOpen]);
+
+  const closePaste = () => {
+    setPasteOpen(false);
+    setPasteUrl("");
+    setPasteError(null);
+  };
+
+  const submitPaste = async () => {
+    const url = pasteUrl.trim();
+    if (!url || pasteBusy) return;
+    setPasteBusy(true);
+    setPasteError(null);
+    setPasteStatus(null);
+    try {
+      const res = await fetch(`${API}/leads/paste`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setPasteError(
+          typeof body.detail === "string"
+            ? body.detail
+            : `Request failed (HTTP ${res.status})`,
+        );
+        return;
+      }
+      const data = await res.json();
+      setPasteUrl("");
+      setPasteStatus(
+        data.status === "queued"
+          ? "Lead queued — dossier generating"
+          : data.status === "already_queued"
+          ? "Already in the queue — generation in progress"
+          : "Existing lead re-queued — dossier will update",
+      );
+      // Collapse the bar on success so the operator sees the freshly
+      // queued row without the input hovering above the table. The status
+      // pill below Lead List shows the confirmation for a few seconds.
+      setPasteOpen(false);
+      // Surface the new row immediately instead of waiting for the 5s poll.
+      mutateLeads();
+      // Auto-clear the success banner after a few seconds.
+      setTimeout(() => setPasteStatus(null), 4000);
+    } catch (err) {
+      setPasteError(
+        err instanceof Error ? err.message : "Network error",
+      );
+    } finally {
+      setPasteBusy(false);
+    }
+  };
+
   const getDossier = (lead: QueuedLead): Dossier | null =>
     dossierOverrides[lead.id] ?? lead.dossier ?? null;
 
@@ -305,7 +375,88 @@ export default function LeadsPage() {
       <main className="ml-60">
         <div className="flex items-center justify-between px-8 h-14" style={{ background: "rgba(10,10,15,0.8)", borderBottom: "1px solid #1f1f2f" }}>
           <div className="font-bold text-base">Lead List</div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* Paste-a-URL — collapsed by default, expands inline on click.
+                Operator pastes a job advert URL; the Playwright runner
+                extracts title / company / location / description; backend
+                runs enrichment → classification → scoring → queue. */}
+            {pasteOpen ? (
+              <div className="flex items-center gap-2">
+                <input
+                  ref={pasteInputRef}
+                  type="url"
+                  value={pasteUrl}
+                  onChange={(e) => {
+                    setPasteUrl(e.target.value);
+                    if (pasteError) setPasteError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      submitPaste();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      if (!pasteBusy) closePaste();
+                    }
+                  }}
+                  placeholder="Paste job URL…"
+                  disabled={pasteBusy}
+                  className="px-3 py-1.5 rounded-lg text-sm outline-none"
+                  style={{
+                    background: "#16161f",
+                    border: "1px solid #2a2a3a",
+                    color: "#e8e8f0",
+                    width: 320,
+                    opacity: pasteBusy ? 0.6 : 1,
+                  }}
+                />
+                <button
+                  onClick={submitPaste}
+                  disabled={pasteBusy || !pasteUrl.trim()}
+                  className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white flex items-center gap-2"
+                  style={{
+                    background: pasteBusy || !pasteUrl.trim()
+                      ? "#2a2a3a"
+                      : "linear-gradient(135deg, #6c5ce7, #8b7cf7)",
+                    cursor: pasteBusy || !pasteUrl.trim() ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {pasteBusy && (
+                    <span
+                      className="inline-block w-3 h-3 rounded-full"
+                      style={{
+                        border: "2px solid rgba(255,255,255,0.3)",
+                        borderTopColor: "#fff",
+                        animation: "spin 0.8s linear infinite",
+                      }}
+                    />
+                  )}
+                  {pasteBusy ? "Scraping…" : "Add"}
+                </button>
+                <button
+                  onClick={closePaste}
+                  disabled={pasteBusy}
+                  title="Cancel (Esc)"
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-sm"
+                  style={{
+                    background: "#16161f",
+                    border: "1px solid #2a2a3a",
+                    color: "#8888a0",
+                    cursor: pasteBusy ? "not-allowed" : "pointer",
+                  }}
+                >
+                  &times;
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setPasteOpen(true)}
+                className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white cursor-pointer"
+                style={{ background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)" }}
+              >
+                + Add Lead
+              </button>
+            )}
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm" style={{ background: "#16161f", border: "1px solid #2a2a3a", color: "#555570", minWidth: 240 }}>
               <span style={{ fontSize: 14 }}>&#128269;</span>Search leads, sources, campaigns...
               <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#1e1e2a", border: "1px solid #2a2a3a" }}>&#8984;K</span>
@@ -316,6 +467,29 @@ export default function LeadsPage() {
         </div>
 
         <div className="p-7">
+          {/* Paste status / error — shown briefly beneath the header so the
+              operator sees the outcome without the input staying open. */}
+          {(pasteError || pasteStatus) && (
+            <div
+              className="text-xs px-3 py-2 rounded-md mb-4"
+              style={
+                pasteError
+                  ? {
+                      background: "rgba(255,107,107,0.08)",
+                      color: "#ff6b6b",
+                      border: "1px solid rgba(255,107,107,0.2)",
+                    }
+                  : {
+                      background: "rgba(0,210,160,0.08)",
+                      color: "#00d2a0",
+                      border: "1px solid rgba(0,210,160,0.2)",
+                    }
+              }
+            >
+              {pasteError || pasteStatus}
+            </div>
+          )}
+
           <div className="rounded-xl overflow-hidden" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
             {/* Filter bar */}
             <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid #1f1f2f" }}>
