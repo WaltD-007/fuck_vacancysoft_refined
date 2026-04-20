@@ -45,7 +45,7 @@ Three buckets:
 | C7 | Kill `models_v2.py` legacy naming | ✅ TODO ticket 5, commit f1b2456 |
 | C8 | xfail Pricing Actuary test | ✅ TODO ticket 6, commit 163d8e9 |
 
-### 1C. Email + scheduling tranche (~10–11 hours focused work, blocked on 1A items 2-4)
+### 1C. Email + scheduling tranche (~13–14 hours focused work, blocked on 1A items 2-4)
 
 The single biggest piece of remaining work. Without this, the app is read-only and there's no point inviting colleagues. Sequence below assumes Decision: Microsoft Graph application permission, ARQ deferred jobs for scheduling, inbox polling for reply detection.
 
@@ -63,7 +63,8 @@ The single biggest piece of remaining work. Without this, the app is read-only a
 | E10 | Auto-reply / OOO heuristic filter (`Auto-Submitted: auto-replied`, subject regex) — don't kill campaigns on OOO messages | 30 min | Classify as `auto_reply` event but leave schedule status alone |
 | E11 | Flip `FEATURES.campaignLaunch = true` in `web/src/app/lib/features.ts` | 1 min | Re-enables the Launch button |
 | E12 | End-to-end smoke test locally: send to Gmail, reply from Gmail, confirm step 2 does NOT fire | 30 min | Launch-critical |
-| E13 | Add unsubscribe link + privacy notice to email template footer (UK GDPR for unsolicited B2B) | 30 min | Talk to legal before launch wording |
+| E13 | Add unsubscribe link + privacy notice to email template footer (UK GDPR for unsolicited B2B) | 30 min | Talk to legal before launch wording. The link's `href` targets the endpoint built in E14. |
+| E14 | **Unsubscribe mechanism + blacklist** — signed-token landing URL, `campaign_blacklist` table, send-time check that skips blacklisted recipients + cancels remaining steps | 2–3 h | Migration `0009_add_campaign_blacklist` (columns: `email`, `reason`, `unsubscribed_at`, `source_enum`, `schedule_id?`). New route `GET /api/unsubscribe/{token}` validates an HMAC-signed token embedded in each email (prevents spoofing), writes the blacklist row, cancels the originating schedule's remaining steps, returns a minimal confirmation page with the same Easy-Auth carve-out as the tracking pixel. `send_campaign_step` checks `campaign_blacklist.email = recipient_email` before every send and bails if present. **Launch-blocker: a deliverability bug or legal complaint from a missing opt-out is existential for the service.** |
 
 ### 1D. Infra (Bicep template + first deploy)
 
@@ -236,14 +237,15 @@ Assuming you're starting fresh tomorrow:
 | 2 | Bicep template — fill in TODO stubs (I1) | — |
 | 3 | Email work: E1 (migration), E2 (Graph wrapper), E3 (tracking pixel), E4 (worker function) | Entra app reg |
 | 4 | Email work: E5 (just-in-time check), E6 (schedule endpoint), E7 (cancel), E8 (Builder wiring) | Day 3 |
-| 5 AM | Email work: E9 (poll_replies cron), E10 (auto-reply filter), E12 (smoke test) | Day 4 |
-| 5 PM | E11 (flip FEATURES flag), E13 (unsubscribe + privacy notice) | E12 green |
-| 6 | I8 (Dockerfiles), I9 (staging RG), I10 (deploy to staging), I11 (rollback drill) | I1 |
-| 7 AM | Operational stability fixes (O1, O2) | — |
-| 7 PM | I12 + I13 (prod RG + first prod deploy) | Day 6 green |
-| 8 | Invite 3 colleagues; watch first real campaigns; iterate on what breaks | — |
+| 5 AM | Email work: E9 (poll_replies cron), E10 (auto-reply filter) | Day 4 |
+| 5 PM | E14 (unsubscribe mechanism + blacklist) | E4 + E13 wording |
+| 6 AM | E13 (unsubscribe link + privacy notice in footer), E12 (smoke test), E11 (flip FEATURES flag) | E14, legal OK |
+| 6 PM | I8 (Dockerfiles), I9 (staging RG) | I1 |
+| 7 | I10 (deploy to staging), I11 (rollback drill), O1 + O2 (stability fixes) | Day 6 PM |
+| 8 AM | I12 + I13 (prod RG + first prod deploy) | Day 7 green |
+| 8 PM | Invite 3 colleagues; watch first real campaigns; iterate on what breaks | — |
 
-**Total: ~1.5 working weeks from today** (assuming admin approval lands by day 1 AM).
+**Total: ~1.5–2 working weeks from today** (assuming admin approval lands by day 1 AM; legal wording on E13 cleared by day 5).
 
 ---
 
