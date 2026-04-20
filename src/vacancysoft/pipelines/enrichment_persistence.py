@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from hashlib import sha1
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from vacancysoft.db.models import EnrichedJob, RawJob, Source
@@ -549,13 +549,35 @@ def persist_enrichment_for_raw_job(session: Session, raw_job: RawJob) -> Enriche
     return existing
 
 
-def enrich_raw_jobs(session: Session, limit: int | None = None) -> int:
-    already_enriched = select(EnrichedJob.raw_job_id)
+def enrich_raw_jobs(
+    session: Session,
+    limit: int | None = None,
+    adapter_name: str | None = None,
+) -> int:
+    """Enrich every RawJob that hasn't been enriched yet.
+
+    Uses NOT EXISTS (not NOT IN) so Postgres can leverage the unique
+    index on enriched_jobs.raw_job_id as an anti-semi-join; the old
+    NOT IN (subquery) pattern degenerated into a sequential scan over
+    all raw_jobs on tables this size (2026-04-20 investigation: 140k
+    rows, query took minutes and caused a visible pipeline stall).
+
+    When `adapter_name` is set, the scan is further narrowed to RawJobs
+    whose Source has that adapter — matches operator expectation for
+    `prospero pipeline run --adapter <x>` and keeps each round cheap.
+    """
     stmt = (
         select(RawJob)
-        .where(~RawJob.id.in_(already_enriched))
-        .order_by(RawJob.created_at.desc())
+        .where(
+            ~exists().where(EnrichedJob.raw_job_id == RawJob.id)
+        )
     )
+    if adapter_name is not None:
+        stmt = (
+            stmt.join(Source, RawJob.source_id == Source.id)
+            .where(Source.adapter_name == adapter_name)
+        )
+    stmt = stmt.order_by(RawJob.created_at.desc())
     if limit is not None:
         stmt = stmt.limit(limit)
     raw_jobs = list(session.execute(stmt).scalars())
