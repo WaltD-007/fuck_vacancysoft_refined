@@ -127,7 +127,7 @@ If the JD specifies a region such as EMEA, remove it, the hiring manager could b
 If the JD specifies an asset class or sub-specialism, include it and run the searches again.
 
 Step 3: Output
-- Return up to 3 candidates ranked by confidence, with name, title, and the search query that surfaced them
+- Return up to 6 candidates ranked by confidence, with name, title, and the search query that surfaced them. Always lead with the highest-confidence ones; if only 2–3 are genuinely plausible, return just those — do not pad the list with low-confidence filler
 - If you cannot confidently identify anyone, say so and explain what made it difficult (e.g. company too small for public leadership data, generic title structure, multiple possible reporting lines)
 - Do not guess. Do not fabricate LinkedIn URLs. Only return names you found in search results.
 

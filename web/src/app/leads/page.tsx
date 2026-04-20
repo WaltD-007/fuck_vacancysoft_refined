@@ -166,7 +166,15 @@ function DossierPanel({ dossier, onCreateCampaign, jobUrl, company, leadId }: { 
 
         <div style={{ background: "#16161f", border: "1px solid #1f1f2f", borderRadius: 8, padding: 14, maxHeight: 550, overflowY: "auto" }}>
           <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.8px", color: "#a29bfe", marginBottom: 10 }}>Likely Hiring Manager</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {/*
+            HM list is capped at ~200px so 3 cards fit flush and the
+            4th peeks in to signal scrollability. Prompts allow up to
+            6 candidates (bumped from 3 on 2026-04-20); more than 3
+            scroll inside this inner container, leaving Lead Score
+            and the HM Boolean button visible below without pushing
+            the outer card taller.
+          */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 200, overflowY: "auto", paddingRight: 4 }}>
             {dossier.hiring_managers.map((hm, i) => {
               const linkedinUrl = (hm as Record<string, string>).linkedin_url || (hm as Record<string, string>).url;
               const searchUrl = linkedinUrl || `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(hm.name)}`;

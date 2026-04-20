@@ -185,7 +185,7 @@ Step 2: Search LinkedIn for real people with that title at this company. Try the
 
 The hiring manager's name will NOT be in the job advert. You must search LinkedIn to find who holds the title you identified in Step 1.
 
-Step 3: Return up to 3 candidates ranked by confidence, with name, title, and the search query that surfaced them. If you cannot confidently identify anyone, say so and explain what made it difficult.
+Step 3: Return up to 6 candidates ranked by confidence, with name, title, and the search query that surfaced them. Always lead with the highest-confidence ones; if only 2–3 are genuinely plausible, return just those — do not pad the list with low-confidence filler. If you cannot confidently identify anyone, say so and explain what made it difficult.
 
 Return JSON only:
 {{"hiring_managers": [{{"name": "...", "title": "...", "confidence": "high|medium|low", "reasoning": "..."}}]}}"""},
