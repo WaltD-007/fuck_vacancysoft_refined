@@ -44,6 +44,11 @@ Three buckets:
 | C6 | CI on push/PR (pytest + ruff + tsc) | ✅ TODO ticket 1, commit 34d0561 |
 | C7 | Kill `models_v2.py` legacy naming | ✅ TODO ticket 5, commit f1b2456 |
 | C8 | xfail Pricing Actuary test | ✅ TODO ticket 6, commit 163d8e9 |
+| C9 | Lever adapter robustness: derive slug from URL; bump timeout 20s→60s | ✅ commit 6815c02 (PR #4) |
+| C10 | Pipeline stall fix: `NOT IN` → `NOT EXISTS`; scope enrich/classify/score to `--adapter` | ✅ commit 7e585ea (PR #5) |
+| C11 | Persist source-level discovery failures as SourceRun + ExtractionAttempt rows | ✅ commit b81f29a (PR #6) |
+| C12 | Remove N8N webhook integration (delete webhook_sender.py + CLI commands + configs + envs) | ✅ commit 6116252 (PR #7) |
+| C13 | Lever data cleanup: 103 mis-classified lever rows triaged and allocated — 1→bamboohr (Walker Crips), 7→generic_site (Vanquis, Verition, Voleon, West Brom ×2, Yieldstreet, York Capital), 95 deactivated as duplicates (active generic_site twin already handles each). Backup at `.data/backups/sources_pre_lever_cleanup_20260420-1945.sql`. Active lever rows now 112 → 11, all with valid `jobs.lever.co/*` URLs | ✅ DB-only (pure SQL UPDATE, no code change) |
 
 ### 1C. Email + scheduling tranche (~13–14 hours focused work, blocked on 1A items 2-4)
 
@@ -94,6 +99,7 @@ These are real bugs that will bite a small user base in week 1 if not addressed:
 |---|---|---|---|
 | O1 | Fix `'NoneType' object has no attribute 'lower'` crash in intelligence client (`client.py:96`, `client.py:156`) — wraps `model.lower()` calls in `(model or "").lower()` | TODO ticket 15 | 30 min |
 | O2 | Set up `AGENCY_EXCLUSIONS_PATH` env var to point at Azure Files mount in prod, so runtime `mark_agency` calls survive container restarts | This session | 15 min Bicep edit |
+| O3 | **Seed reactivates deactivated sources.** Observed 2026-04-20: after manually setting `active=false` on `lever_the_hartford_a23e1dc2` and `lever_vaneck_e5f37328` (both mis-classified Lever sources pointing at non-`jobs.lever.co` URLs), a subsequent `prospero pipeline run --adapter lever` flipped both back to `active=true` at the same `updated_at` timestamp (18:45:37 on 2026-04-20). Source: `seed_sources_from_config()` in [source_registry/config_seed_loader.py](src/vacancysoft/source_registry/config_seed_loader.py) is called implicitly at pipeline-run time (or is being called by some other startup hook) and re-asserts `active=true` on every row it finds in the seed config, including the broken ones. Fix: either (a) update the seeder to respect an existing `active=false` rather than overwriting; (b) remove the 101 mis-classified Lever entries from the seed config files entirely; or (c) add a `seed_type='do_not_seed'` sentinel on manually-deactivated rows. Without the fix, bug 1-style failures will regenerate on every seed refresh and need re-deactivating. | This session | 30 min code + seed-config review |
 
 ---
 
