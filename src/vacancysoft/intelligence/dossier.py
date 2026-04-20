@@ -24,7 +24,11 @@ from vacancysoft.db.models import (
     RawJob,
     Source,
 )
-from vacancysoft.intelligence.prompts.category_blocks import CATEGORY_BLOCKS, DEFAULT_CATEGORY
+from vacancysoft.intelligence.prompts.category_blocks import (
+    CATEGORY_BLOCKS,
+    DEFAULT_CATEGORY,
+    render_hm_search_template_v2,
+)
 from vacancysoft.intelligence.prompts.resolver import resolve_dossier_prompt
 from vacancysoft.intelligence.providers import LLMProvider, call_llm
 
@@ -87,10 +91,73 @@ def _get_category(session: Session, enriched_job_id: str) -> str:
     return row or DEFAULT_CATEGORY
 
 
-def _build_hm_prompt(job_data: dict[str, str], category: str) -> list[dict[str, str]]:
+def _get_sub_specialism(session: Session, enriched_job_id: str) -> str | None:
+    """Return the latest ClassificationResult.sub_specialism for an enriched
+    job, or None if the row has no sub-specialism recorded.
+
+    Used by the v2 HM-search template to fill the ``[function]`` slot
+    (e.g. "Credit Risk", "Financial Crime", "Quantitative Trading").
+    """
+    row = session.execute(
+        select(ClassificationResult.sub_specialism)
+        .where(ClassificationResult.enriched_job_id == enriched_job_id)
+        .order_by(ClassificationResult.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return row
+
+
+def _resolve_hm_searches(
+    job_data: dict[str, str],
+    category: str,
+    sub_specialism: str | None,
+    template_version: str,
+) -> str:
+    """Select v1 or v2 HM search strings based on the config flag.
+
+    v2 (default): generic template rendered with company + sub_specialism
+      + optional location. Falls back to v1 for this category if
+      sub_specialism is empty (the [function] slot would otherwise render
+      as an empty quoted string, nuking Google recall).
+    v1 (legacy): per-category hand-authored search blocks.
+    """
+    blocks = CATEGORY_BLOCKS.get(category, CATEGORY_BLOCKS[DEFAULT_CATEGORY])
+
+    if template_version == "v2":
+        template = blocks.get("hm_search_queries_v2", "")
+        func = (sub_specialism or "").strip()
+        if template and func:
+            return render_hm_search_template_v2(
+                template=template,
+                company_name=job_data.get("company", ""),
+                function=func,
+                location=job_data.get("location", ""),
+            )
+        # No sub_specialism on this classification — fall through to v1
+        # so we still emit meaningful title searches for the category.
+        logger.info(
+            "HM template v2 requested but sub_specialism is empty — "
+            "falling back to v1 blocks for category=%s",
+            category,
+        )
+
+    return blocks.get("hm_search_queries_v1", blocks.get("hm_search_queries", ""))
+
+
+def _build_hm_prompt(
+    job_data: dict[str, str],
+    category: str,
+    sub_specialism: str | None = None,
+    template_version: str = "v1",
+) -> list[dict[str, str]]:
     """Build a focused hiring manager search prompt."""
     blocks = CATEGORY_BLOCKS.get(category, CATEGORY_BLOCKS[DEFAULT_CATEGORY])
-    hm_searches = blocks.get("hm_search_queries", "")
+    hm_searches = _resolve_hm_searches(
+        job_data=job_data,
+        category=category,
+        sub_specialism=sub_specialism,
+        template_version=template_version,
+    )
     hm_function = blocks.get("hm_function_guidance", "")
 
     return [
@@ -215,7 +282,14 @@ async def generate_dossier(
     # call raises, we fall back to the OpenAI path automatically so the
     # dossier still lands.
     use_serpapi = bool(config.get("use_serpapi_hm_search", False))
-    hm_messages = _build_hm_prompt(job_data, category)
+    template_version = str(config.get("hm_template_version", "v2") or "v2").lower()
+    sub_specialism = _get_sub_specialism(session, enriched_job_id)
+    hm_messages = _build_hm_prompt(
+        job_data,
+        category,
+        sub_specialism=sub_specialism,
+        template_version=template_version,
+    )
     hm_result: dict[str, Any] | None = None
     if use_serpapi:
         try:
@@ -229,6 +303,8 @@ async def generate_dossier(
                 category=category,
                 max_searches=int(config.get("hm_serpapi_max_searches", DEFAULT_MAX_SEARCHES)),
                 extraction_model=config.get("hm_extraction_model", DEFAULT_EXTRACTION_MODEL),
+                sub_specialism=sub_specialism,
+                template_version=template_version,
             )
         except Exception as exc:
             logger.warning(

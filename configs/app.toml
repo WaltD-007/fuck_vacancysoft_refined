@@ -105,6 +105,19 @@ use_serpapi_hm_search = true
 hm_serpapi_max_searches = 3
 hm_extraction_model = "gpt-4o-mini"
 
+# ── HM search template version ──
+# "v2" (default, 2026-04-20+): a single generic template per category
+#   using [function] (filled at runtime from ClassificationResult
+#   .sub_specialism) + optional [location]. Seven universally-applicable
+#   title patterns: head of / global head of / regional head of /
+#   director of / <function> director / managing director <function> /
+#   chief <function> officer.
+# "v1" (legacy): the original seven per-category hand-written search
+#   blocks from category_blocks.py (_LEGACY_*_HM_SEARCHES). Kept as a
+#   hot-swap rollback target. Flip this to "v1" and restart the API +
+#   worker to revert without a code deploy.
+hm_template_version = "v2"
+
 # ── Provider selection ──
 # Flip these to route dossier / campaign calls to DeepSeek instead of
 # OpenAI. Hiring-manager search is hard-wired to OpenAI in dossier.py
