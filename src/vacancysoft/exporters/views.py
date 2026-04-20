@@ -55,20 +55,6 @@ def accepted_plus_review_query():
     return _base_export_query().where(ScoreResult.export_decision.in_(["accepted", "review"]))
 
 
-def new_leads_only_query(destination: str = "webhook"):
-    """Return accepted+review leads that have NOT been exported to the given destination."""
-    already_exported = (
-        select(ExportRecord.enriched_job_id)
-        .where(ExportRecord.destination == destination)
-        .where(ExportRecord.delivered.is_(True))
-    )
-    return (
-        _base_export_query()
-        .where(ScoreResult.export_decision.in_(["accepted", "review"]))
-        .where(~EnrichedJob.id.in_(already_exported))
-    )
-
-
 def grouped_by_taxonomy_query():
     return (
         select(

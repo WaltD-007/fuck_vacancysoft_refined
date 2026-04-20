@@ -10,11 +10,10 @@ from vacancysoft.exporters.serialisers import (
     _build_job_ref,
     _safe_str,
 )
-from vacancysoft.exporters.webhook_sender import _resolve_webhook_url
 
 
 class TestExporterConfig:
-    """Exporter config should load profiles and webhook settings."""
+    """Exporter config should load profiles and client segments."""
 
     def test_config_loads(self) -> None:
         config = load_exporter_config()
@@ -26,45 +25,12 @@ class TestExporterConfig:
         assert "accepted_only" in profiles
         assert "accepted_plus_review" in profiles
 
-    def test_webhook_configured(self) -> None:
-        config = load_exporter_config()
-        webhook = config.get("webhook", {})
-        assert webhook.get("production_url") or webhook.get("timeout_seconds")
-
     def test_client_segments_exist(self) -> None:
         config = load_exporter_config()
         segments = config.get("client_segments", {})
         assert "risk_only" in segments
         assert "control_functions" in segments
         assert "front_office" in segments
-
-
-class TestWebhookUrlResolution:
-    """Webhook URL should resolve from param > env > config."""
-
-    def test_explicit_wins(self) -> None:
-        url = _resolve_webhook_url("https://explicit.com/hook", {"webhook": {"production_url": "https://config.com"}})
-        assert url == "https://explicit.com/hook"
-
-    def test_config_fallback(self) -> None:
-        import os
-        old = os.environ.pop("WEBHOOK_URL", None)
-        try:
-            url = _resolve_webhook_url(None, {"webhook": {"production_url": "https://config.com/hook"}})
-            assert url == "https://config.com/hook"
-        finally:
-            if old is not None:
-                os.environ["WEBHOOK_URL"] = old
-
-    def test_empty_config(self) -> None:
-        import os
-        old = os.environ.pop("WEBHOOK_URL", None)
-        try:
-            url = _resolve_webhook_url(None, {})
-            assert url == ""
-        finally:
-            if old is not None:
-                os.environ["WEBHOOK_URL"] = old
 
 
 class TestSerialisers:

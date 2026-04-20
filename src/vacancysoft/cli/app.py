@@ -40,7 +40,6 @@ from vacancysoft.exporters.views import (
     grouped_by_taxonomy_query,
     load_exporter_config,
 )
-from vacancysoft.exporters.webhook_sender import send_new_leads_to_webhook, send_profile_to_webhook, send_segment_to_webhook
 from vacancysoft.pipelines.classification_persistence import classify_enriched_jobs
 from vacancysoft.pipelines.enrichment_persistence import enrich_raw_jobs
 from vacancysoft.pipelines.maintenance import cleanup_orphaned_classification_results
@@ -1093,7 +1092,6 @@ def run_pipeline(
     per_adapter: int = typer.Option(0, "--per-adapter", help="Max sources per adapter (0 = all). Picks N from each adapter for even coverage"),
     export_profile: str = typer.Option("accepted_plus_review", "--export-profile"),
     output: str | None = typer.Option("leads_output.xlsx", "--output", help="Excel output path"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Skip webhook send"),
     snapshot_every: int = typer.Option(1, "--snapshot-every", help="Save Excel every N new scored leads"),
 ) -> None:
     """Run the full pipeline: discover → enrich → classify → score → export."""
@@ -1593,12 +1591,6 @@ def run_pipeline(
         _snapshot_excel(output, export_profile, scrape_log=scrape_log, source_results=source_results)
         console.print(f"[bold green]Excel written to {output}[/bold green]")
 
-    with SessionLocal() as session:
-        result = send_profile_to_webhook(
-            session=session, profile_name=export_profile, limit=50000, dry_run=dry_run,
-        )
-    console.print(f"Webhook: {result}")
-
     # --- Summary table ---
     summary = Table(title="Pipeline Summary", border_style="bright_blue")
     summary.add_column("Metric", style="bold")
@@ -1631,90 +1623,6 @@ def run_pipeline(
     # Recent log lines
     if log_lines:
         console.print(Panel("\n".join(log_lines[-8:]), title="Recent Activity", border_style="dim"))
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# Daily incremental run: scrape all → send only NEW leads to webhook
-# ══════════════════════════════════════════════════════════════════════════
-
-@pipeline_app.command("daily")
-def daily_run(
-    output: str | None = typer.Option("leads_output.xlsx", "--output"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Skip webhook send"),
-    export_profile: str = typer.Option("accepted_plus_review", "--export-profile"),
-) -> None:
-    """Daily incremental run: scrape all adapters, send only NEW leads to webhook.
-
-    Designed for automated daily execution. Uses export_records table to track
-    what's already been sent — only new leads since the last run are posted to
-    the webhook.
-
-    Typical cron usage:
-        python3.13 src/vacancysoft/cli/app.py db seed-config-boards
-        python3.13 src/vacancysoft/cli/app.py pipeline daily
-    """
-    from rich.console import Console
-    from rich.panel import Panel
-
-    console = Console()
-    console.print(Panel(
-        "[bold]Daily incremental pipeline[/bold]\n"
-        "Scrape all adapters → Enrich → Classify → Score → Send NEW leads only",
-        title="[bold bright_white]Daily Run[/bold bright_white]",
-        border_style="bright_green",
-    ))
-
-    # Step 1: Run the full pipeline (no webhook — we handle that separately)
-    console.print("\n[bold]Step 1:[/bold] Running full pipeline scrape...")
-    from click import Context
-    run_pipeline(
-        adapter=None,
-        source_key=None,
-        discover_limit=0,
-        per_adapter=0,
-        export_profile=export_profile,
-        output=output,
-        dry_run=True,  # Always dry-run the old webhook — we use the new one below
-        snapshot_every=1,
-    )
-
-    # Step 2: Send only NEW leads to webhook
-    console.print("\n[bold]Step 2:[/bold] Sending new leads to webhook...")
-    with SessionLocal() as session:
-        result = send_new_leads_to_webhook(
-            session=session,
-            limit=50000,
-            dry_run=dry_run,
-        )
-
-    if result.get("job_count", 0) == 0:
-        console.print("[yellow]No new leads to send.[/yellow]")
-    elif result.get("ok"):
-        console.print(
-            f"[bold green]Sent {result['job_count']} new leads to webhook[/bold green] "
-            f"(batch: {result.get('batch_id', '?')})"
-        )
-    else:
-        console.print(f"[bold red]Webhook failed:[/bold red] {result.get('error', '?')}")
-
-    console.print(f"\nWebhook result: {result}")
-
-
-@export_app.command("send-new")
-def send_new(
-    limit: int = typer.Option(50000, "--limit"),
-    webhook_url: str | None = typer.Option(None, "--url"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-) -> None:
-    """Send only NEW leads (not previously sent) to the webhook."""
-    with SessionLocal() as session:
-        result = send_new_leads_to_webhook(
-            session=session,
-            limit=limit,
-            webhook_url=webhook_url,
-            dry_run=dry_run,
-        )
-    typer.echo(str(result))
 
 
 @export_app.command("taxonomy-preview")
@@ -1802,42 +1710,6 @@ def excel_segment(segment_name: str = typer.Option(..., "--segment"), output_pat
     with SessionLocal() as session:
         output = export_segment_to_excel(session, segment_name=segment_name, output_path=output_path, limit=limit)
     typer.echo(f"Wrote Excel export: {output}")
-
-
-@export_app.command("webhook-profile")
-def webhook_profile(
-    profile_name: str = typer.Option(..., "--profile"),
-    limit: int = typer.Option(100, "--limit"),
-    webhook_url: str | None = typer.Option(None, "--url"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-) -> None:
-    with SessionLocal() as session:
-        result = send_profile_to_webhook(
-            session=session,
-            profile_name=profile_name,
-            limit=limit,
-            webhook_url=webhook_url,
-            dry_run=dry_run,
-        )
-    typer.echo(str(result))
-
-
-@export_app.command("webhook-segment")
-def webhook_segment(
-    segment_name: str = typer.Option(..., "--segment"),
-    limit: int = typer.Option(100, "--limit"),
-    webhook_url: str | None = typer.Option(None, "--url"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-) -> None:
-    with SessionLocal() as session:
-        result = send_segment_to_webhook(
-            session=session,
-            segment_name=segment_name,
-            limit=limit,
-            webhook_url=webhook_url,
-            dry_run=dry_run,
-        )
-    typer.echo(str(result))
 
 
 # ══════════════════════════════════════════════════════════════════════════
