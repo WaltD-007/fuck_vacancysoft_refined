@@ -49,6 +49,18 @@ Three buckets:
 | C11 | Persist source-level discovery failures as SourceRun + ExtractionAttempt rows | ✅ commit b81f29a (PR #6) |
 | C12 | Remove N8N webhook integration (delete webhook_sender.py + CLI commands + configs + envs) | ✅ commit 6116252 (PR #7) |
 | C13 | Lever data cleanup: 103 mis-classified lever rows triaged and allocated — 1→bamboohr (Walker Crips), 7→generic_site (Vanquis, Verition, Voleon, West Brom ×2, Yieldstreet, York Capital), 95 deactivated as duplicates (active generic_site twin already handles each). Backup at `.data/backups/sources_pre_lever_cleanup_20260420-1945.sql`. Active lever rows now 112 → 11, all with valid `jobs.lever.co/*` URLs | ✅ DB-only (pure SQL UPDATE, no code change) |
+| C14 | HM search template v2: generic `[function]` template rendered from `ClassificationResult.sub_specialism` + optional `[location]`; legacy per-category blocks preserved behind `hm_template_version = "v1"` config flag for hot-swap rollback | ✅ PR #9 (commit bd368ea) |
+| C15 | Intelligence model quality upgrade: dossier gpt-5-mini → gpt-5.2 (reasoning medium → low to avoid double-paying for quality); campaign gpt-5.2 → gpt-5.4 (writing quality was the new ceiling). Timeout bumped 300s → 450s. `PROMPT_VERSION` bumped v1.1 → v1.2 as a cost_report segmentation marker. Est per-lead cost $0.08 → $0.135 (still inside $0.15 envelope). Rollback: flip config back + restart API + worker (no code deploy) | ✅ this commit |
+
+**Model-swap verification plan (C15)**. After deploy, verify on a canary cohort before trusting end-to-end:
+
+1. Pick 10-20 varied existing leads across categories (risk / compliance / quant / cyber).
+2. Force-regenerate: `prospero dossier regenerate --enriched-job-id <id> --force` per lead. The `--force` bypasses the cache check in `dossier.py` which would otherwise reuse v1.1 output.
+3. Eyeball dossier quality side-by-side with a pre-swap example. Focus on `stated_vs_actual`, `spec_risk` depth, and `candidate_profiles` specificity.
+4. Eyeball campaign output via Campaign Builder. Focus on opener hook quality and whether the writing actually uses the dossier's analytical detail.
+5. Check observed cost per lead: `prospero cost-report --days 1` — should land in the $0.12-$0.15/lead range. If materially higher, reasoning_effort may be higher than intended on gpt-5.2 (the model ignores `"low"` occasionally) or prompt tokens have drifted up.
+6. Check latency: `IntelligenceDossier.duration_ms` should stay <400s on most leads. If p95 is >450s, tighten `dossier_search_context_size` from `"high"` → `"medium"`.
+7. If quality is visibly worse on any section, rollback is 4 lines in `configs/app.toml` + API + worker restart.
 
 ### 1C. Email + scheduling tranche (~13–14 hours focused work, blocked on 1A items 2-4)
 
