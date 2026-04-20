@@ -16,6 +16,8 @@ def build_classification_payload(enriched_job_id: str, title: str | None) -> Cla
         taxonomy_version="legacy_v1",
         primary_taxonomy_key=taxonomy.primary_taxonomy_key,
         secondary_taxonomy_keys=taxonomy.secondary_taxonomy_keys,
+        sub_specialism=taxonomy.sub_specialism,
+        sub_specialism_confidence=taxonomy.sub_specialism_confidence,
         employment_type=employment_type,
         title_relevance_score=relevance,
         classification_confidence=taxonomy.confidence,

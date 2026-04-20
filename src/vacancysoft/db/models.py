@@ -169,6 +169,8 @@ class ClassificationResult(Base):
     target_domain: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     primary_taxonomy_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     secondary_taxonomy_keys: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    sub_specialism: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    sub_specialism_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     employment_type: Mapped[str] = mapped_column(String(32), default="Permanent", server_default="Permanent", index=True)
     title_relevance_score: Mapped[float] = mapped_column(Float, default=0.0)
     classification_confidence: Mapped[float] = mapped_column(Float, default=0.0)
