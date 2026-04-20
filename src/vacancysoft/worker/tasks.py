@@ -6,7 +6,6 @@ import asyncio
 import logging
 from typing import Any
 
-import httpx
 from dotenv import load_dotenv
 from sqlalchemy import select, func
 
@@ -14,10 +13,9 @@ load_dotenv()
 
 from vacancysoft.db.engine import SessionLocal
 from vacancysoft.db.models import EnrichedJob, RawJob, ReviewQueueItem, Source
+from vacancysoft.intelligence.url_scrape import scrape_advert
 
 logger = logging.getLogger(__name__)
-
-_PLAYWRIGHT_SCRAPER_URL = "https://playwright-runner.bluecliff-1ceb6690.uksouth.azurecontainerapps.io/scrape"
 
 
 async def process_lead(ctx: dict[str, Any], item_id: str, url: str | None, company: str | None, title: str | None) -> None:
@@ -64,31 +62,27 @@ async def process_lead(ctx: dict[str, Any], item_id: str, url: str | None, compa
 
             # Step 1: If no description, scrape it via the Playwright runner
             if not (enriched.description_text or "").strip() and url:
-                try:
-                    scrape_body: dict = {"url": url}
-                    raw = s.get(RawJob, enriched.raw_job_id)
-                    if raw:
-                        src = s.get(Source, raw.source_id)
-                        if src and src.adapter_name == "workday":
-                            config = src.config_blob or {}
-                            if config.get("tenant") and config.get("shard") and config.get("site_path"):
-                                scrape_body["workday"] = {
-                                    "tenant": config["tenant"],
-                                    "shard": config["shard"],
-                                    "sitePath": config["site_path"],
-                                }
+                workday_cfg: dict | None = None
+                raw = s.get(RawJob, enriched.raw_job_id)
+                if raw:
+                    src = s.get(Source, raw.source_id)
+                    if src and src.adapter_name == "workday":
+                        config = src.config_blob or {}
+                        if config.get("tenant") and config.get("shard") and config.get("site_path"):
+                            workday_cfg = {
+                                "tenant": config["tenant"],
+                                "shard": config["shard"],
+                                "sitePath": config["site_path"],
+                            }
 
-                    async with httpx.AsyncClient(timeout=120) as client:
-                        resp = await client.post(_PLAYWRIGHT_SCRAPER_URL, json=scrape_body)
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            description = (data.get("description") or "").strip()
-                            if description and data.get("status") in ("success", "empty"):
-                                enriched.description_text = description
-                                s.commit()
-                                logger.info("Scraped description for %s (%d chars)", url, len(description))
-                except Exception as exc:
-                    logger.warning("Scrape failed for %s: %s", url, exc)
+                meta = await scrape_advert(url, workday=workday_cfg)
+                description = (meta.get("description") or "").strip()
+                if description and meta.get("status") in ("success", "empty"):
+                    enriched.description_text = description
+                    s.commit()
+                    logger.info("Scraped description for %s (%d chars)", url, len(description))
+                elif meta.get("status") == "error":
+                    logger.warning("Scrape failed for %s: %s", url, meta.get("error"))
 
             # Step 2: Generate dossier
             from vacancysoft.intelligence.dossier import generate_dossier

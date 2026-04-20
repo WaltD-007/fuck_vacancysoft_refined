@@ -119,6 +119,15 @@ class ScoredJobOut(BaseModel):
         from_attributes = True
 
 
+class PasteLeadRequest(BaseModel):
+    """Single-field request for POST /api/leads/paste.
+
+    Title / company / location come from the Playwright runner's structured
+    metadata extraction; the operator only supplies the URL.
+    """
+    url: str
+
+
 class QueueRequest(BaseModel):
     title: str
     company: str

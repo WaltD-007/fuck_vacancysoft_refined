@@ -10,16 +10,18 @@ campaign-queue lifecycle:
   GET    /api/queue
   POST   /api/queue/{item_id}/send
   DELETE /api/queue/{item_id}
+  POST   /api/leads/paste
 
 Also houses the `_scrape_and_generate_dossier` background task that
 `POST /api/queue` spawns as an in-process fallback when Redis is
-unavailable. Extracted verbatim from `api/server.py` during the
-Week 4 split.
+unavailable.
 """
 
 from __future__ import annotations
 
 import hashlib
+import re
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
@@ -30,15 +32,12 @@ from vacancysoft.api.ledger import (
     _category_counts,
     _extract_employer_from_payload,
 )
-from vacancysoft.api.schemas import QueueRequest, StatsOut
+from vacancysoft.api.schemas import PasteLeadRequest, QueueRequest, StatsOut
 from vacancysoft.db.engine import SessionLocal
 from vacancysoft.db.models import EnrichedJob, RawJob, ScoreResult, Source
 
 
 router = APIRouter(tags=["leads"])
-
-
-_PLAYWRIGHT_SCRAPER_URL = "https://playwright-runner.bluecliff-1ceb6690.uksouth.azurecontainerapps.io/scrape"
 
 
 # ── Dashboard cache ──────────────────────────────────────────────────────
@@ -423,8 +422,8 @@ async def queue_campaign(req: QueueRequest, request: Request):
 
 async def _scrape_and_generate_dossier(item_id: str, url: str | None, company: str | None, title: str | None):
     """Background task: scrape the job advert, store the description, then generate the dossier."""
-    import httpx as _httpx
     from vacancysoft.db.models import ReviewQueueItem
+    from vacancysoft.intelligence.url_scrape import scrape_advert
 
     try:
         with SessionLocal() as s:
@@ -463,32 +462,26 @@ async def _scrape_and_generate_dossier(item_id: str, url: str | None, company: s
 
             # Step 1: If no description, scrape it
             if not (enriched.description_text or "").strip() and url:
-                try:
-                    # Build scrape payload — add Workday config if needed
-                    scrape_body: dict = {"url": url}
-                    raw = s.get(RawJob, enriched.raw_job_id)
-                    if raw:
-                        src = s.get(Source, raw.source_id)
-                        if src and src.adapter_name == "workday":
-                            config = src.config_blob or {}
-                            if config.get("tenant") and config.get("shard") and config.get("site_path"):
-                                scrape_body["workday"] = {
-                                    "tenant": config["tenant"],
-                                    "shard": config["shard"],
-                                    "sitePath": config["site_path"],
-                                }
-
-                    async with _httpx.AsyncClient(timeout=120) as client:
-                        resp = await client.post(_PLAYWRIGHT_SCRAPER_URL, json=scrape_body)
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            description = (data.get("description") or "").strip()
-                            if description and data.get("status") in ("success", "empty"):
-                                enriched.description_text = description
-                                s.commit()
-                except Exception as exc:
+                workday_cfg: dict | None = None
+                raw = s.get(RawJob, enriched.raw_job_id)
+                if raw:
+                    src = s.get(Source, raw.source_id)
+                    if src and src.adapter_name == "workday":
+                        config = src.config_blob or {}
+                        if config.get("tenant") and config.get("shard") and config.get("site_path"):
+                            workday_cfg = {
+                                "tenant": config["tenant"],
+                                "shard": config["shard"],
+                                "sitePath": config["site_path"],
+                            }
+                meta = await scrape_advert(url, workday=workday_cfg)
+                description = (meta.get("description") or "").strip()
+                if description and meta.get("status") in ("success", "empty"):
+                    enriched.description_text = description
+                    s.commit()
+                elif meta.get("status") == "error":
                     import logging
-                    logging.getLogger(__name__).warning("Scrape failed for %s: %s", url, exc)
+                    logging.getLogger(__name__).warning("Scrape failed for %s: %s", url, meta.get("error"))
 
             # Step 2: Generate dossier
             from vacancysoft.intelligence.dossier import generate_dossier
@@ -631,3 +624,485 @@ def remove_from_queue(item_id: str):
         s.commit()
     clear_dashboard_cache()
     return {"message": "Removed", "id": item_id}
+
+
+# ── Paste a URL → full pipeline ──────────────────────────────────────────
+#
+# Takes a single advert URL from the operator, scrapes via the Playwright
+# runner (which returns title/company/location/description), then runs the
+# existing enrichment → classification → scoring → queue pipeline so the
+# ARQ worker picks it up for dossier + campaign generation exactly like
+# any other queued lead.
+#
+# Dedupe: if the URL already matches an EnrichedJob, reuse it instead of
+# creating duplicate rows — the operator still gets a queue item + campaign
+# regeneration either way.
+
+_MANUAL_PASTE_SOURCE_KEY = "manual_paste"
+
+
+def _is_linkedin_job_url(url: str) -> bool:
+    """True when the URL is a LinkedIn job advert.
+
+    LinkedIn job pages gate the advert body behind a login wall — the
+    scraper either grabs the related-jobs sidebar (→ hallucinated dossier)
+    or misses the body entirely. Rather than silently produce a poor
+    dossier we reject these URLs and nudge the operator toward the
+    'Apply on company website' ATS URL.
+
+    Matches both the public `/jobs/view/...` layout and the `/comm/jobs/`
+    email-share variant, on any LinkedIn subdomain (www, uk, de, etc.).
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    host = (parsed.hostname or "").lower()
+    if not (host == "linkedin.com" or host.endswith(".linkedin.com")):
+        return False
+    path = (parsed.path or "").lower()
+    return path.startswith("/jobs/") or "/comm/jobs/" in path
+
+
+# Recognises LinkedIn's public page-title wrapper, e.g.
+#   "Abound hiring Head of Credit Risk in London, England, United Kingdom | LinkedIn"
+# and captures the three substrings so we can back-fill company and location
+# when the runner's structured extractor didn't manage to.
+_LINKEDIN_TITLE_RE = re.compile(
+    r"^(?P<company>.+?)\s+hiring\s+(?P<title>.+?)\s+in\s+(?P<location>.+?)\s*\|\s*LinkedIn\s*$",
+    re.IGNORECASE,
+)
+
+# Fallback suffix stripper for pages that have the " | LinkedIn" trailer
+# but don't match the full "X hiring Y in Z" pattern.
+_LINKEDIN_SUFFIX_RE = re.compile(r"\s*\|\s*LinkedIn\s*$", re.IGNORECASE)
+
+# "<Role> at <Company>" — common ATS page-title pattern (Barclays, Greenhouse
+# listings, etc.). Used as a fallback when the runner didn't extract company
+# via JSON-LD / og:site_name.
+_TITLE_AT_COMPANY_RE = re.compile(
+    r"^(?P<title>.+?)\s+at\s+(?P<company>[^|\-–—]+?)\s*$",
+    re.IGNORECASE,
+)
+
+# "<Role> - <Company>" / "<Role> — <Company>" — seen on generic careers pages.
+# Conservative: the company side must have no digits (so "VP - 10+ years
+# experience" doesn't parse as company="10+ years experience"), at most 5
+# words, and at least 3 chars.
+_TITLE_DASH_COMPANY_RE = re.compile(
+    r"^(?P<title>.+?)\s+[-–—]\s+(?P<company>[A-Za-z][A-Za-z& ,.']{2,60})\s*$",
+)
+
+
+def _clean_scraped_title(raw_title: str) -> tuple[str, str, str]:
+    """Strip platform wrappers from a scraped page title.
+
+    Returns (clean_title, inferred_company, inferred_location). Each component
+    is "" if it couldn't be parsed from the wrapper.
+
+    Patterns, in order:
+      1. LinkedIn's "<Company> hiring <Title> in <Location> | LinkedIn".
+      2. Bare "| LinkedIn" suffix stripper (then continue to (3)/(4)).
+      3. "<Role> at <Company>"   — Barclays careers, Greenhouse jobs, etc.
+      4. "<Role> - <Company>"    — conservative dash split.
+    """
+    if not raw_title:
+        return "", "", ""
+    s = raw_title.strip()
+
+    # LinkedIn full wrapper
+    m = _LINKEDIN_TITLE_RE.match(s)
+    if m:
+        return (
+            m.group("title").strip(),
+            m.group("company").strip(),
+            m.group("location").strip(),
+        )
+
+    # Drop any lingering " | LinkedIn" so downstream patterns match cleanly
+    s = _LINKEDIN_SUFFIX_RE.sub("", s).strip()
+
+    # "Role at Company"
+    m = _TITLE_AT_COMPANY_RE.match(s)
+    if m:
+        return m.group("title").strip(), m.group("company").strip(), ""
+
+    # "Role - Company"
+    m = _TITLE_DASH_COMPANY_RE.match(s)
+    if m:
+        company_candidate = m.group("company").strip()
+        # Guard: drop single-word candidates like "Permanent" or "Remote"
+        # that are contract/location descriptors, not employers.
+        word_count = len(company_candidate.split())
+        if word_count <= 5 and word_count >= 1:
+            return m.group("title").strip(), company_candidate, ""
+
+    return s, "", ""
+
+
+def _ensure_manual_paste_source(session) -> Source:
+    """Find (or create) the shared 'Manual Paste' Source row that every
+    paste-originated RawJob is filed under. One row, shared across all
+    pastes — the employer on the card is resolved from enriched.team
+    (extracted from the scrape) rather than this Source row's name."""
+    src = session.execute(
+        select(Source).where(Source.source_key == _MANUAL_PASTE_SOURCE_KEY)
+    ).scalar_one_or_none()
+    if src is not None:
+        return src
+
+    src = Source(
+        source_key=_MANUAL_PASTE_SOURCE_KEY,
+        employer_name="(Manual paste)",
+        board_name=None,
+        base_url="",
+        hostname="manual-paste",
+        source_type="manual",
+        ats_family=None,
+        adapter_name="manual_paste",
+        active=True,
+        seed_type="manual_paste",
+        discovery_method="manual_paste",
+        fingerprint="manual_paste",
+        canonical_company_key="manual_paste",
+        config_blob=None,
+        capability_blob={},
+    )
+    session.add(src)
+    session.flush()
+    return src
+
+
+@router.post("/api/leads/paste")
+async def paste_lead(req: PasteLeadRequest, request: Request):
+    """Paste a single advert URL and run the full pipeline.
+
+    Flow (see the plan for the full architecture diagram):
+      1. Dedupe on discovered_url — if an EnrichedJob exists, queue a
+         campaign for it and return.
+      2. Call the Playwright runner for {title, company, location,
+         description, postedDate}.
+      3. Ensure a shared "Manual Paste" Source row exists.
+      4. Write SourceRun + ExtractionAttempt + RawJob rows.
+      5. Run persist_enrichment_for_raw_job → persist_classification →
+         persist_score (existing helpers).
+      6. Create a ReviewQueueItem and enqueue process_lead on Redis
+         (fall back to in-process task if Redis is unavailable).
+
+    Returns:
+      { "status": "queued" | "reused" | "already_queued",
+        "item_id": "...", "enriched_id": "..." }
+
+    Errors:
+      400 — empty URL
+      422 — scraper couldn't reach the URL, returned non-advert content,
+            or the lead was filtered (wrong country / recruiter / title
+            doesn't match any taxonomy keyword)
+    """
+    from vacancysoft.db.models import (
+        ExtractionAttempt,
+        ReviewQueueItem,
+        SourceRun,
+    )
+    from vacancysoft.intelligence.url_scrape import scrape_advert
+    from vacancysoft.pipelines.classification_persistence import (
+        persist_classification_for_enriched_job,
+    )
+    from vacancysoft.pipelines.enrichment_persistence import persist_enrichment_for_raw_job
+    from vacancysoft.pipelines.scoring_persistence import persist_score_for_enriched_job
+
+    url = (req.url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
+
+    # Hard-reject LinkedIn job URLs. The advert body is consistently gated
+    # behind a login wall so the scraper either grabs the related-jobs
+    # sidebar (→ hallucinated dossier) or misses content entirely. Better
+    # to fail loudly and nudge the operator toward the authoritative ATS
+    # URL than silently produce a weak dossier.
+    if _is_linkedin_job_url(url):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "LinkedIn job URLs aren't supported — the advert body is "
+                "gated behind a login wall and the scraper can't read it "
+                "reliably. On the LinkedIn posting, click 'Apply on "
+                "company website' (or similar) and paste that URL "
+                "instead — Greenhouse, Workable, Workday, or the "
+                "employer's own careers site will all scrape cleanly."
+            ),
+        )
+
+    # ── 1. Dedupe ────────────────────────────────────────────────────────
+    with SessionLocal() as s:
+        existing_enriched_id = s.execute(
+            select(EnrichedJob.id)
+            .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
+            .where(RawJob.discovered_url == url)
+            .limit(1)
+        ).scalar_one_or_none()
+
+        if existing_enriched_id:
+            # Already in the DB. If there's already a campaign queue item,
+            # short-circuit — nothing more to do. Otherwise queue a fresh
+            # one so the operator sees the lead on /leads.
+            existing_item = s.execute(
+                select(ReviewQueueItem)
+                .where(ReviewQueueItem.enriched_job_id == existing_enriched_id)
+                .where(ReviewQueueItem.queue_type == "campaign")
+                .limit(1)
+            ).scalar_one_or_none()
+            if existing_item is not None:
+                return {
+                    "status": "already_queued",
+                    "item_id": existing_item.id,
+                    "enriched_id": existing_enriched_id,
+                }
+
+            item = ReviewQueueItem(
+                enriched_job_id=existing_enriched_id,
+                queue_type="campaign",
+                priority=50,
+                reason_code="user_pasted_url",
+                reason_summary=f"Paste: {url}",
+                evidence_blob={"url": url, "source": "paste"},
+                status="pending",
+            )
+            s.add(item)
+            s.commit()
+            s.refresh(item)
+            item_id = item.id
+
+        else:
+            item_id = None
+
+    if existing_enriched_id and item_id:
+        # Enqueue + cache invalidate happens after the with-block committed.
+        await _enqueue_process_lead(request, item_id, url, company="", title="")
+        clear_dashboard_cache()
+        return {"status": "reused", "item_id": item_id, "enriched_id": existing_enriched_id}
+
+    # ── 2. Scrape via Playwright runner ──────────────────────────────────
+    meta = await scrape_advert(url)
+    status = meta.get("status")
+    if status in ("error", "content_blocked"):
+        raise HTTPException(
+            status_code=422,
+            detail=meta.get("error") or "Playwright runner could not read that URL",
+        )
+
+    raw_title = (meta.get("title") or "").strip()
+    raw_company = (meta.get("company") or "").strip()
+    raw_location = (meta.get("location") or "").strip()
+    description = (meta.get("description") or "").strip()
+    posted_at_raw = (meta.get("postedDate") or "").strip()
+
+    # LinkedIn's document.title is "X hiring Y in Z | LinkedIn" — when the
+    # runner's JSON-LD path missed, the scraped title + empty company/location
+    # come through here. Parse the wrapper so we get a clean job title and
+    # infer company + location when they're missing.
+    cleaned_title, inferred_company, inferred_location = _clean_scraped_title(raw_title)
+    title = cleaned_title or raw_title
+    company = raw_company or inferred_company
+    location = raw_location or inferred_location
+
+    if not title:
+        # No title = dossier prompt has nothing to select a category from
+        # and downstream will almost certainly mis-classify. Surface to the
+        # operator rather than silently create a useless lead.
+        raise HTTPException(
+            status_code=422,
+            detail="Scrape succeeded but no job title was found on the page",
+        )
+
+    # ── 3-5. Persist + pipeline ──────────────────────────────────────────
+    with SessionLocal() as s:
+        paste_source = _ensure_manual_paste_source(s)
+
+        source_run = SourceRun(
+            source_id=paste_source.id,
+            run_type="manual_paste",
+            status="success",
+            trigger="manual_paste",
+            records_seen=1,
+            raw_jobs_created=1,
+            details_fetched=1,
+        )
+        s.add(source_run)
+        s.flush()
+
+        extraction_attempt = ExtractionAttempt(
+            source_run_id=source_run.id,
+            source_id=paste_source.id,
+            stage="detail",
+            method="browser",
+            endpoint_url=url,
+            status_code=200,
+            success=True,
+            completeness_score=0.8 if description else 0.4,
+            confidence_score=0.8 if description else 0.4,
+        )
+        s.add(extraction_attempt)
+        s.flush()
+
+        fingerprint = hashlib.md5(url.encode("utf-8")).hexdigest()
+        raw_job = RawJob(
+            source_id=paste_source.id,
+            source_run_id=source_run.id,
+            extraction_attempt_id=extraction_attempt.id,
+            external_job_id=fingerprint,
+            canonical_url=url,
+            discovered_url=url,
+            apply_url=url,
+            title_raw=title,
+            location_raw=location,
+            posted_at_raw=posted_at_raw or None,
+            description_raw=description,
+            listing_payload={
+                "source": "manual_paste",
+                "company": company,
+                # _extract_employer_from_payload (enrichment_persistence.py)
+                # looks for `company_name` / `employer_name` when deciding
+                # whether to populate enriched.team. Alias here so the
+                # company ends up on the card even though manual_paste
+                # isn't on the aggregator list.
+                "company_name": company,
+                "playwright_meta": meta,
+            },
+            detail_payload=None,
+            raw_text_blob=description,
+            job_fingerprint=fingerprint,
+            content_hash=hashlib.sha1(description.encode("utf-8")).hexdigest() if description else None,
+            completeness_score=0.8 if description else 0.4,
+            extraction_confidence=0.8 if description else 0.4,
+            provenance_blob={"mode": "manual_paste", "url": url},
+        )
+        s.add(raw_job)
+        s.flush()
+
+        # Enrich, classify, score — existing helpers. Any of these returning
+        # None means a filter rejected the lead; surface the reason to the
+        # operator.
+        enriched = persist_enrichment_for_raw_job(s, raw_job)
+        if enriched is None:
+            # Look up what filter tripped so the error message is useful.
+            s.rollback()
+            reason = _paste_filter_reason(url, title, location, company)
+            raise HTTPException(status_code=422, detail=reason)
+
+        classification = persist_classification_for_enriched_job(s, enriched)
+        if classification is None:
+            s.rollback()
+            raise HTTPException(
+                status_code=422,
+                detail=f"Could not classify title '{title}' — no taxonomy match",
+            )
+
+        score_row = persist_score_for_enriched_job(s, enriched)
+
+        # Backfill enriched.team from the resolved company. The enrichment
+        # helper's _extract_employer_from_payload already reads
+        # listing_payload["company_name"] — this is a belt-and-braces
+        # guarantee so downstream (dossier prompt, HM SerpApi queries) has
+        # a real employer name and not the "(Manual paste)" placeholder
+        # that the Source row carries.
+        if company and not (enriched.team or "").strip():
+            enriched.team = company
+            s.flush()
+
+
+        from vacancysoft.exporters.legacy_mapping import (
+            load_legacy_routing,
+            map_category,
+        )
+        routing = load_legacy_routing()
+        cat_label = map_category(classification.primary_taxonomy_key, routing)
+        # Sub-specialism comes from the ClassificationResult row we just
+        # persisted (DB column added 2026-04-20). Previously recomputed via
+        # map_sub_specialism() against the legacy YAML.
+        sub_label = classification.sub_specialism or "Other"
+        score_ui: float | None = None
+        if score_row and score_row.export_eligibility_score is not None:
+            score_ui = round(float(score_row.export_eligibility_score) * 10, 1)
+
+        display_company = enriched.team or company or "(unknown)"
+        display_location = enriched.location_city or location or None
+        display_country = enriched.location_country
+
+        item = ReviewQueueItem(
+            enriched_job_id=enriched.id,
+            queue_type="campaign",
+            priority=50,
+            reason_code="user_pasted_url",
+            reason_summary=f"Paste: {title} — {display_company}",
+            evidence_blob={
+                "url": url,
+                "title": enriched.title or title,
+                "company": display_company,
+                "location": display_location,
+                "country": display_country,
+                "category": cat_label,
+                "sub_specialism": sub_label,
+                "score": score_ui,
+                "source": "paste",
+            },
+            status="pending",
+        )
+        s.add(item)
+        s.commit()
+        s.refresh(item)
+        item_id = item.id
+        enriched_id = enriched.id
+
+    # ── 6. Enqueue ───────────────────────────────────────────────────────
+    await _enqueue_process_lead(request, item_id, url, company=company, title=title)
+    clear_dashboard_cache()
+    return {"status": "queued", "item_id": item_id, "enriched_id": enriched_id}
+
+
+def _paste_filter_reason(url: str, title: str, location: str, company: str) -> str:
+    """Best-guess explanation of why persist_enrichment_for_raw_job rejected
+    a paste. The helper marks the RawJob with detail_fetch_status of
+    geo_filtered / agency_filtered / title_filtered, but we've rolled back
+    the transaction by the time we get here, so replay the checks."""
+    from vacancysoft.enrichers.location_normaliser import is_allowed_country, normalise_location
+    from vacancysoft.enrichers.recruiter_filter import is_recruiter
+    from vacancysoft.classifiers.title_rules import is_relevant_title
+
+    loc = normalise_location(location) if location else {}
+    if location and not is_allowed_country(loc.get("country")):
+        return (
+            f"Location '{location}' is outside the supported country list"
+            " (UK, USA, Canada, France, Germany, Switzerland, Netherlands,"
+            " Luxembourg, UAE, Saudi Arabia, Hong Kong, Singapore)"
+        )
+    if company and is_recruiter(company):
+        return f"'{company}' is on the recruitment-agency exclusion list"
+    if title and not is_relevant_title(title):
+        return (
+            f"Title '{title}' doesn't match any core-market taxonomy keyword"
+            " (risk, quant, compliance, audit, cyber, legal, front office)"
+        )
+    return f"Lead was filtered during enrichment (url={url})"
+
+
+async def _enqueue_process_lead(
+    request: Request,
+    item_id: str,
+    url: str,
+    *,
+    company: str,
+    title: str,
+) -> None:
+    """Push a process_lead job onto Redis, or run the in-process fallback if
+    Redis is unavailable. Mirrors the behaviour of POST /api/queue so the
+    paste path and the Add-Lead path converge on the same worker."""
+    if getattr(request.app.state, "redis", None):
+        await request.app.state.redis.enqueue_job(
+            "process_lead", item_id, url, company, title,
+        )
+        return
+    import asyncio
+    asyncio.ensure_future(
+        _scrape_and_generate_dossier(item_id, url, company, title)
+    )

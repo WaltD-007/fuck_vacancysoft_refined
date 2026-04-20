@@ -53,18 +53,44 @@ def _load_intel_config() -> dict[str, Any]:
 
 _AGGREGATOR_ADAPTERS = {"adzuna", "reed", "efinancialcareers", "google_jobs"}
 
+# Source-row employer names that are placeholder strings rather than real
+# companies. The dossier prompt and HM SerpApi queries must NEVER substitute
+# these into a live prompt — the model / Google both end up generating
+# garbage (literal "(Manual paste)" Google queries returned zero hits and
+# gpt-4o-mini fabricated hiring-manager names from training data).
+_PLACEHOLDER_EMPLOYERS = {
+    "(manual paste)",
+}
 
-def _build_job_data(enriched: EnrichedJob, raw: RawJob, source: Source) -> dict[str, str]:
-    company = source.employer_name or ""
 
-    # For aggregator sources, the real employer is inside the listing payload
+def _resolve_company(enriched: EnrichedJob, raw: RawJob, source: Source) -> str:
+    """Best-effort company resolution for the dossier + HM prompts.
+
+    Priority (first non-empty, non-placeholder wins):
+      1. EnrichedJob.team        — populated by the enrichment helper's
+                                   _extract_employer_from_payload, and by
+                                   the paste endpoint's backfill
+      2. Source.employer_name    — authoritative for direct adapters
+      3. Aggregator payload keys — Adzuna et al. store the real employer
+                                   inside listing_payload
+    """
+    team = (enriched.team or "").strip()
+    if team and team.lower() not in _PLACEHOLDER_EMPLOYERS:
+        return team
+
+    src_name = (source.employer_name or "").strip()
+    if src_name and src_name.lower() not in _PLACEHOLDER_EMPLOYERS:
+        company = src_name
+    else:
+        company = ""
+
     if source.adapter_name in _AGGREGATOR_ADAPTERS:
         payload = raw.listing_payload
         if isinstance(payload, dict):
             co_obj = payload.get("company")
             if isinstance(co_obj, dict):
                 company = co_obj.get("display_name") or company
-            if company == source.employer_name:
+            if company == src_name or not company:
                 company = (
                     payload.get("employer_name")
                     or payload.get("companyName")
@@ -72,9 +98,26 @@ def _build_job_data(enriched: EnrichedJob, raw: RawJob, source: Source) -> dict[
                     or company
                 )
 
+    # Manual-paste fallback: the paste endpoint stores the scraped company
+    # in listing_payload["company_name"] / "company". If neither enriched.team
+    # nor Source.employer_name resolved, try those as a last resort.
+    if not company or company.lower() in _PLACEHOLDER_EMPLOYERS:
+        payload = raw.listing_payload if isinstance(raw.listing_payload, dict) else {}
+        fallback = (
+            payload.get("company_name")
+            or payload.get("company")
+            or ""
+        )
+        if isinstance(fallback, str) and fallback.strip():
+            company = fallback.strip()
+
+    return company
+
+
+def _build_job_data(enriched: EnrichedJob, raw: RawJob, source: Source) -> dict[str, str]:
     return {
         "title": enriched.title or raw.title_raw or "",
-        "company": company,
+        "company": _resolve_company(enriched, raw, source),
         "location": enriched.location_text or raw.location_raw or "",
         "date_posted": str(enriched.posted_at or raw.posted_at_raw or ""),
         "description": enriched.description_text or raw.description_raw or raw.raw_text_blob or "",
