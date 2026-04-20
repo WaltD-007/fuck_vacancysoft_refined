@@ -90,7 +90,7 @@ EXTRACTION_TIMEOUT = 60
 
 EXTRACTION_SYSTEM = (
     "You are a recruitment researcher. From the search-result snippets below, "
-    "identify up to 3 real people who are the most likely hiring manager for "
+    "identify up to 6 real people who are the most likely hiring manager for "
     "the role described. Return valid JSON only."
 )
 
@@ -212,7 +212,7 @@ Job description (first 2000 chars):
 
 The hiring manager is the person the successful candidate would report into, not HR or Talent Acquisition.
 
-Below are LinkedIn search-result snippets. From these snippets, identify up to 3 real people most likely to be the hiring manager. Use the title signals to judge.
+Below are LinkedIn search-result snippets. From these snippets, identify up to 6 real people most likely to be the hiring manager. Use the title signals to judge. Always lead with the highest-confidence candidates; if only 2–3 are genuinely plausible, return just those — do not pad the list with low-confidence filler.
 
 Step 1: Derive the target title.
 - If the advert mentions a reporting line (e.g. "reporting to the Chief Credit Officer"), use that title.
