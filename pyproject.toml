@@ -49,7 +49,12 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+# Repo root ("." ) is on the path so tests/test_config.py can import
+# `configs.config` — the `configs/` directory lives at the repo root, not
+# under src/. Without "." here, the console-script `pytest` invocation
+# (used by CI) fails to collect test_config.py with ModuleNotFoundError.
+# `python -m pytest` works either way because it adds CWD automatically.
+pythonpath = [".", "src"]
 testpaths = ["tests"]
 
 [tool.ruff]
