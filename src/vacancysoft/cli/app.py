@@ -6,7 +6,7 @@ from pathlib import Path
 
 import typer
 from dotenv import load_dotenv
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 load_dotenv()
 
@@ -53,9 +53,11 @@ app = typer.Typer(help="Prospero — Recruitment Intelligence Platform")
 pipeline_app = typer.Typer(help="Pipeline commands")
 export_app = typer.Typer(help="Export helpers")
 db_app = typer.Typer(help="Database helpers")
+agency_app = typer.Typer(help="Agency-exclusion commands (add/remove recruiter names)")
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(export_app, name="export")
 app.add_typer(db_app, name="db")
+app.add_typer(agency_app, name="agency")
 
 
 @app.callback()
@@ -137,6 +139,121 @@ def reset_pipeline() -> None:
         e = session.execute(delete(EnrichedJob)).rowcount
         session.commit()
     typer.echo(f"Cleared pipeline data. dossiers={d} enriched={e} classifications={c} scores={s}")
+
+
+@agency_app.command("add")
+def agency_add(
+    company: str = typer.Argument(..., help="Company name to mark as a recruitment agency."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Report what would change without writing anything."),
+) -> None:
+    """Mark a company as a recruitment agency (local CLI replacement for POST /api/agency).
+
+    Writes the company into configs/agency_exclusions.yaml AND cascade-deletes
+    every EnrichedJob + dependent dossier / campaign / queue item / score /
+    classification whose resolved employer matches the company name.
+    RawJob and Source rows are left intact so re-scrapes don't resurrect
+    the agency's listings through the hard-coded exclusion list instead.
+
+    Designed to be run on the operator's machine so the YAML change lands
+    in the repo and can be committed + pushed as a deploy artefact. The
+    in-app POST /api/agency endpoint still works for DB-side cascade but
+    no longer commits the YAML (2026-04-20 deploy-safety refactor).
+
+    Example:
+        prospero agency add "Acme Recruiters Ltd"
+        prospero agency add "Acme Recruiters Ltd" --dry-run
+    """
+    from sqlalchemy import delete as sa_delete
+    from vacancysoft.db.models import (
+        ClassificationResult, IntelligenceDossier, CampaignOutput,
+        ReviewQueueItem,
+    )
+    from vacancysoft.enrichers.recruiter_filter import add_agency_exclusion
+
+    company = (company or "").strip()
+    if not company:
+        typer.echo("error: company name is empty", err=True)
+        raise typer.Exit(code=1)
+    norm = company.lower()
+
+    # ── Step 1: probe the cascade without writing ─────────────────────
+    with SessionLocal() as s:
+        team_ej_ids = {
+            row.id for row in s.execute(
+                select(EnrichedJob).where(func.lower(EnrichedJob.team) == norm)
+            ).scalars()
+        }
+        source_ids = [
+            r.id for r in s.execute(
+                select(Source).where(func.lower(Source.employer_name) == norm)
+            ).scalars()
+        ]
+        if source_ids:
+            raw_ids = [
+                r.id for r in s.execute(
+                    select(RawJob).where(RawJob.source_id.in_(source_ids))
+                ).scalars()
+            ]
+            if raw_ids:
+                src_ej_ids = {
+                    e.id for e in s.execute(
+                        select(EnrichedJob).where(EnrichedJob.raw_job_id.in_(raw_ids))
+                    ).scalars()
+                }
+                team_ej_ids |= src_ej_ids
+        ej_ids = list(team_ej_ids)
+
+    if dry_run:
+        typer.echo(f"[dry-run] Would mark '{norm}' as agency.")
+        typer.echo(f"[dry-run] Would cascade-delete {len(ej_ids)} enriched jobs (+ their dossiers / campaigns / scores / classifications / queue items).")
+        typer.echo(f"[dry-run] Would append '{norm}' to configs/agency_exclusions.yaml.")
+        return
+
+    # ── Step 2: write the YAML (source of truth for the runtime filter) ─
+    added = add_agency_exclusion(company)
+    if not added:
+        typer.echo(f"Already excluded: {norm}. No YAML change; proceeding with DB cascade anyway.")
+
+    # ── Step 3: cascade the DB delete ─────────────────────────────────
+    with SessionLocal() as s:
+        deleted_dossiers = 0
+        deleted_queue = 0
+        deleted_scores = 0
+        deleted_classifications = 0
+        deleted_jobs = 0
+        if ej_ids:
+            dossier_ids = [
+                d.id for d in s.execute(
+                    select(IntelligenceDossier).where(
+                        IntelligenceDossier.enriched_job_id.in_(ej_ids)
+                    )
+                ).scalars()
+            ]
+            if dossier_ids:
+                s.execute(sa_delete(CampaignOutput).where(CampaignOutput.dossier_id.in_(dossier_ids)))
+            deleted_dossiers = s.execute(
+                sa_delete(IntelligenceDossier).where(IntelligenceDossier.enriched_job_id.in_(ej_ids))
+            ).rowcount or 0
+            deleted_queue = s.execute(
+                sa_delete(ReviewQueueItem).where(ReviewQueueItem.enriched_job_id.in_(ej_ids))
+            ).rowcount or 0
+            deleted_scores = s.execute(
+                sa_delete(ScoreResult).where(ScoreResult.enriched_job_id.in_(ej_ids))
+            ).rowcount or 0
+            deleted_classifications = s.execute(
+                sa_delete(ClassificationResult).where(ClassificationResult.enriched_job_id.in_(ej_ids))
+            ).rowcount or 0
+            deleted_jobs = s.execute(
+                sa_delete(EnrichedJob).where(EnrichedJob.id.in_(ej_ids))
+            ).rowcount or 0
+        s.commit()
+
+    typer.echo(
+        f"Agency excluded: {norm}. Deleted: jobs={deleted_jobs} classifications={deleted_classifications} "
+        f"scores={deleted_scores} dossiers={deleted_dossiers} queue_items={deleted_queue}."
+    )
+    if added:
+        typer.echo("YAML updated. Commit configs/agency_exclusions.yaml so the exclusion ships with the next deploy.")
 
 
 @db_app.command("fix-adapters")
