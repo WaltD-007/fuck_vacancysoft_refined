@@ -60,7 +60,11 @@ from typing import Any
 import httpx
 
 from vacancysoft.intelligence.client import call_chat
-from vacancysoft.intelligence.prompts.category_blocks import CATEGORY_BLOCKS, DEFAULT_CATEGORY
+from vacancysoft.intelligence.prompts.category_blocks import (
+    CATEGORY_BLOCKS,
+    DEFAULT_CATEGORY,
+    render_hm_search_template_v2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +245,8 @@ async def run_hm_search_via_serpapi(
     category: str,
     max_searches: int = DEFAULT_MAX_SEARCHES,
     extraction_model: str = DEFAULT_EXTRACTION_MODEL,
+    sub_specialism: str | None = None,
+    template_version: str = "v1",
 ) -> dict[str, Any]:
     """Drop-in replacement for the OpenAI + web_search_preview HM path.
 
@@ -273,7 +279,6 @@ async def run_hm_search_via_serpapi(
         )
 
     blocks = CATEGORY_BLOCKS.get(category, CATEGORY_BLOCKS[DEFAULT_CATEGORY])
-    hm_searches_raw = blocks.get("hm_search_queries", "")
     hm_function = blocks.get("hm_function_guidance", "") or ""
     # Strip the enclosing parens from hm_function_guidance so it's usable as
     # a substitution string: "(e.g. Credit Risk, …)" → "Credit Risk, …"
@@ -281,8 +286,38 @@ async def run_hm_search_via_serpapi(
     if hm_function_clean.startswith("(") and hm_function_clean.endswith(")"):
         hm_function_clean = hm_function_clean[1:-1].strip()
 
-    queries_raw = _parse_search_queries(hm_searches_raw)[:max_searches]
-    queries = [_substitute(q, job_data["company"], hm_function_clean) for q in queries_raw]
+    # v2 (default): render the generic template with the real sub_specialism
+    # + optional location before handing to SerpApi. Falls back to v1 if
+    # sub_specialism is empty so we don't emit dud "head of " queries.
+    # v1: use the category's hand-authored blocks, substituting
+    # hm_function_clean into any [function] slot (legacy behaviour).
+    if template_version == "v2" and (sub_specialism or "").strip():
+        v2_template = blocks.get("hm_search_queries_v2", "")
+        hm_searches_raw = render_hm_search_template_v2(
+            template=v2_template,
+            company_name=job_data.get("company", ""),
+            function=(sub_specialism or "").strip(),
+            location=job_data.get("location", ""),
+        )
+        queries_raw = _parse_search_queries(hm_searches_raw)[:max_searches]
+        # Company + function + location already rendered; no further
+        # substitution needed.
+        queries = queries_raw
+    else:
+        if template_version == "v2":
+            logger.info(
+                "HM template v2 requested but sub_specialism is empty — "
+                "falling back to v1 SerpApi queries for category=%s",
+                category,
+            )
+        hm_searches_raw = blocks.get(
+            "hm_search_queries_v1", blocks.get("hm_search_queries", "")
+        )
+        queries_raw = _parse_search_queries(hm_searches_raw)[:max_searches]
+        queries = [
+            _substitute(q, job_data["company"], hm_function_clean)
+            for q in queries_raw
+        ]
 
     if not queries:
         logger.warning("No search queries available for category %r — returning empty HM list", category)

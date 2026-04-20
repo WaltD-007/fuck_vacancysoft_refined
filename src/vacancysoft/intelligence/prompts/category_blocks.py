@@ -1,9 +1,54 @@
 """Category-specific variable blocks for prompt templates.
 
 Each category maps to the placeholders used in base_dossier.py and base_campaign.py.
+
+──────────────────────────────────────────────────────────────────────
+HM search templates — v1 vs v2
+──────────────────────────────────────────────────────────────────────
+
+Two generations coexist here, selected at runtime by
+``configs/app.toml [intelligence] hm_template_version``:
+
+- **v2 (default)**: single generic template (``_HM_SEARCHES_V2_TEMPLATE``)
+  using ``[function]`` as a runtime variable filled from
+  ``ClassificationResult.sub_specialism``. Added 2026-04-20 by the
+  operator in ``~/Desktop/linkedin_search_strings_1.xlsx``. Covers
+  every category with 7 universally-applicable title patterns.
+  ``[location]`` is optional — stripped when the lead has no city or
+  country set.
+
+- **v1 (legacy, dormant)**: the original seven per-category blocks
+  (``_LEGACY_<CAT>_HM_SEARCHES``) kept wired up via
+  ``hm_search_queries_v1`` keys in ``CATEGORY_BLOCKS``. Rollback path:
+  set ``hm_template_version = "v1"`` in ``configs/app.toml`` and
+  restart the API + worker.
 """
 
-_RISK_HM_SEARCHES = """\
+# ── v2 — generic template used by every category ────────────────────
+# Variables filled at render time by dossier.py / hm_search_serpapi.py:
+#   [company name] ← EnrichedJob.team or Source.employer_name
+#   [function]     ← ClassificationResult.sub_specialism
+#                    (e.g. "Credit Risk", "Financial Crime",
+#                    "Quantitative Trading")
+#   [location]     ← EnrichedJob.location_city, fallback location_country,
+#                    or stripped entirely (with its leading space) when
+#                    neither is set.
+_HM_SEARCHES_V2_TEMPLATE = """\
+Search 1: "[company name]" "head of [function]" site:linkedin.com/in [location]
+Search 2: "[company name]" "global head of [function]" site:linkedin.com/in [location]
+Search 3: "[company name]" "regional head of [function]" site:linkedin.com/in [location]
+Search 4: "[company name]" "director of [function]" site:linkedin.com/in [location]
+Search 5: "[company name]" "[function] director" site:linkedin.com/in [location]
+Search 6: "[company name]" "managing director [function]" site:linkedin.com/in [location]
+Search 7: "[company name]" "chief [function] officer" site:linkedin.com/in [location]"""
+
+
+# ── v1 — legacy per-category templates (rollback target) ────────────
+# Kept so rolling back via `hm_template_version = "v1"` in app.toml
+# continues to render the exact search strings used pre-2026-04-20.
+# Do NOT edit these; if you need to tune, do it on v2 and iterate there.
+
+_LEGACY_RISK_HM_SEARCHES = """\
 Search 1: "[company name]" "head of credit" site:linkedin.com/in
 Search 2: "[company name]" "head of risk" site:linkedin.com/in
 Search 3: "[company name]" "chief risk officer" site:linkedin.com/in
@@ -12,7 +57,7 @@ Search 5: "[company name]" "head of market risk" site:linkedin.com/in
 Search 6: "[company name]" "head of operational risk" site:linkedin.com/in
 Search 7: "[company name]" "[function]" "managing director" site:linkedin.com/in"""
 
-_QUANT_HM_SEARCHES = """\
+_LEGACY_QUANT_HM_SEARCHES = """\
 Search 1: "[company name]" "head of quantitative research" site:linkedin.com/in
 Search 2: "[company name]" "head of quant" site:linkedin.com/in
 Search 3: "[company name]" "director of quantitative" site:linkedin.com/in
@@ -21,7 +66,7 @@ Search 5: "[company name]" "head of systematic" site:linkedin.com/in
 Search 6: "[company name]" "head of research" site:linkedin.com/in
 Search 7: "[company name]" "quantitative" "managing director" site:linkedin.com/in"""
 
-_COMPLIANCE_HM_SEARCHES = """\
+_LEGACY_COMPLIANCE_HM_SEARCHES = """\
 Search 1: "[company name]" "head of compliance" site:linkedin.com/in
 Search 2: "[company name]" "chief compliance officer" site:linkedin.com/in
 Search 3: "[company name]" "director of compliance" site:linkedin.com/in
@@ -30,7 +75,7 @@ Search 5: "[company name]" "MLRO" site:linkedin.com/in
 Search 6: "[company name]" "head of regulatory" site:linkedin.com/in
 Search 7: "[company name]" "compliance" "managing director" site:linkedin.com/in"""
 
-_AUDIT_HM_SEARCHES = """\
+_LEGACY_AUDIT_HM_SEARCHES = """\
 Search 1: "[company name]" "head of internal audit" site:linkedin.com/in
 Search 2: "[company name]" "chief audit executive" site:linkedin.com/in
 Search 3: "[company name]" "director of internal audit" site:linkedin.com/in
@@ -39,7 +84,7 @@ Search 5: "[company name]" "audit" "managing director" site:linkedin.com/in
 Search 6: "[company name]" "head of assurance" site:linkedin.com/in
 Search 7: "[company name]" "chief risk officer" site:linkedin.com/in"""
 
-_CYBER_HM_SEARCHES = """\
+_LEGACY_CYBER_HM_SEARCHES = """\
 Search 1: "[company name]" "CISO" site:linkedin.com/in
 Search 2: "[company name]" "chief information security officer" site:linkedin.com/in
 Search 3: "[company name]" "head of cyber" site:linkedin.com/in
@@ -48,7 +93,7 @@ Search 5: "[company name]" "director of security" site:linkedin.com/in
 Search 6: "[company name]" "head of security engineering" site:linkedin.com/in
 Search 7: "[company name]" "chief technology officer" site:linkedin.com/in"""
 
-_LEGAL_HM_SEARCHES = """\
+_LEGACY_LEGAL_HM_SEARCHES = """\
 Search 1: "[company name]" "general counsel" site:linkedin.com/in
 Search 2: "[company name]" "head of legal" site:linkedin.com/in
 Search 3: "[company name]" "chief legal officer" site:linkedin.com/in
@@ -57,7 +102,7 @@ Search 5: "[company name]" "deputy general counsel" site:linkedin.com/in
 Search 6: "[company name]" "head of legal" "[function]" site:linkedin.com/in
 Search 7: "[company name]" "legal" "managing director" site:linkedin.com/in"""
 
-_FO_HM_SEARCHES = """\
+_LEGACY_FO_HM_SEARCHES = """\
 Search 1: "[company name]" "head of [asset class/desk]" site:linkedin.com/in
 Search 2: "[company name]" "desk head" "[asset class]" site:linkedin.com/in
 Search 3: "[company name]" "managing director" "[asset class]" site:linkedin.com/in
@@ -65,6 +110,40 @@ Search 4: "[company name]" "head of trading" site:linkedin.com/in
 Search 5: "[company name]" "chief investment officer" site:linkedin.com/in
 Search 6: "[company name]" "head of markets" site:linkedin.com/in
 Search 7: "[company name]" "global head" "[asset class]" site:linkedin.com/in"""
+
+
+def render_hm_search_template_v2(
+    template: str,
+    company_name: str,
+    function: str,
+    location: str | None,
+) -> str:
+    """Render the v2 generic HM-search template with variables substituted.
+
+    - company_name and function are always substituted.
+    - location is optional: when empty/None, the trailing ' [location]'
+      on each line is stripped (including the leading space) so the
+      search string doesn't contain a dangling empty quoted term.
+
+    Returned string has one Search-line per newline, matching the
+    legacy v1 format so callers treat both paths identically.
+    """
+    company = (company_name or "").strip()
+    func = (function or "").strip()
+    loc = (location or "").strip()
+
+    # Substitute the two always-present variables.
+    rendered = template.replace("[company name]", company).replace("[function]", func)
+
+    # Handle the optional location. When empty, strip both the token
+    # itself and the single space that precedes it so the line ends
+    # cleanly at site:linkedin.com/in.
+    if loc:
+        # Wrap in quotes for Google phrase matching.
+        rendered = rendered.replace("[location]", f'"{loc}"')
+    else:
+        rendered = rendered.replace(" [location]", "").replace("[location]", "")
+    return rendered
 
 
 CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
@@ -92,7 +171,9 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
             "(e.g. Credit Risk, Counterparty Risk, Portfolio Risk, Market Risk, "
             "Operational Risk, Model Validation, Liquidity Risk)"
         ),
-        "hm_search_queries": _RISK_HM_SEARCHES,
+        "hm_search_queries": _LEGACY_RISK_HM_SEARCHES,  # back-compat alias; points at v1
+        "hm_search_queries_v1": _LEGACY_RISK_HM_SEARCHES,
+        "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "quant": {
         "research_scope": (
@@ -119,7 +200,9 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
             "(e.g. Quantitative Research, Quantitative Trading, Systematic Strategies, "
             "Quant Development, Model Validation, Data Science)"
         ),
-        "hm_search_queries": _QUANT_HM_SEARCHES,
+        "hm_search_queries": _LEGACY_QUANT_HM_SEARCHES,  # back-compat alias; points at v1
+        "hm_search_queries_v1": _LEGACY_QUANT_HM_SEARCHES,
+        "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "compliance": {
         "research_scope": (
@@ -145,7 +228,9 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
             "(e.g. Compliance, Financial Crime, AML, Regulatory Affairs, "
             "Conduct Risk, Sanctions, KYC)"
         ),
-        "hm_search_queries": _COMPLIANCE_HM_SEARCHES,
+        "hm_search_queries": _LEGACY_COMPLIANCE_HM_SEARCHES,  # back-compat alias; points at v1
+        "hm_search_queries_v1": _LEGACY_COMPLIANCE_HM_SEARCHES,
+        "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "audit": {
         "research_scope": (
@@ -170,7 +255,9 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
             "(e.g. Internal Audit, IT Audit, Financial Audit, Operational Audit, "
             "Regulatory Audit, Assurance)"
         ),
-        "hm_search_queries": _AUDIT_HM_SEARCHES,
+        "hm_search_queries": _LEGACY_AUDIT_HM_SEARCHES,  # back-compat alias; points at v1
+        "hm_search_queries_v1": _LEGACY_AUDIT_HM_SEARCHES,
+        "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "cyber": {
         "research_scope": (
@@ -195,7 +282,9 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
             "(e.g. Cyber Security, Information Security, Security Engineering, "
             "Application Security, Threat Intelligence, SOC)"
         ),
-        "hm_search_queries": _CYBER_HM_SEARCHES,
+        "hm_search_queries": _LEGACY_CYBER_HM_SEARCHES,  # back-compat alias; points at v1
+        "hm_search_queries_v1": _LEGACY_CYBER_HM_SEARCHES,
+        "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "legal": {
         "research_scope": (
@@ -220,7 +309,9 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
             "(e.g. Legal, Structured Finance Legal, Regulatory Legal, "
             "Litigation, M&A, Company Secretarial, Governance)"
         ),
-        "hm_search_queries": _LEGAL_HM_SEARCHES,
+        "hm_search_queries": _LEGACY_LEGAL_HM_SEARCHES,  # back-compat alias; points at v1
+        "hm_search_queries_v1": _LEGACY_LEGAL_HM_SEARCHES,
+        "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "front_office": {
         "research_scope": (
@@ -245,7 +336,9 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
             "(e.g. the specific asset class or desk: Rates, Equities, FX, "
             "Commodities, Credit, Fixed Income, Derivatives)"
         ),
-        "hm_search_queries": _FO_HM_SEARCHES,
+        "hm_search_queries": _LEGACY_FO_HM_SEARCHES,  # back-compat alias; points at v1
+        "hm_search_queries_v1": _LEGACY_FO_HM_SEARCHES,
+        "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
 }
 
