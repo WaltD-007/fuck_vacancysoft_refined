@@ -92,10 +92,12 @@ def resolve_campaign_prompt(
         )
     profile_summary = "\n".join(profile_lines) or "Not available"
 
-    # Spec risk: include explanation now, cap at 3 (was 4 headers only)
+    # Spec risk: include explanation now, cap at 4 (dossier section 4 —
+    # base_dossier.py allows up to 4 items; 2026-04-21 bump from 3 → 4
+    # so the campaign prompt sees everything the dossier produced).
     risks = dossier_sections.get("spec_risk") or []
     risk_lines: list[str] = []
-    for r in risks[:3]:
+    for r in risks[:4]:
         if not isinstance(r, dict):
             continue
         severity = r.get("severity", "")
@@ -107,10 +109,11 @@ def resolve_campaign_prompt(
         )
     risk_summary = "\n".join(risk_lines) or "Not available"
 
-    # Stated vs actual: new in this version
+    # Stated vs actual: new in this version. Cap at 4 (dossier section
+    # 3 — base_dossier.py allows up to 4 rows; 2026-04-21 bump from 3 → 4).
     sva = dossier_sections.get("stated_vs_actual") or []
     sva_lines: list[str] = []
-    for row in sva[:3]:
+    for row in sva[:4]:
         if not isinstance(row, dict):
             continue
         asks = row.get("jd_asks_for", "")

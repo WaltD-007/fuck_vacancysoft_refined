@@ -124,8 +124,16 @@ dossier_reasoning_effort = "low"
 # Web-search context size for the main dossier call. "high" allows
 # ~100K input tokens of web context (vs ~25K at "low"). Paired with
 # the doubled word caps in base_dossier.py to give each section room
-# to be richer. Adds ~$0.019/lead on gpt-5-mini input.
-dossier_search_context_size = "high"
+# to be richer.
+#
+# Dropped "high" → "medium" (2026-04-21) after observed per-lead cost
+# on the gpt-5.2 dossier config (PROMPT_VERSION v1.2) averaged ~$0.118
+# — above the operator's $0.15/lead envelope once combined with
+# gpt-5.4 campaign + HM. Medium context shaves ~$0.017/lead on input
+# tokens (~14k fewer prompt tokens × $1.25/1M) while keeping the
+# analytical sections grounded. Flip back to "high" if company_context
+# section quality noticeably degrades on less well-known firms.
+dossier_search_context_size = "medium"
 hm_search_model = "gpt-5.2"
 hm_search_reasoning_effort = "medium"
 # HM call deliberately stays at "high" — the whole point of the HM
