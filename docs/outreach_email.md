@@ -2,7 +2,90 @@
 
 > **Status (2026-04-21)**: PR A + B + C merged. System is fully built and runs end-to-end in **dry-run mode** (no real Graph calls). Production activation is gated on (a) Keybridge security-team approval, (b) Entra app registration + consent, and (c) flipping `OUTREACH_DRY_RUN=false`. PR D (Campaign Builder wiring) and PR E (settings UI + Bicep + ops runbook) are post-launch follow-ups, queued in the launch plan (items C22–C26).
 
-This document is the single source of truth for how Prospero's outreach email system works, what's needed to take it live, and what's still outstanding post-launch. Read sections **1–3** to understand the system. Read section **4** before production activation. Read sections **5–6** for ongoing operation.
+This document is the single source of truth for how Prospero's outreach email system works, what's needed to take it live, and what's still outstanding post-launch.
+
+- **Picking this up cold (new Claude chat or new engineer)**: read **§0 Handoff brief** first. It's the abbreviated orientation with all the specific conventions and schema that aren't obvious from just reading the code.
+- **Understanding the system**: sections **1–3**.
+- **Production activation**: section **4**.
+- **Ongoing operation**: sections **5–6**.
+
+---
+
+## 0. Handoff brief for the next Claude
+
+Skip this section if you were part of the original build. If you're picking this work up cold — either in a fresh chat session or as a new engineer — read this first.
+
+### 0.1 Where you are
+
+- **PR A / B / C are merged** (commits bc7353d · 95683fe · 1f2b18b on main). See §1 "Capabilities shipped" for exactly what that means.
+- **PR D and PR E are the remaining build work** — specs in §6. Both are safe to build and land before Keybridge approval because the whole stack is gated on `OUTREACH_DRY_RUN=true` (the default).
+- **Go-live itself is operator work**, not build work — §4 is a step-by-step for when Keybridge approval lands. Don't confuse "finish the build" with "go live."
+
+### 0.2 Read this order before you write any code
+
+1. §2.3 — the code layout table. It tells you exactly where each existing piece lives and where new PR D / PR E files should go.
+2. `src/vacancysoft/outreach/` — three modules (`dry_run.py`, `secret_client.py`, `graph_client.py`) + their tests. **These are the house style**; match their patterns, their logging shape, their async-with-injectable-http-client testability. Don't invent new patterns.
+3. `src/vacancysoft/worker/outreach_tasks.py` — `schedule_outreach_sequence` is the function PR D's new API endpoint will call. Read its signature before writing the endpoint so the schemas match.
+4. **Appendix C — decision log**. Do NOT revisit the decisions already made there. Specifically: application permissions (not delegated), `Mail.ReadBasic` (not `Mail.Read`), `conversationId` matching (not `In-Reply-To`), polling (not Graph webhooks), `client_secret` (not certificate), `OUTREACH_DRY_RUN=true` default (not false). Every one of those has a rationale captured; re-litigating them wastes everyone's time.
+
+### 0.3 PR D — explicit schema + conventions
+
+Things §6 leaves implicit. Treat these as binding unless you have a strong reason:
+
+- **Endpoint**: `POST /api/campaigns/{campaign_output_id}/launch`
+- **Request body**:
+  ```json
+  {
+    "tone": "formal",
+    "cadence_days": [0, 7, 14, 21, 28],
+    "sender_user_id": "<entra-object-id-or-upn-of-operator>",
+    "recipient_email": "<override-or-omit-to-use-dossier-HM>"
+  }
+  ```
+  `cadence_days` optional — defaults to `configs/app.toml [outreach].default_cadence_days`. `recipient_email` optional — defaults to the highest-confidence hiring manager's email from the dossier if present, else 422.
+- **Response body**:
+  ```json
+  {
+    "status": "scheduled",
+    "sent_message_ids": ["uuid-1", "uuid-2", "uuid-3", "uuid-4", "uuid-5"],
+    "first_send_scheduled_for": "2026-04-21T14:00:00Z"
+  }
+  ```
+- **Email-content source**: the 5 `{subject, body}` pairs come from `CampaignOutput.outreach_emails[tone]` — specifically `emails = dossier_sections["outreach_emails"][tone]` shaped as a list of 5 `{subject, body}` dicts (see `base_campaign.py` schema).
+- **Validation**: reject if `campaign_output` is not found, if `tone` is not one of the six, if `outreach_emails[tone]` doesn't exist or isn't length-5, or if `sender_user_id` is empty.
+- **Auth**: no change — the existing session-cookie auth the rest of `/api/*` uses. Prospero-users group membership is enforced by Application Access Policy at Graph call time, not at this endpoint.
+- **UI convention**: the Campaign Builder already has a tone-chip row. Add a "Launch" button that appears next to the selected chip (not a separate modal). Post-launch sequence-status view: inline expand below the email preview, showing one row per sequence-index with timestamp + status chip (`pending → sent → replied → cancelled`). "Cancel Sequence" button lives inside that expanded view.
+- **Cancel endpoint**: `POST /api/campaigns/{id}/cancel` calls `cancel_pending_sequence_manual()` (already in `worker/outreach_tasks.py`). Returns `{cancelled_count: N}`.
+- **Status polling in the UI**: SWR auto-refreshes the sequence view every 30s while any row is `pending`. Stop polling once all rows are terminal.
+- **Tests**: match the shape of `tests/test_outreach_tasks.py` — in-memory SQLite, fake Redis, fake Graph client. Don't spin up a real FastAPI client unless there's a test that already does.
+
+### 0.4 PR E — file paths + non-obvious bits
+
+- **Bicep module**: create `infra/outreach.bicep` as a standalone module. `infra/` doesn't exist yet — create it. Cross-reference `docs/deployment_plan.md` for the parent topology (Container Apps env, Postgres, Redis). The outreach module adds: the Key Vault resource, a secret placeholder, access-policy granting the Container App's system-assigned managed identity `get` on secrets, and the four env-var bindings on the Container App (`GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `KEY_VAULT_URI`, `OUTREACH_DRY_RUN`). Default `OUTREACH_DRY_RUN=true` in the Bicep parameter so forgetting to flip it means "safe."
+- **Monitoring alerts**: the four thresholds in §5.4. One KQL query per alert. Land them as `infra/outreach_alerts.bicep` or inline in `outreach.bicep`, your call.
+- **Runbook** (`docs/runbook_outreach_email.md`): reorganise §5 of THIS doc for on-call use. Don't rewrite from scratch — the content is already correct, just restructure into "problem → diagnosis → fix" format. Add a decision tree at the top: "Send failures → check X; polling stalls → check Y; reply-cancel not firing → check Z."
+- **Settings page** (`web/src/app/settings/outreach/page.tsx`): list `prospero-users` group membership (read-only — fetch from Graph via a new `/api/admin/prospero-users` endpoint that calls `GET /groups/{id}/members`). Per-user stats: queries on `sent_messages` + `received_replies` grouped by `sender_user_id`. Self-test button: calls `POST /api/campaigns/test-send` which sends one email to the current operator's own address (no DB row created, just a spot-check).
+
+### 0.5 What this build is NOT doing
+
+So you don't add scope unprompted:
+
+- No Graph webhooks / change notifications (polling is fine at our volume — see decision log)
+- No Graph SDK dependency (we use `httpx` directly; SDK is heavy)
+- No per-user OAuth / delegated permissions
+- No multi-tenant support (single tenant, 3–5 users)
+- No body or attachment access to received mail
+- No Exchange distribution-list handling
+- No calendar / contacts / any other Graph surface
+- No customer-facing "unsubscribe" header (it's B2B outreach, recruiters already comply via their contracts)
+
+### 0.6 If you hit something this doc doesn't cover
+
+Order of precedence:
+1. Check `src/vacancysoft/outreach/graph_client.py` source — its docstrings cover most edge cases
+2. Check Appendix B (Graph request shapes) and C (decision log)
+3. Check `docs/deployment_plan.md` for infra context
+4. If still unclear, add a comment in your PR asking the question rather than guessing — this doc should be updated when decisions are made, not silently re-decided in code.
 
 ---
 
