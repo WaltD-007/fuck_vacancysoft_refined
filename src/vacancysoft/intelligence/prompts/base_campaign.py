@@ -155,12 +155,12 @@ Late-stage pains: process fatigue, pressure from above, rethinking whether the s
 ### Sequence 5 — Sign-off with CTA (week 5+)
 A clean warm sign-off. Brief — 2-4 sentences. The email makes one final reference to the anchor, then delivers the tone-appropriate CTA:
 
-- **formal** — offer a measured market update conversation grounded in Company Context, framed around the anchor.
+- **formal** — offer a call, framed around the anchor. Measured but not stiff.
 - **informal** — leave the door open in a human way, with a light "if it's still live, I'm here" ask that references the anchor.
-- **consultative** — offer a market briefing or a short call to share what comparable firms are doing on the anchor dynamic.
-- **direct** — one crisp line asking if the role is still open and whether it's worth a short call, referencing the anchor problem.
-- **candidate_spec** — offer to share the anchor candidate (or someone matching the archetype) if the role is still live.
-- **technical** — offer a pointed conversation about the anchor spec tension or risk, framed as a calibration check.
+- **consultative** — offer a call or a couple of profiles, lightly referencing the wider market. No "briefings".
+- **direct** — one crisp line asking if the role is still open, offering a call.
+- **candidate_spec** — offer to send over the anchor candidate's profile, or book a quick call to walk through.
+- **technical** — offer a quick conversation about the anchor tension — no lecture, just a sense check.
 
 Every Sequence 5 variant must feel like a genuine sign-off, not another nudge. Signal the sender is still in the market, not nagging.
 
@@ -172,8 +172,16 @@ Every Sequence 5 variant must feel like a genuine sign-off, not another nudge. S
 - No em-dashes. No bolding. Do not use "shifted" in place of "change".
 - Never salesy. Light, empathetic, gently persuasive.
 - Do not ask the reader for more information — this is one-way automation.
-- Every email must close with one concrete offer of value the sender is willing to give — e.g. a call, a shortlisted CV, a short market briefing, a salary benchmark, a trend observation, a competitor-hiring datapoint, an intro to someone adjacent, a pen portrait of a candidate pattern. Never end with a vague "let me know if interested" or "happy to chat". The offer is what the sender is prepared to give, not a request for the reader to act on. This is compatible with the previous rule — offering is not asking.
-- Vary the offer across the five sequences within each tone-arc. No two sequential emails in the same arc should close with the same offer. The Sequence 5 CTA is already tone-specific; the offers used in Sequences 1-4 must be different from each other and from that CTA, so the hiring manager receives five distinct concrete offers over the campaign.
+- Every email closes with exactly one offer drawn from this closed list of five. No other closes are permitted.
+    1. **A short conversation** — e.g. "Happy to jump on a quick call if useful."
+    2. **A few relevant profiles** — e.g. "Let me know if you'd like me to send a couple of profiles across."
+    3. **A single named pen portrait** — e.g. "I can send a short write-up on someone I'm speaking to who fits this shape." One archetype, not a list.
+    4. **A salary benchmark** — e.g. "If it'd help, I can send what we're seeing on pay for roles like this."
+    5. **A sense check on the spec** — collaborative "worth a word" framing, e.g. "I've seen this shape of spec a few times and there's a sense-check conversation to be had." Never phrased as a challenge or correction.
+- Use only these five. Do not invent variants ("market notes", "briefings", "sequencing analyses", "benchmarking papers", "trend reports", "whitepapers", "intros to someone adjacent", "competitor-hiring data", "strategic outlooks"). If a close would require a team of analysts to produce, rewrite. A recruiter does not have those materials to hand.
+- Repeating the same offer across sequences is fine — variety is NOT the goal. What varies across the five-email arc is the emotional register (intro → gentle nudge → fuller nudge → light backup-plan nudge → warm sign-off), not the offer.
+- Sequences 2, 3 and 4 carry the same light-touch weight. None should escalate in intensity vs the others. If Sequence 4 feels more insistent or more "final" than Sequence 2, dial it back.
+- Frame offers naturally: "happy to…", "if useful…", "let me know if you'd like me to…". Never close with a vague "let me know if interested" or "happy to chat" without a concrete offer attached — offering IS the close, asking for a response is not.
 - Do not name the hiring manager by their real name even if identified above. Refer to them by title or generically ("your team", "the risk team").
 - Do not invent dossier details. If a dossier section is thin, lean on what IS there rather than fabricating.
 
@@ -201,12 +209,13 @@ Return this exact JSON shape. Replace "..." with real content. Every sequence MU
 Before returning, verify:
 - the `emails` array has exactly 5 sequence objects (sequences 1-5)
 - each sequence has all 6 tone keys populated
-- each variant draws from its mapped dossier source (formal->Company Context, informal->Core Business Problem, consultative->Company Context + Core Business Problem, direct->Core Business Problem, candidate_spec->Ideal Candidate Profiles, technical->Specification Risk / Stated vs Actual)
+- each variant draws from its mapped dossier source (formal->Company Context, informal->Stated Need vs Actual Need, consultative->Company Context + Core Business Problem, direct->Core Business Problem, candidate_spec->Ideal Candidate Profiles, technical->Specification Risk / Stated vs Actual)
 - within each tone, the 5 sequences share a single concrete anchor (named candidate, named business problem, named spec risk, etc.) — not a vague theme
 - within each tone, no sequence could plausibly sit inside a different tone's campaign
 - sequence 1 feels introductory for all 6 tones
 - sequence 5 is a genuine sign-off with a tone-appropriate CTA referencing the anchor
-- every email closes with one concrete offer of value (not a vague "happy to chat"); the five offers within each tone-arc are distinct from each other
+- every email closes with exactly one offer drawn from the five-item closed list (call / profiles / pen portrait / salary benchmark / sense check) — no invented variants, no "market notes" or "briefings"
+- sequences 2, 3 and 4 carry the same light-touch weight — none escalates vs the others
 - no email names the hiring manager by first name
 - no em-dashes, no bolding, no "shifted" in place of "change"
 - every email ends with "Kind regards" or similar
