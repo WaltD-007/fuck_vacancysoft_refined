@@ -14,6 +14,7 @@ from vacancysoft.api.routes import campaigns as campaigns_routes
 from vacancysoft.api.routes import leads as leads_routes
 from vacancysoft.api.routes import sources as sources_routes
 from vacancysoft.api.routes import users as users_routes
+from vacancysoft.api.routes import voice as voice_routes
 from vacancysoft.db.engine import SessionLocal
 
 app = FastAPI(title="Prospero API", version="0.1.0")
@@ -32,6 +33,7 @@ app.include_router(sources_routes.router)
 app.include_router(add_company_routes.router)
 app.include_router(campaigns_routes.router)
 app.include_router(users_routes.router)
+app.include_router(voice_routes.router)
 
 
 # ── Redis connection for ARQ job queue ──

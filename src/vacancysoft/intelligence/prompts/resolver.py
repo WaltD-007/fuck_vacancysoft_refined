@@ -24,6 +24,84 @@ def _get_blocks(category: str) -> dict[str, str]:
     return blocks
 
 
+_CAMPAIGN_TONES: tuple[str, ...] = (
+    "formal", "informal", "consultative", "direct", "candidate_spec", "technical",
+)
+
+
+def _render_voice_layer(user_context: dict[str, Any] | None) -> str:
+    """Build the `{voice_layer}` section the v2 template slots in.
+
+    Returns an empty string when:
+      * user_context is None (worker pre-gen path) — byte-identical
+        to pre-voice-layer output so regression risk is zero.
+      * user_context has no authored tone prompts AND no voice
+        samples — a cold-start user with only an id/email.
+
+    Otherwise returns a block starting with a leading newline so the
+    template rendering lands cleanly between the preceding
+    "Do not invent dossier details." line and the "# Output schema"
+    heading.
+    """
+    if not user_context:
+        return ""
+
+    tone_prompts: dict[str, str] = user_context.get("tone_prompts") or {}
+    voice_samples: dict[int, list[dict]] = user_context.get("voice_samples_by_step") or {}
+    display_name = (user_context.get("display_name") or "the operator").strip()
+
+    has_authored = any((tone_prompts.get(t) or "").strip() for t in _CAMPAIGN_TONES)
+    has_samples = any(voice_samples.get(seq) for seq in range(1, 6))
+    if not has_authored and not has_samples:
+        return ""
+
+    parts: list[str] = ["", f"# Voice layer for {display_name}", ""]
+
+    if has_authored:
+        parts.extend([
+            "## Authored voice guidance (per-tone overrides from the operator)",
+            "",
+            "The guidance below was authored by this operator. Where a tone has guidance, it TAKES PRECEDENCE over the default tone->source voice notes for voice/phrasing decisions. It does NOT override the structural rules (source mapping, five-sequence arc, closed-list CTAs, anti-stage-leak guards, spoken-English guards).",
+            "",
+        ])
+        for tone in _CAMPAIGN_TONES:
+            text = (tone_prompts.get(tone) or "").strip()
+            if text:
+                # Escape braces so the overall template.format() call
+                # doesn't misinterpret operator-written { or } (tech
+                # stacks, code snippets) as placeholders.
+                safe = text.replace("{", "{{").replace("}", "}}")
+                parts.append(f"- **{tone}**: {safe}")
+            else:
+                parts.append(f"- **{tone}**: (no override — use default)")
+        parts.append("")
+
+    if has_samples:
+        parts.extend([
+            f"## How {display_name} actually writes (last 5 sent messages per sequence)",
+            "",
+            "The emails below were sent by this operator. Learn the voice — sentence length, opener patterns, closer patterns, word choice, rhythm. Do NOT copy subjects or phrasings verbatim. Do NOT invent signed-off-by text from these; they are voice reference only. Do NOT quote them as if they were part of this conversation.",
+            "",
+        ])
+        for seq in range(1, 6):
+            rows = voice_samples.get(seq) or []
+            if not rows:
+                continue
+            parts.append(f"### Sequence {seq} samples (most recent first)")
+            parts.append("")
+            for idx, row in enumerate(rows, start=1):
+                # Same brace-escape reasoning as above — operator-
+                # written bodies may contain curly braces.
+                subj = (row.get("subject") or "").replace("{", "{{").replace("}", "}}").strip()
+                body = (row.get("body") or "").replace("{", "{{").replace("}", "}}").strip()
+                tone = (row.get("tone") or "").strip() or "unknown"
+                parts.append(f"{idx}. [tone: {tone}] Subject: \"{subj}\"")
+                parts.append(f"   Body: \"{body}\"")
+                parts.append("")
+
+    return "\n".join(parts)
+
+
 def resolve_dossier_prompt(
     category: str,
     job_data: dict[str, Any],
@@ -52,6 +130,7 @@ def resolve_campaign_prompt(
     job_data: dict[str, Any],
     dossier_sections: dict[str, Any],
     template_version: str = "v2",
+    user_context: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Assemble the campaign prompt.
 
@@ -71,6 +150,13 @@ def resolve_campaign_prompt(
       product names / reg references. Added 2026-04-21 after operator
       review showed the campaign quality ceiling was set by the
       dossier's JD-fidelity.
+    - user_context (new 2026-04-21) — per-user voice layer. When
+      populated, renders `# Voice layer for <name>` between the
+      global rules and the output schema. Contains authored per-tone
+      overrides and/or the last 5 actually-sent messages per
+      sequence as few-shot examples. When None (worker pre-gen path)
+      the voice_layer slot renders as empty string and output is
+      byte-identical to pre-voice-layer behaviour.
     - outreach_angle (unchanged, from category block, v1-only)
 
     Missing context was the dominant quality limit on the previous
@@ -175,9 +261,16 @@ def resolve_campaign_prompt(
     # "same message, different voice" shape and is kept behind the flag
     # for hot-swap rollback. v2 ignores {outreach_angle} — .format() is
     # permissive about unused kwargs so we pass it either way. v1 does
-    # not reference {description} so it's silently ignored there too.
+    # not reference {description} or {voice_layer} so both are silently
+    # ignored there too.
     tv = (template_version or "v2").lower()
     template = CAMPAIGN_TEMPLATE_V1 if tv == "v1" else CAMPAIGN_TEMPLATE_V2
+
+    # Voice-layer block. Empty string when user_context is None OR when
+    # the user has no authored overrides and no voice samples yet —
+    # either way the v2 template renders exactly as it did pre-voice-
+    # layer. v1 ignores the kwarg entirely.
+    voice_layer = _render_voice_layer(user_context)
 
     user_content = template.format(
         title=job_data.get("title", ""),
@@ -191,6 +284,7 @@ def resolve_campaign_prompt(
         lead_score_context=lead_score_context,
         hiring_manager_line=hiring_manager_line,
         description=description_safe,
+        voice_layer=voice_layer,
         outreach_angle=blocks["outreach_angle"],
     )
     return [

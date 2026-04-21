@@ -227,3 +227,42 @@ class UserCreate(BaseModel):
 # because the shape is frontend-owned: every top-level key is a
 # page-section identifier (dashboard_feed, leads_page, …) with an
 # opaque JSON object. Validation lives in the handler.
+
+
+# ── Voice layer (see alembic/versions/0011_add_user_campaign_prompts.py) ──
+
+
+class UserCampaignPromptsOut(BaseModel):
+    """GET /api/users/me/campaign-prompts response.
+
+    Always returns all six tone keys. Missing DB rows render as
+    empty strings — the resolver treats empty and missing as
+    identical (both fall back to the base template's default
+    guidance for that tone).
+    """
+
+    formal: str = ""
+    informal: str = ""
+    consultative: str = ""
+    direct: str = ""
+    candidate_spec: str = ""
+    technical: str = ""
+
+
+class VoiceSampleOut(BaseModel):
+    """One row from /api/users/me/voice-samples.
+
+    Deliberately thin — no send_at, no enriched_job_id, no
+    graph_message_id. The operator-facing audit view only needs
+    enough detail to recognise the email.
+    """
+
+    subject: str
+    body: str
+    tone: str
+
+
+# PUT /api/users/me/campaign-prompts body is a raw dict — FastAPI binds
+# ``payload: dict`` on the handler. Shape is operator-owned ({tone: text})
+# and validation (allowed tone keys) lives in the handler. Empty string
+# means "clear this tone"; missing key means "leave this tone alone".
