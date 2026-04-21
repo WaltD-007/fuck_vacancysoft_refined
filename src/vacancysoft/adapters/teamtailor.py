@@ -6,6 +6,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 
@@ -21,6 +22,39 @@ from vacancysoft.adapters.base import (
 from vacancysoft.source_registry.legacy_board_mappings import lookup_company
 
 _TT_NS = {"tt": "https://teamtailor.com/locations"}
+
+
+def _derive_rss_url(board_url: str) -> str:
+    """Return the Teamtailor RSS feed URL for a given board URL.
+
+    Handles the three shapes that land in the ``sources.config_blob``
+    column for Teamtailor rows:
+
+      1. ``https://<slug>.teamtailor.com/jobs``
+         — canonical; strip ``/jobs`` and append ``/jobs.rss``.
+      2. ``https://<slug>.teamtailor.com/jobs?split_view=true&query=``
+         — URL-bar copy-paste with query params; query string MUST be
+         stripped before appending ``/jobs.rss`` or the concatenated
+         URL is malformed (server responds with an HTML error page,
+         which fails XML parse downstream).
+      3. ``https://<slug>.teamtailor.com/#jobs``
+         — URL with a JS-router fragment; httpx drops the fragment on
+         fetch, but if we naively concatenate ``/jobs.rss`` onto the
+         fragment-containing URL we'd form garbage. Stripped the same
+         way.
+
+    The 2026-04-21 teamtailor cleanup deactivated 148 cross-adapter
+    dupes but left 6 genuine ``*.teamtailor.com`` rows. Two of them
+    (GHIB id=420 and IMPOWER id=975) had shape 2 or 3 URLs and
+    failed every pipeline run with a ParseError on the HTML error
+    response. This helper is the fix — see tests/test_adapters.py.
+    """
+    parsed = urlparse(board_url.strip())
+    path = parsed.path.rstrip("/")
+    if path.endswith("/jobs"):
+        path = path[:-len("/jobs")]
+    cleaned = urlunparse((parsed.scheme, parsed.netloc, path, "", "", ""))
+    return f"{cleaned}/jobs.rss"
 
 
 def _text(el: ET.Element | None) -> str | None:
@@ -114,15 +148,11 @@ class TeamtailorAdapter(SourceAdapter):
         since: datetime | None = None,
         on_page_scraped: PageCallback = None,
     ) -> DiscoveryPage:
-        board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip().rstrip("/")
+        board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip()
         if not board_url:
             raise ValueError("TeamtailorAdapter requires job_board_url")
 
-        # Derive RSS URL — strip /jobs suffix if present, then add /jobs.rss
-        base = board_url.rstrip("/")
-        if base.endswith("/jobs"):
-            base = base[:-5]
-        rss_url = f"{base}/jobs.rss"
+        rss_url = _derive_rss_url(board_url)
 
         slug = source_config.get("slug")
         company = source_config.get("company")
@@ -137,7 +167,24 @@ class TeamtailorAdapter(SourceAdapter):
                 resp.raise_for_status()
 
             diagnostics.metadata["http_status"] = resp.status_code
-            root = ET.fromstring(resp.text)
+            try:
+                root = ET.fromstring(resp.text)
+            except ET.ParseError as parse_exc:
+                # Preserve a fingerprint of what Teamtailor actually returned.
+                # Without this the error is just "line 54, column 120" with
+                # no way to tell if the server returned an HTML error page,
+                # a truncated feed, or a genuinely malformed XML payload.
+                # See the 2026-04-21 teamtailor triage: the parse errors
+                # turned out to be HTML error pages from malformed URLs, not
+                # Teamtailor's feed itself.
+                snippet = (resp.text or "").strip()[:200].replace("\n", " ")
+                diagnostics.metadata["response_snippet"] = snippet
+                diagnostics.metadata["content_type"] = resp.headers.get("content-type", "")
+                diagnostics.errors.append(
+                    f"TeamtailorAdapter ParseError on {rss_url}: {parse_exc}. "
+                    f"First 200 chars of response: {snippet!r}"
+                )
+                raise
             items = root.findall(".//item")
             diagnostics.counters["rss_items"] = len(items)
 
