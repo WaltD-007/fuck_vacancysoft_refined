@@ -10,53 +10,47 @@
 
 ---
 
-## TL;DR — paste-ready commands
-
-Prerequisites met once per machine:
-```bash
-brew install ngrok                           # one-time install
-cd "/Users/antonyberou/Documents/Work Stuff/AI Stuff/Python projects/Useful Code/fuck_vacancysoft_refined" && git pull --ff-only
-```
-
-**Four terminals, run in this order:**
+## TL;DR — one command
 
 ```bash
-# Terminal 1 — FastAPI (loopback only, never exposed)
 cd "/Users/antonyberou/Documents/Work Stuff/AI Stuff/Python projects/Useful Code/fuck_vacancysoft_refined"
-uvicorn vacancysoft.api.main:app --host 127.0.0.1 --port 8000 --reload
+scripts/tunnel_prospero.sh
 ```
 
+The script:
+- Starts FastAPI, the ARQ worker, Next.js, and ngrok (skipping any that are already running).
+- Waits for each to be ready, then polls ngrok's admin API to grab the public URL.
+- Prints a paste-ready share block: URL, user (`reviewer`), a random 16-char password.
+- On `Ctrl-C` tears down anything it started (leaves anything you had already running alone).
+- Logs each service to `.data/tunnel_logs/<service>.log` so you can `tail -f` if something's off.
+
+Flags:
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--auth <passphrase>` | random 16 chars | Fixed password if you want to re-use one. Alternative: `PROSPERO_TUNNEL_AUTH=… scripts/tunnel_prospero.sh`. |
+| `--no-worker` | start the worker | Skip the ARQ worker for read-only demos. |
+
+Share block the script prints at the end:
+```
+URL:       https://<random>.ngrok-free.app
+User:      reviewer
+Password:  <random-or-your-override>
+```
+
+**Kill:** one `Ctrl-C`. Tunnel URL dies instantly. Verify nothing leaked:
 ```bash
-# Terminal 2 — ARQ worker (only needed if colleague will trigger
-# anything that enqueues jobs: dossier regen, campaign gen, etc.)
-cd "/Users/antonyberou/Documents/Work Stuff/AI Stuff/Python projects/Useful Code/fuck_vacancysoft_refined"
-arq vacancysoft.worker.settings.WorkerSettings
+lsof -i :3000 -i :8000 -i :4040 | grep LISTEN    # should return nothing
 ```
 
+### Prereqs (once per machine)
 ```bash
-# Terminal 3 — Next.js frontend (the only service exposed)
-cd "/Users/antonyberou/Documents/Work Stuff/AI Stuff/Python projects/Useful Code/fuck_vacancysoft_refined/web"
-npm run dev
+brew install ngrok     # the script errors clearly if anything else is missing
 ```
 
-```bash
-# Terminal 4 — ngrok tunnel (pick any passphrase, no spaces)
-ngrok http 3000 --basic-auth "reviewer:prospero-demo-2026"
-```
+### If you prefer to run the services manually (old flow, kept for debugging)
 
-Grab the `https://*.ngrok-free.app` URL from terminal 4. Send to colleague with:
-```
-URL: https://<random>.ngrok-free.app
-User: reviewer
-Password: prospero-demo-2026
-```
-
-**Kill:** `Ctrl-C` in each terminal. Tunnel URL is dead the instant you kill terminal 4.
-
-**Verify nothing left listening:**
-```bash
-lsof -i :3000 -i :8000 | grep LISTEN   # should return nothing after Ctrl-C × 3
-```
+See §2 below — same commands, four terminals.
 
 ---
 
