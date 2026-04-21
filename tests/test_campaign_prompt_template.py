@@ -24,11 +24,15 @@ from vacancysoft.intelligence.prompts.resolver import resolve_campaign_prompt
 
 # ── Fixtures ───────────────────────────────────────────────────────
 
-def _job() -> dict[str, str]:
+def _job(description: str | None = None) -> dict[str, str]:
     return {
         "title": "Head of Credit Risk",
         "company": "Barclays",
         "location": "London",
+        # Default to a short canned body so the reference appendix has
+        # something to render in happy-path tests. Tests exercising the
+        # truncation / empty / brace-escape paths pass their own.
+        "description": "Owns the wholesale credit book across EMEA. Works closely with the CRO. Requires 15 yrs IB experience." if description is None else description,
     }
 
 
@@ -83,22 +87,97 @@ class TestTemplateVersions:
         assert "{outreach_angle}" not in CAMPAIGN_TEMPLATE_V2
         assert "{outreach_angle}" in CAMPAIGN_TEMPLATE_V1
 
-    def test_v2_has_offer_of_value_rule(self) -> None:
-        """Every email must close with a concrete offer of value (v2 rev
-        2026-04-20b). Guards against accidental removal of the rule."""
-        # Global-rules bullet
-        assert "concrete offer of value" in CAMPAIGN_TEMPLATE_V2
-        # Anti-pattern the rule explicitly forbids
+    def test_v2_has_closed_offer_menu(self) -> None:
+        """Revised 2026-04-21: closes are constrained to a five-item
+        closed list (call / profiles / pen portrait / salary benchmark /
+        sense check). The previous open-ended 'any concrete offer of
+        value' rule and the 'vary across sequences' rule produced
+        inflated offers (market notes, sequencing analyses, briefings)
+        the recruiter couldn't credibly deliver."""
+        # Closed-list preamble — unique phrase that guards the menu shape
+        assert "closed list of five" in CAMPAIGN_TEMPLATE_V2
+        # Each of the five menu items appears as a named offer
+        assert "A short conversation" in CAMPAIGN_TEMPLATE_V2
+        assert "A few relevant profiles" in CAMPAIGN_TEMPLATE_V2
+        # Renamed 2026-04-21 from "A single named pen portrait" →
+        # "A short candidate overview" to stop the model rendering it
+        # as meta "pen picture of candidate patterns we're seeing"
+        # language instead of concrete "who can do X" descriptions.
+        assert "A short candidate overview" in CAMPAIGN_TEMPLATE_V2
+        assert "A single named pen portrait" not in CAMPAIGN_TEMPLATE_V2
+        assert "A salary benchmark" in CAMPAIGN_TEMPLATE_V2
+        assert "A sense check on the spec" in CAMPAIGN_TEMPLATE_V2
+        # Negative guard-rail lists the specific inflations we've seen
+        assert '"market notes"' in CAMPAIGN_TEMPLATE_V2
+        assert '"sequencing analyses"' in CAMPAIGN_TEMPLATE_V2
+        # Anti-pattern the rule still forbids
         assert 'vague "let me know if interested"' in CAMPAIGN_TEMPLATE_V2
-        # Variation requirement
-        assert "Vary the offer across the five sequences" in CAMPAIGN_TEMPLATE_V2
-        # Self-check line at the end
-        assert "five offers within each tone-arc are distinct from each other" in CAMPAIGN_TEMPLATE_V2
+        # Level sequences 2-4 rule
+        assert "Sequences 2, 3 and 4 carry the same light-touch weight" in CAMPAIGN_TEMPLATE_V2
+        # Self-check on the verification list
+        assert "five-item closed list" in CAMPAIGN_TEMPLATE_V2
 
-    def test_v1_does_not_have_offer_of_value_rule(self) -> None:
-        """v1 is frozen; the new rule lives only on v2 so rollback is clean."""
+    def test_v2_drops_old_variety_rule(self) -> None:
+        """The 'vary the offer across the five sequences' rule is gone
+        (removed 2026-04-21). Repetition across sequences is now fine."""
+        assert "Vary the offer across the five sequences" not in CAMPAIGN_TEMPLATE_V2
+        assert "five offers within each tone-arc are distinct" not in CAMPAIGN_TEMPLATE_V2
+
+    def test_v1_does_not_have_offer_rules(self) -> None:
+        """v1 is frozen; neither the old nor new offer rules live there."""
+        assert "closed list of five" not in CAMPAIGN_TEMPLATE_V1
         assert "concrete offer of value" not in CAMPAIGN_TEMPLATE_V1
         assert "Vary the offer across the five sequences" not in CAMPAIGN_TEMPLATE_V1
+
+    def test_v2_has_spoken_english_guards(self) -> None:
+        """Revised 2026-04-21 after operator smoke flagged three tics:
+        stilted self-identification ("I'm with Barclay Simpson"),
+        evaluator word choice ("harder to test from inbound CVs"), and
+        abstract candidate descriptions ("pen picture of candidate
+        patterns we're seeing when firms want X"). All three guards
+        apply globally — every tone, every sequence."""
+        # Self-identification rule
+        assert 'I work for Barclay Simpson' in CAMPAIGN_TEMPLATE_V2
+        assert "I'm with Barclay Simpson" in CAMPAIGN_TEMPLATE_V2  # appears in the negative examples
+        # Observational vs evaluator language rule
+        assert "observational words" in CAMPAIGN_TEMPLATE_V2
+        assert '"test"' in CAMPAIGN_TEMPLATE_V2  # appears in the negative list
+        assert '"determine"' in CAMPAIGN_TEMPLATE_V2
+        # Concrete candidate description rule
+        assert "describe what they CAN DO" in CAMPAIGN_TEMPLATE_V2
+        assert 'Candidate patterns we\'re seeing when firms want X' in CAMPAIGN_TEMPLATE_V2
+        # Verification checklist mirrors
+        assert 'no email uses "I\'m with Barclay Simpson"' in CAMPAIGN_TEMPLATE_V2
+        assert 'no email uses evaluator words' in CAMPAIGN_TEMPLATE_V2
+        assert 'candidate references are concrete' in CAMPAIGN_TEMPLATE_V2
+
+    def test_v1_does_not_have_spoken_english_guards(self) -> None:
+        """v1 is frozen; the new guards live only on v2."""
+        assert "I work for Barclay Simpson" not in CAMPAIGN_TEMPLATE_V1
+        assert "observational words" not in CAMPAIGN_TEMPLATE_V1
+        assert "describe what they CAN DO" not in CAMPAIGN_TEMPLATE_V1
+
+    def test_v2_suppresses_stage_leakage(self) -> None:
+        """Revised 2026-04-21 after a smoke-test email opened with
+        'A recurring mid-stage tension on this sort of brief is…'.
+        The sequence-stage labels in the prompt (early-stage /
+        mid-stage / late-stage) are internal targeting, not body
+        language. The rule + checklist item below explicitly ban
+        echoing them — applies to every tone and every sequence."""
+        # Dedicated sub-section after the sequence descriptions
+        assert "Stage framing is internal" in CAMPAIGN_TEMPLATE_V2
+        # Global-rule bullet
+        assert "Do not reference the hiring process stage or timeline in the email prose" in CAMPAIGN_TEMPLATE_V2
+        # Negative examples the rule names explicitly
+        assert '"a recurring mid-stage tension"' in CAMPAIGN_TEMPLATE_V2
+        assert '"early-stage pain"' in CAMPAIGN_TEMPLATE_V2
+        assert '"by now you\'re probably seeing"' in CAMPAIGN_TEMPLATE_V2
+        # Self-check on the verification list
+        assert "no email references the hiring process stage or timeline" in CAMPAIGN_TEMPLATE_V2
+
+    def test_v1_does_not_have_stage_leak_guard(self) -> None:
+        assert "Stage framing is internal" not in CAMPAIGN_TEMPLATE_V1
+        assert "Do not reference the hiring process stage" not in CAMPAIGN_TEMPLATE_V1
 
 
 # ── resolve_campaign_prompt selects by flag ───────────────────────
@@ -169,3 +248,61 @@ class TestPlaceholderCompleteness:
         messages = resolve_campaign_prompt("risk", _job(), _dossier(), template_version="v2")
         system = next(m["content"] for m in messages if m["role"] == "system")
         assert system == CAMPAIGN_SYSTEM
+
+
+# ── JD-passthrough appendix (v2 only) ─────────────────────────────
+
+class TestDescriptionPassthrough:
+    """v2's `{description}` appendix lets any tone ground in advert text.
+    Guards truncation (6,000 chars), brace escaping (JDs that contain `{`
+    or `}` must not break .format()), the "Not available" fallback, and
+    that v1 doesn't accidentally sprout the appendix on a rollback."""
+
+    def test_description_renders_into_v2(self) -> None:
+        job = _job("Owns the wholesale credit book across EMEA.")
+        messages = resolve_campaign_prompt("risk", job, _dossier(), template_version="v2")
+        user = next(m["content"] for m in messages if m["role"] == "user")
+        assert "Owns the wholesale credit book across EMEA." in user
+        # Heading should be present so the model knows where the appendix begins.
+        assert "Source Job Description" in user
+
+    def test_description_long_body_is_truncated(self) -> None:
+        long_body = "X" * 8000
+        messages = resolve_campaign_prompt("risk", _job(long_body), _dossier(), template_version="v2")
+        user = next(m["content"] for m in messages if m["role"] == "user")
+        # The marker goes in at the resolver's cap; verify it landed.
+        assert "truncated" in user
+        # And that we actually clipped — a full 8k-char run of Xs would
+        # otherwise appear literally. Check a substring longer than the
+        # cap doesn't appear.
+        assert "X" * 6100 not in user
+
+    def test_description_escapes_curly_braces(self) -> None:
+        """JDs with `{foo}` must not crash .format()."""
+        body = "Tech stack: Python, {REST APIs}, kdb+. Team uses {agile} rituals."
+        # If the resolver didn't escape, the format() call would raise
+        # IndexError or KeyError on the unknown placeholder.
+        messages = resolve_campaign_prompt("risk", _job(body), _dossier(), template_version="v2")
+        user = next(m["content"] for m in messages if m["role"] == "user")
+        # Braces round-trip back to single in the rendered output.
+        assert "{REST APIs}" in user
+        assert "{agile}" in user
+
+    def test_description_empty_falls_back_to_not_available(self) -> None:
+        messages = resolve_campaign_prompt("risk", _job(""), _dossier(), template_version="v2")
+        user = next(m["content"] for m in messages if m["role"] == "user")
+        # Heading still renders (it's static template text) but the slot
+        # reads as "Not available" rather than a blank section.
+        assert "Source Job Description" in user
+        assert "Not available" in user
+
+    def test_v1_does_not_include_description_appendix(self) -> None:
+        """v1 is frozen — rollback must not pick up the new section."""
+        assert "Source Job Description" not in CAMPAIGN_TEMPLATE_V1
+        assert "{description}" not in CAMPAIGN_TEMPLATE_V1
+
+    def test_v2_advertises_description_in_template(self) -> None:
+        """Template must actually reference {description} for passthrough
+        to work; guards against an accidental revert of the appendix."""
+        assert "{description}" in CAMPAIGN_TEMPLATE_V2
+        assert "Source Job Description" in CAMPAIGN_TEMPLATE_V2

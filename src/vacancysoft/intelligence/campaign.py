@@ -76,6 +76,11 @@ async def generate_campaign(
         "title": enriched.title or "",
         "company": source.employer_name if source else "",
         "location": enriched.location_text or "",
+        # Raw JD body — passed so the campaign prompt's reference
+        # appendix can ground the `informal` tone in actual advert
+        # phrases. The resolver caps this before handing it to the
+        # template; see resolver.py::resolve_campaign_prompt.
+        "description": enriched.description_text or "",
     }
 
     dossier_sections = {

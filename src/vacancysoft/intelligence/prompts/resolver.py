@@ -66,7 +66,12 @@ def resolve_campaign_prompt(
     - candidate_profiles including outcomes (was: only background + fit)
     - lead_score_justification (was: not passed at all)
     - the highest-confidence hiring manager's name/title if available
-    - outreach_angle (unchanged, from category block)
+    - description (raw JD body, capped at 6,000 chars, v2-only) — lets
+      any tone ground its language in the advert's actual phrases /
+      product names / reg references. Added 2026-04-21 after operator
+      review showed the campaign quality ceiling was set by the
+      dossier's JD-fidelity.
+    - outreach_angle (unchanged, from category block, v1-only)
 
     Missing context was the dominant quality limit on the previous
     campaign output — the model was writing about a generic role at a
@@ -149,11 +154,28 @@ def resolve_campaign_prompt(
     else:
         hiring_manager_line = "Not identified"
 
+    # Raw JD body — v2-only appendix. Capped at _JD_MAX_CHARS so a
+    # 20K-char Workday advert doesn't blow the input budget; the tail
+    # is dropped after the cap (and marked in-line so the model knows).
+    # Curly braces in the advert are escaped because the whole blob
+    # then goes through str.format() below; JDs occasionally contain
+    # code samples or template-like syntax that would otherwise raise
+    # IndexError / KeyError inside .format().
+    _JD_MAX_CHARS = 6000
+    description_raw = (job_data.get("description") or "").strip()
+    if len(description_raw) > _JD_MAX_CHARS:
+        description_raw = (
+            description_raw[:_JD_MAX_CHARS].rstrip()
+            + "\n\n[… truncated — full JD is longer than 6,000 characters]"
+        )
+    description_safe = description_raw.replace("{", "{{").replace("}", "}}") or "Not available"
+
     # Template selection: v2 (default, 2026-04-20+) reshapes the prompt so
     # tone determines content-source, not just register. v1 is the legacy
     # "same message, different voice" shape and is kept behind the flag
     # for hot-swap rollback. v2 ignores {outreach_angle} — .format() is
-    # permissive about unused kwargs so we pass it either way.
+    # permissive about unused kwargs so we pass it either way. v1 does
+    # not reference {description} so it's silently ignored there too.
     tv = (template_version or "v2").lower()
     template = CAMPAIGN_TEMPLATE_V1 if tv == "v1" else CAMPAIGN_TEMPLATE_V2
 
@@ -168,6 +190,7 @@ def resolve_campaign_prompt(
         candidate_profile_summary=profile_summary,
         lead_score_context=lead_score_context,
         hiring_manager_line=hiring_manager_line,
+        description=description_safe,
         outreach_angle=blocks["outreach_angle"],
     )
     return [

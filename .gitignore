@@ -41,3 +41,6 @@ node_modules/
 
 # Claude Code worktrees and local agent metadata
 .claude/
+
+# Operator scratch pads (prompt drafts, review notes) — not committed
+.scratch/

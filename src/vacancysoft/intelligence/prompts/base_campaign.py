@@ -40,6 +40,12 @@ Placeholders common to both versions:
   {lead_score_context}          — dossier §6 justification
   {hiring_manager_line}         — name + title of highest-confidence HM
 
+Placeholder only used by v2 (silently ignored by v1's ``.format()``):
+  {description}                 — raw JD body, capped at 6,000 chars by
+                                  the resolver and passed as a reference
+                                  section so any tone can ground phrases
+                                  in the advert's actual language
+
 Placeholder only used by v1 (silently ignored by v2's ``.format()``):
   {outreach_angle}              — domain-specific recruiter positioning
 """
@@ -80,6 +86,12 @@ Likely hiring manager: {hiring_manager_line}
 ## Why this lead is worth engaging
 {lead_score_context}
 
+## Source Job Description (reference — for grounding in the advert's actual language)
+
+The advert text below is the primary source every dossier section above was derived from. Use it to ground any variant in specific phrases, product names, system names, or regulatory references that appear in the advert — this is what keeps the emails from sounding generic. Do not paraphrase the advert as a whole; the dossier already does that. Do not copy whole sentences verbatim. Do not invent details beyond what appears here or in the dossier.
+
+{description}
+
 # Task
 
 Return EXACTLY FIVE emails in a JSON array. Each email object has a `sequence` (1-5) and a `variants` object holding SIX tone keys: formal, informal, consultative, direct, candidate_spec, technical. Every tone must be populated for every sequence. 5 sequences x 6 tones = 30 {{subject, body}} pairs total.
@@ -93,7 +105,7 @@ Within a single tone, across all five sequences, the emails form one coherent ca
 Each tone has one home dossier section. Every variant across all 5 sequences must keep drawing from its home source. This is how the six campaigns stay distinct across the whole sequence.
 
 - **formal** — source: Company Context. Measured institutional framing. Polished British business English, minimal contractions, third-person where natural.
-- **informal** — source: Core Business Problem. Warmer human hook, conversational, first-person, contractions welcome, short sentences.
+- **informal** — source: Stated Need vs Actual Need. Voice: an experienced financial services recruiter writing in their own words. Approachable, gender neutral, positive. British English, specifically estuary English — common language, occasional colloquialisms, reads like it sounds spoken aloud. Avoid jargon. Don't be corny. First-person, contractions welcome, short sentences. Lean on the gap between what the JD asks for and what the business probably needs, framed as something the hiring manager is likely feeling — never as a technical diagnosis.
 - **consultative** — source: Company Context + Core Business Problem (blended). Market-observation led, positions sender as a trusted partner with a view on the wider market.
 - **direct** — source: Core Business Problem, stripped to one line. Concise and outcome-focused, cuts to the point in the first line, light on adjectives, short.
 - **candidate_spec** — source: Ideal Candidate Profiles. Leads with a live candidate or pipeline. References a specific profile, their background, and why they fit.
@@ -106,10 +118,10 @@ Every variant must lean on one or more specific details from its mapped dossier 
 At Sequence 1, for each tone, pick ONE concrete anchor from that tone's home dossier source. An anchor is a specific, nameable thing — not a theme. Valid anchors look like:
 
 - **formal** anchor: one specific element of Company Context (a named strategic shift, a named regulatory pressure, a named business line)
-- **informal** anchor: one human-framed version of the Core Business Problem (expressed as something the hiring manager is likely feeling)
+- **informal** anchor: one human-framed question framed around stated need v actual need (expressed as something the hiring manager is likely feeling and non technical)
 - **consultative** anchor: one specific market dynamic that ties Company Context to Core Business Problem
 - **direct** anchor: the Core Business Problem in its sharpest form, plus one consequence of it (broad enough to evolve across five stages without repetition)
-- **candidate_spec** anchor: one specific Ideal Candidate Profile (or the archetype they represent)
+- **candidate_spec** anchor: one specific Ideal Candidate Profile presented as real and based on the archetype they represent
 - **technical** anchor: one specific Specification Risk OR one specific Stated vs Actual gap
 
 That anchor carries through all 5 sequences for that tone. Sequences 2-5 do NOT restate the anchor — they view it from the stage-appropriate angle:
@@ -143,14 +155,18 @@ Late-stage pains: process fatigue, pressure from above, rethinking whether the s
 ### Sequence 5 — Sign-off with CTA (week 5+)
 A clean warm sign-off. Brief — 2-4 sentences. The email makes one final reference to the anchor, then delivers the tone-appropriate CTA:
 
-- **formal** — offer a measured market update conversation grounded in Company Context, framed around the anchor.
+- **formal** — offer a call, framed around the anchor. Measured but not stiff.
 - **informal** — leave the door open in a human way, with a light "if it's still live, I'm here" ask that references the anchor.
-- **consultative** — offer a market briefing or a short call to share what comparable firms are doing on the anchor dynamic.
-- **direct** — one crisp line asking if the role is still open and whether it's worth a short call, referencing the anchor problem.
-- **candidate_spec** — offer to share the anchor candidate (or someone matching the archetype) if the role is still live.
-- **technical** — offer a pointed conversation about the anchor spec tension or risk, framed as a calibration check.
+- **consultative** — offer a call or a couple of profiles, lightly referencing the wider market. No "briefings".
+- **direct** — one crisp line asking if the role is still open, offering a call.
+- **candidate_spec** — offer to send over the anchor candidate's profile, or book a quick call to walk through.
+- **technical** — offer a quick conversation about the anchor tension — no lecture, just a sense check.
 
 Every Sequence 5 variant must feel like a genuine sign-off, not another nudge. Signal the sender is still in the market, not nagging.
+
+### Stage framing is internal — do not echo it into the email
+
+The sequence numbers and "early-stage / mid-stage / late-stage" labels above are targeting instructions for the writer. They tell you WHICH pain to speak to in each email. They are NOT language to put in the email. Write about the pain directly. Do not name the stage in the prose.
 
 # Global rules (apply to every variant)
 
@@ -160,10 +176,22 @@ Every Sequence 5 variant must feel like a genuine sign-off, not another nudge. S
 - No em-dashes. No bolding. Do not use "shifted" in place of "change".
 - Never salesy. Light, empathetic, gently persuasive.
 - Do not ask the reader for more information — this is one-way automation.
-- Every email must close with one concrete offer of value the sender is willing to give — e.g. a call, a shortlisted CV, a short market briefing, a salary benchmark, a trend observation, a competitor-hiring datapoint, an intro to someone adjacent, a pen portrait of a candidate pattern. Never end with a vague "let me know if interested" or "happy to chat". The offer is what the sender is prepared to give, not a request for the reader to act on. This is compatible with the previous rule — offering is not asking.
-- Vary the offer across the five sequences within each tone-arc. No two sequential emails in the same arc should close with the same offer. The Sequence 5 CTA is already tone-specific; the offers used in Sequences 1-4 must be different from each other and from that CTA, so the hiring manager receives five distinct concrete offers over the campaign.
+- Every email closes with exactly one offer drawn from this closed list of five. No other closes are permitted.
+    1. **A short conversation** — e.g. "Happy to jump on a quick call if useful."
+    2. **A few relevant profiles** — e.g. "Let me know if you'd like me to send a couple of profiles across."
+    3. **A short candidate overview** — e.g. "I can send a quick overview of the type of candidate we're speaking to who can implement a workable risk framework." Describe what the candidate CAN DO in practical terms — "who can implement a workable risk framework", "who's led a Basel 3.1 remediation end-to-end", "who's built a second-line team from a blank sheet". Do NOT write "candidate patterns we're seeing when firms want X" or "who fits this shape" — that's abstract market commentary, not a concrete profile. One candidate shape, not a list.
+    4. **A salary benchmark** — e.g. "If it'd help, I can send what we're seeing on pay for roles like this."
+    5. **A sense check on the spec** — collaborative "worth a word" framing, e.g. "I've seen this shape of spec a few times and there's a sense-check conversation to be had." Never phrased as a challenge or correction.
+- Use only these five. Do not invent variants ("market notes", "briefings", "sequencing analyses", "benchmarking papers", "trend reports", "whitepapers", "intros to someone adjacent", "competitor-hiring data", "strategic outlooks"). If a close would require a team of analysts to produce, rewrite. A recruiter does not have those materials to hand.
+- Repeating the same offer across sequences is fine — variety is NOT the goal. What varies across the five-email arc is the emotional register (intro → gentle nudge → fuller nudge → light backup-plan nudge → warm sign-off), not the offer.
+- Sequences 2, 3 and 4 carry the same light-touch weight. None should escalate in intensity vs the others. If Sequence 4 feels more insistent or more "final" than Sequence 2, dial it back.
+- Frame offers naturally: "happy to…", "if useful…", "let me know if you'd like me to…". Never close with a vague "let me know if interested" or "happy to chat" without a concrete offer attached — offering IS the close, asking for a response is not.
 - Do not name the hiring manager by their real name even if identified above. Refer to them by title or generically ("your team", "the risk team").
 - Do not invent dossier details. If a dossier section is thin, lean on what IS there rather than fabricating.
+- When identifying yourself, say "I work for Barclay Simpson" or "I'm a recruiter at Barclay Simpson". Do NOT write "I'm with Barclay Simpson", "I represent Barclay Simpson" or "I'm based at Barclay Simpson" — they sound stilted across every register we write in. Applies to every tone and every sequence.
+- Prefer observational words ("determine", "tell", "gauge", "see", "spot") over evaluator words ("test", "assess", "judge", "measure", "evaluate") when describing what hiring teams are trying to do with CVs, shortlists or candidates. The email is a peer-to-peer note to the hiring manager, not an HR critique. "Harder to tell from inbound CVs" is correct; "harder to test from inbound CVs" is wrong.
+- When an offer or sentence references candidates, describe what they CAN DO in practical, concrete terms. "Someone who can run a Pillar 2 model review" is concrete. "Candidate patterns we're seeing when firms want X" or "someone who fits this shape" is meta-observation dressed up as a candidate reference — rewrite. Applies to every tone and every sequence.
+- Do not reference the hiring process stage or timeline in the email prose. Do NOT write "a recurring mid-stage tension", "early-stage pain", "late-stage", "at this point in the process", "by now you're probably seeing", "now that the role has been live a while", or any phrase that positions the email in time relative to the hiring cycle. The email must read as a standalone observation that could sit in any conversation. The stage-appropriate pain the email speaks to (thin inbound, spec scope issues, counter-offers, process fatigue, etc.) is fine; naming the stage itself is not. Applies to every tone and every sequence.
 
 # Output schema
 
@@ -189,13 +217,18 @@ Return this exact JSON shape. Replace "..." with real content. Every sequence MU
 Before returning, verify:
 - the `emails` array has exactly 5 sequence objects (sequences 1-5)
 - each sequence has all 6 tone keys populated
-- each variant draws from its mapped dossier source (formal->Company Context, informal->Core Business Problem, consultative->Company Context + Core Business Problem, direct->Core Business Problem, candidate_spec->Ideal Candidate Profiles, technical->Specification Risk / Stated vs Actual)
+- each variant draws from its mapped dossier source (formal->Company Context, informal->Stated Need vs Actual Need, consultative->Company Context + Core Business Problem, direct->Core Business Problem, candidate_spec->Ideal Candidate Profiles, technical->Specification Risk / Stated vs Actual)
 - within each tone, the 5 sequences share a single concrete anchor (named candidate, named business problem, named spec risk, etc.) — not a vague theme
 - within each tone, no sequence could plausibly sit inside a different tone's campaign
 - sequence 1 feels introductory for all 6 tones
 - sequence 5 is a genuine sign-off with a tone-appropriate CTA referencing the anchor
-- every email closes with one concrete offer of value (not a vague "happy to chat"); the five offers within each tone-arc are distinct from each other
+- every email closes with exactly one offer drawn from the five-item closed list (call / profiles / candidate overview / salary benchmark / sense check) — no invented variants, no "market notes" or "briefings"
+- sequences 2, 3 and 4 carry the same light-touch weight — none escalates vs the others
 - no email names the hiring manager by first name
+- no email uses "I'm with Barclay Simpson", "I represent", or "I'm based at" — self-identification is always "I work for Barclay Simpson" or "I'm a recruiter at Barclay Simpson"
+- no email uses evaluator words ("test", "assess", "judge") where observational words ("determine", "tell", "gauge") would be more natural
+- no offer describes "candidate patterns we're seeing" or "someone who fits this shape" — candidate references are concrete ("who can implement a workable risk framework")
+- no email references the hiring process stage or timeline in the prose — no "mid-stage", "early-stage", "late-stage", "at this point", "by now", "now that the role has been live". Each email reads as a standalone observation.
 - no em-dashes, no bolding, no "shifted" in place of "change"
 - every email ends with "Kind regards" or similar
 """
