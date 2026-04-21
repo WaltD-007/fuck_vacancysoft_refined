@@ -99,7 +99,12 @@ class TestTemplateVersions:
         # Each of the five menu items appears as a named offer
         assert "A short conversation" in CAMPAIGN_TEMPLATE_V2
         assert "A few relevant profiles" in CAMPAIGN_TEMPLATE_V2
-        assert "A single named pen portrait" in CAMPAIGN_TEMPLATE_V2
+        # Renamed 2026-04-21 from "A single named pen portrait" →
+        # "A short candidate overview" to stop the model rendering it
+        # as meta "pen picture of candidate patterns we're seeing"
+        # language instead of concrete "who can do X" descriptions.
+        assert "A short candidate overview" in CAMPAIGN_TEMPLATE_V2
+        assert "A single named pen portrait" not in CAMPAIGN_TEMPLATE_V2
         assert "A salary benchmark" in CAMPAIGN_TEMPLATE_V2
         assert "A sense check on the spec" in CAMPAIGN_TEMPLATE_V2
         # Negative guard-rail lists the specific inflations we've seen
@@ -123,6 +128,34 @@ class TestTemplateVersions:
         assert "closed list of five" not in CAMPAIGN_TEMPLATE_V1
         assert "concrete offer of value" not in CAMPAIGN_TEMPLATE_V1
         assert "Vary the offer across the five sequences" not in CAMPAIGN_TEMPLATE_V1
+
+    def test_v2_has_spoken_english_guards(self) -> None:
+        """Revised 2026-04-21 after operator smoke flagged three tics:
+        stilted self-identification ("I'm with Barclay Simpson"),
+        evaluator word choice ("harder to test from inbound CVs"), and
+        abstract candidate descriptions ("pen picture of candidate
+        patterns we're seeing when firms want X"). All three guards
+        apply globally — every tone, every sequence."""
+        # Self-identification rule
+        assert 'I work for Barclay Simpson' in CAMPAIGN_TEMPLATE_V2
+        assert "I'm with Barclay Simpson" in CAMPAIGN_TEMPLATE_V2  # appears in the negative examples
+        # Observational vs evaluator language rule
+        assert "observational words" in CAMPAIGN_TEMPLATE_V2
+        assert '"test"' in CAMPAIGN_TEMPLATE_V2  # appears in the negative list
+        assert '"determine"' in CAMPAIGN_TEMPLATE_V2
+        # Concrete candidate description rule
+        assert "describe what they CAN DO" in CAMPAIGN_TEMPLATE_V2
+        assert 'Candidate patterns we\'re seeing when firms want X' in CAMPAIGN_TEMPLATE_V2
+        # Verification checklist mirrors
+        assert 'no email uses "I\'m with Barclay Simpson"' in CAMPAIGN_TEMPLATE_V2
+        assert 'no email uses evaluator words' in CAMPAIGN_TEMPLATE_V2
+        assert 'candidate references are concrete' in CAMPAIGN_TEMPLATE_V2
+
+    def test_v1_does_not_have_spoken_english_guards(self) -> None:
+        """v1 is frozen; the new guards live only on v2."""
+        assert "I work for Barclay Simpson" not in CAMPAIGN_TEMPLATE_V1
+        assert "observational words" not in CAMPAIGN_TEMPLATE_V1
+        assert "describe what they CAN DO" not in CAMPAIGN_TEMPLATE_V1
 
 
 # ── resolve_campaign_prompt selects by flag ───────────────────────

@@ -175,7 +175,7 @@ Every Sequence 5 variant must feel like a genuine sign-off, not another nudge. S
 - Every email closes with exactly one offer drawn from this closed list of five. No other closes are permitted.
     1. **A short conversation** — e.g. "Happy to jump on a quick call if useful."
     2. **A few relevant profiles** — e.g. "Let me know if you'd like me to send a couple of profiles across."
-    3. **A single named pen portrait** — e.g. "I can send a short write-up on someone I'm speaking to who fits this shape." One archetype, not a list.
+    3. **A short candidate overview** — e.g. "I can send a quick overview of the type of candidate we're speaking to who can implement a workable risk framework." Describe what the candidate CAN DO in practical terms — "who can implement a workable risk framework", "who's led a Basel 3.1 remediation end-to-end", "who's built a second-line team from a blank sheet". Do NOT write "candidate patterns we're seeing when firms want X" or "who fits this shape" — that's abstract market commentary, not a concrete profile. One candidate shape, not a list.
     4. **A salary benchmark** — e.g. "If it'd help, I can send what we're seeing on pay for roles like this."
     5. **A sense check on the spec** — collaborative "worth a word" framing, e.g. "I've seen this shape of spec a few times and there's a sense-check conversation to be had." Never phrased as a challenge or correction.
 - Use only these five. Do not invent variants ("market notes", "briefings", "sequencing analyses", "benchmarking papers", "trend reports", "whitepapers", "intros to someone adjacent", "competitor-hiring data", "strategic outlooks"). If a close would require a team of analysts to produce, rewrite. A recruiter does not have those materials to hand.
@@ -184,6 +184,9 @@ Every Sequence 5 variant must feel like a genuine sign-off, not another nudge. S
 - Frame offers naturally: "happy to…", "if useful…", "let me know if you'd like me to…". Never close with a vague "let me know if interested" or "happy to chat" without a concrete offer attached — offering IS the close, asking for a response is not.
 - Do not name the hiring manager by their real name even if identified above. Refer to them by title or generically ("your team", "the risk team").
 - Do not invent dossier details. If a dossier section is thin, lean on what IS there rather than fabricating.
+- When identifying yourself, say "I work for Barclay Simpson" or "I'm a recruiter at Barclay Simpson". Do NOT write "I'm with Barclay Simpson", "I represent Barclay Simpson" or "I'm based at Barclay Simpson" — they sound stilted across every register we write in. Applies to every tone and every sequence.
+- Prefer observational words ("determine", "tell", "gauge", "see", "spot") over evaluator words ("test", "assess", "judge", "measure", "evaluate") when describing what hiring teams are trying to do with CVs, shortlists or candidates. The email is a peer-to-peer note to the hiring manager, not an HR critique. "Harder to tell from inbound CVs" is correct; "harder to test from inbound CVs" is wrong.
+- When an offer or sentence references candidates, describe what they CAN DO in practical, concrete terms. "Someone who can run a Pillar 2 model review" is concrete. "Candidate patterns we're seeing when firms want X" or "someone who fits this shape" is meta-observation dressed up as a candidate reference — rewrite. Applies to every tone and every sequence.
 
 # Output schema
 
@@ -214,9 +217,12 @@ Before returning, verify:
 - within each tone, no sequence could plausibly sit inside a different tone's campaign
 - sequence 1 feels introductory for all 6 tones
 - sequence 5 is a genuine sign-off with a tone-appropriate CTA referencing the anchor
-- every email closes with exactly one offer drawn from the five-item closed list (call / profiles / pen portrait / salary benchmark / sense check) — no invented variants, no "market notes" or "briefings"
+- every email closes with exactly one offer drawn from the five-item closed list (call / profiles / candidate overview / salary benchmark / sense check) — no invented variants, no "market notes" or "briefings"
 - sequences 2, 3 and 4 carry the same light-touch weight — none escalates vs the others
 - no email names the hiring manager by first name
+- no email uses "I'm with Barclay Simpson", "I represent", or "I'm based at" — self-identification is always "I work for Barclay Simpson" or "I'm a recruiter at Barclay Simpson"
+- no email uses evaluator words ("test", "assess", "judge") where observational words ("determine", "tell", "gauge") would be more natural
+- no offer describes "candidate patterns we're seeing" or "someone who fits this shape" — candidate references are concrete ("who can implement a workable risk framework")
 - no em-dashes, no bolding, no "shifted" in place of "change"
 - every email ends with "Kind regards" or similar
 """
