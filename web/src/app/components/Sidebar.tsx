@@ -54,6 +54,7 @@ export default function Sidebar() {
     { label: "Sources", href: "/sources", icon: "⊙", section: "PIPELINE", badge: undefined, badgeColor: "#6c5ce7" },
     { label: "Campaign Builder", href: "/builder", icon: "✎", section: "PIPELINE" },
     { label: "Campaigns", href: "/campaigns", icon: "✉", section: "PIPELINE", badge: undefined, badgeColor: "#ffd93d", disabled: !FEATURES.campaignsManager },
+    { label: "Voice", href: "/settings/voice", icon: "◍", section: "SETTINGS", disabled: !FEATURES.voicePrompts },
     { label: "Scoring Rules", href: "/settings/scoring", icon: "⚙", section: "SETTINGS", disabled: !FEATURES.scoringRules },
     { label: "Integrations", href: "/settings/integrations", icon: "⇶", section: "SETTINGS", disabled: !FEATURES.integrations },
     { label: "Team", href: "/settings/team", icon: "☷", section: "SETTINGS", disabled: !FEATURES.team },

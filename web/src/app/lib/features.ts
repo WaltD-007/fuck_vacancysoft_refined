@@ -16,6 +16,14 @@ export const FEATURES = {
   integrations: false,
   team: false,
 
+  // /settings/voice — per-user campaign voice prompts. Lights up once
+  // the voice-layer backend (PR #38) is deployed. The hook degrades
+  // gracefully on 401 / 404 so flipping this flag early is safe; the
+  // page renders a "bootstrap a user" hint when the backend isn't
+  // ready yet. Default ON to match the backend's default-wired-in
+  // status.
+  voicePrompts: true,
+
   // The /campaigns page is a hardcoded mock — no real data behind it yet.
   // When the Campaign Manager feature is built, flip to true and the page
   // link will light up.

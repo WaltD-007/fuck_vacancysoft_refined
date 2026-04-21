@@ -221,9 +221,15 @@ export default function SourceJobsDrawer({
                     });
                   }}
                   className="text-[9px] font-semibold px-1.5 py-0.5 rounded shrink-0 cursor-pointer"
+                  // Green in both states to match the "positive action"
+                  // colour of the other coloured admin buttons (red Agy,
+                  // blue Dead, amber Wrong loc). The ★ / ☆ glyph + the
+                  // label swap ("Queued" vs "Hotlist") already signal
+                  // which state the row is in; the colour doesn't need
+                  // to double up on that.
                   style={isQueued
-                    ? { background: "rgba(0,210,160,0.08)", color: "var(--green)", border: "1px solid rgba(0,210,160,0.2)" }
-                    : { background: "var(--bg-elevated)", color: "var(--text-muted)", border: "1px solid var(--border)" }
+                    ? { background: "rgba(0,210,160,0.18)", color: "var(--green)", border: "1px solid rgba(0,210,160,0.4)" }
+                    : { background: "rgba(0,210,160,0.08)", color: "var(--green)", border: "1px solid rgba(0,210,160,0.25)" }
                   }
                   title={isQueued ? "Added to Lead List" : "Add to Lead List"}
                 >
@@ -243,7 +249,13 @@ export default function SourceJobsDrawer({
                   onClick={(e) => { e.stopPropagation(); void handleDeadJob(job); }}
                   disabled={!job.id}
                   className="text-[9px] font-semibold px-1.5 py-0.5 rounded shrink-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                  style={{ background: "var(--bg-elevated)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+                  // Blue — matches the other coloured admin buttons
+                  // (red Agy, amber Wrong loc, green Hotlist) so all
+                  // four actions on the row read as deliberate /
+                  // clickable rather than greyed-out. Blue is picked
+                  // for "destructive but scoped" (removing one job)
+                  // vs red's "destructive + company-wide" (Agy).
+                  style={{ background: "rgba(77,171,247,0.08)", color: "var(--blue)", border: "1px solid rgba(77,171,247,0.25)" }}
                   title="Delete this job and stop it from re-enriching"
                 >
                   Dead job
