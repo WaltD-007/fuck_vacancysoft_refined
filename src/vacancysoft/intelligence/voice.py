@@ -22,7 +22,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from vacancysoft.db.models import SentMessage, User, UserCampaignPrompt
+from vacancysoft.db.models import (
+    SentMessage,
+    User,
+    UserCampaignPrompt,
+    VoiceTrainingSample,
+)
 
 
 # Must match the six tones the campaign template enumerates. Adding
@@ -57,37 +62,81 @@ def load_tone_prompts(session: Session, user: User) -> dict[str, str]:
 
 
 def load_voice_samples(session: Session, user: User) -> dict[int, list[dict[str, str]]]:
-    """Return the last N sent messages per sequence for this user.
+    """Return the last N voice samples per sequence for this user.
 
-    Bridges ``users.id`` to ``SentMessage.sender_user_id`` via the
-    user's email — ``sender_user_id`` is a String(255) that stores the
-    Azure UPN / email, not a FK to users.id. This avoids a breaking
-    migration on the already-populated sent_messages table.
+    Samples come from **two unioned sources**, newest-first:
 
-    Only ``status='sent'`` rows are included — pending, failed and
-    bounced sends are not voice signal. Returns an empty list per
-    sequence when the user has nothing on record (cold start).
+      1. ``SentMessage`` rows with ``status='sent'`` — the authoritative
+         voice signal once the Graph send flow exists and is actually
+         delivering real emails. Bridged from ``users.id`` to
+         ``SentMessage.sender_user_id`` via the user's email
+         (``sender_user_id`` is a String(255) storing the Azure UPN).
+      2. ``VoiceTrainingSample`` rows — operator-authored samples
+         saved from the Campaign Builder's "Save as training sample"
+         button (migration 0012, 2026-04-21). Bootstrap data so the
+         voice layer has something to imitate before real sends start
+         writing SentMessage rows.
+
+    The two sources are merged, sorted by their respective timestamps
+    (sent_at / created_at), and the top ``VOICE_SAMPLE_WINDOW`` are
+    returned per sequence. This gives training rows natural decay —
+    once real sends are accumulating at operational volume, they push
+    training rows out of the window automatically without anyone
+    having to delete anything.
+
+    Returns empty list per sequence when the user has nothing on
+    record (cold start).
     """
     out: dict[int, list[dict[str, str]]] = {seq: [] for seq in range(1, 6)}
-    if not user or not user.email:
+    if not user:
         return out
+
     for seq in range(1, 6):
-        rows = session.execute(
-            select(SentMessage)
-            .where(SentMessage.sender_user_id == user.email)
-            .where(SentMessage.sequence_index == seq)
-            .where(SentMessage.status == "sent")
-            .order_by(SentMessage.sent_at.desc())
+        # Collect candidates from both sources. Each candidate is a
+        # (timestamp, sample_dict) tuple so we can merge-sort cleanly.
+        candidates: list[tuple[Any, dict[str, str]]] = []
+
+        # Source 1 — real sent messages (status='sent' only).
+        if user.email:
+            sent_rows = session.execute(
+                select(SentMessage)
+                .where(SentMessage.sender_user_id == user.email)
+                .where(SentMessage.sequence_index == seq)
+                .where(SentMessage.status == "sent")
+                .order_by(SentMessage.sent_at.desc())
+                .limit(VOICE_SAMPLE_WINDOW)
+            ).scalars().all()
+            for row in sent_rows:
+                candidates.append((row.sent_at, {
+                    "subject": row.subject or "",
+                    "body": row.body or "",
+                    "tone": row.tone or "",
+                }))
+
+        # Source 2 — operator training samples (migration 0012).
+        training_rows = session.execute(
+            select(VoiceTrainingSample)
+            .where(VoiceTrainingSample.user_id == user.id)
+            .where(VoiceTrainingSample.sequence_index == seq)
+            .order_by(VoiceTrainingSample.created_at.desc())
             .limit(VOICE_SAMPLE_WINDOW)
         ).scalars().all()
-        out[seq] = [
-            {
+        for row in training_rows:
+            candidates.append((row.created_at, {
                 "subject": row.subject or "",
                 "body": row.body or "",
                 "tone": row.tone or "",
-            }
-            for row in rows
-        ]
+            }))
+
+        # Merge — newest first, cap at window size. Tuples sort by
+        # their first element (the timestamp); None timestamps sort
+        # last by wrapping with a sentinel.
+        candidates.sort(
+            key=lambda t: t[0] or __import__("datetime").datetime.min,
+            reverse=True,
+        )
+        out[seq] = [sample for _, sample in candidates[:VOICE_SAMPLE_WINDOW]]
+
     return out
 
 

@@ -36,6 +36,7 @@ from vacancysoft.db.models import (
     SentMessage,
     User,
     UserCampaignPrompt,
+    VoiceTrainingSample,
 )
 
 
@@ -423,4 +424,227 @@ class TestGetVoiceSamples:
         )
         assert r.status_code == 200
         # B sees none of A's sends
+        assert r.json()["1"] == []
+
+
+# ── POST /api/users/me/voice-training-samples ──────────────────────
+
+
+class TestPostVoiceTrainingSample:
+    """Operator-authored training samples, saved from the Builder's
+    "Save as training sample" button. Seeds the voice-sample pool
+    before the Graph send flow exists."""
+
+    def _valid_body(self, **overrides) -> dict:
+        body = {
+            "sequence_index": 1,
+            "tone": "informal",
+            "subject": "A quick thought on the risk role",
+            "body": "Hi. I work for Barclay Simpson. Cheers.",
+        }
+        body.update(overrides)
+        return body
+
+    def test_happy_path(self, client, session_factory) -> None:
+        uid = _add_user(session_factory, "ab@firm.com")
+        r = client.post(
+            "/api/users/me/voice-training-samples",
+            headers={"X-Prospero-User-Email": "ab@firm.com"},
+            json=self._valid_body(),
+        )
+        assert r.status_code == 200
+        payload = r.json()
+        assert payload["id"]
+        assert payload["created_at"]
+        # DB row persisted under this user
+        with session_factory() as s:
+            rows = list(s.execute(
+                __import__("sqlalchemy").select(VoiceTrainingSample)
+                .where(VoiceTrainingSample.user_id == uid)
+            ).scalars())
+            assert len(rows) == 1
+            assert rows[0].sequence_index == 1
+            assert rows[0].tone == "informal"
+
+    def test_unknown_tone_400(self, client, session_factory) -> None:
+        _add_user(session_factory, "ab@firm.com")
+        r = client.post(
+            "/api/users/me/voice-training-samples",
+            headers={"X-Prospero-User-Email": "ab@firm.com"},
+            json=self._valid_body(tone="bogus"),
+        )
+        assert r.status_code == 400
+
+    def test_sequence_out_of_range_400(self, client, session_factory) -> None:
+        _add_user(session_factory, "ab@firm.com")
+        for bad in (0, 6, -1, 99):
+            r = client.post(
+                "/api/users/me/voice-training-samples",
+                headers={"X-Prospero-User-Email": "ab@firm.com"},
+                json=self._valid_body(sequence_index=bad),
+            )
+            assert r.status_code == 400, f"sequence_index={bad} should 400"
+
+    def test_empty_subject_or_body_400(self, client, session_factory) -> None:
+        _add_user(session_factory, "ab@firm.com")
+        for field in ("subject", "body"):
+            r = client.post(
+                "/api/users/me/voice-training-samples",
+                headers={"X-Prospero-User-Email": "ab@firm.com"},
+                json=self._valid_body(**{field: ""}),
+            )
+            assert r.status_code == 400
+
+    def test_subject_over_500_chars_400(self, client, session_factory) -> None:
+        _add_user(session_factory, "ab@firm.com")
+        r = client.post(
+            "/api/users/me/voice-training-samples",
+            headers={"X-Prospero-User-Email": "ab@firm.com"},
+            json=self._valid_body(subject="X" * 501),
+        )
+        assert r.status_code == 400
+
+    def test_source_enriched_job_id_stored(self, client, session_factory) -> None:
+        uid = _add_user(session_factory, "ab@firm.com")
+        r = client.post(
+            "/api/users/me/voice-training-samples",
+            headers={"X-Prospero-User-Email": "ab@firm.com"},
+            json=self._valid_body(source_enriched_job_id="ej-abc-123"),
+        )
+        assert r.status_code == 200
+        with session_factory() as s:
+            row = s.execute(
+                __import__("sqlalchemy").select(VoiceTrainingSample)
+                .where(VoiceTrainingSample.user_id == uid)
+            ).scalar_one()
+            assert row.source_enriched_job_id == "ej-abc-123"
+
+    def test_multiple_samples_per_user_seq_allowed(self, client, session_factory) -> None:
+        """Operator can iterate — every save is kept; no dedupe on
+        (user, sequence, tone)."""
+        uid = _add_user(session_factory, "ab@firm.com")
+        for i in range(3):
+            r = client.post(
+                "/api/users/me/voice-training-samples",
+                headers={"X-Prospero-User-Email": "ab@firm.com"},
+                json=self._valid_body(subject=f"v{i}"),
+            )
+            assert r.status_code == 200
+        with session_factory() as s:
+            rows = list(s.execute(
+                __import__("sqlalchemy").select(VoiceTrainingSample)
+                .where(VoiceTrainingSample.user_id == uid)
+            ).scalars())
+            assert len(rows) == 3
+
+
+# ── GET /api/users/me/voice-samples — union with training rows ─────
+
+
+class TestVoiceSamplesUnion:
+    """Training samples and real sends show up together in the
+    voice-samples endpoint, newest first, capped at the window size."""
+
+    def test_training_only_when_no_sends(self, client, session_factory) -> None:
+        """Pre-send-flow world: operator has authored 2 training
+        samples, no SentMessage rows. Both come back."""
+        uid = _add_user(session_factory, "ab@firm.com")
+        with session_factory() as s:
+            s.add(VoiceTrainingSample(
+                user_id=uid, sequence_index=1, tone="informal",
+                subject="first", body="first body",
+            ))
+            s.add(VoiceTrainingSample(
+                user_id=uid, sequence_index=1, tone="informal",
+                subject="second", body="second body",
+            ))
+            s.commit()
+        r = client.get(
+            "/api/users/me/voice-samples",
+            headers={"X-Prospero-User-Email": "ab@firm.com"},
+        )
+        assert r.status_code == 200
+        subjects = [s["subject"] for s in r.json()["1"]]
+        assert set(subjects) == {"first", "second"}
+
+    def test_real_sends_and_training_merged_newest_first(
+        self, client, session_factory
+    ) -> None:
+        """Real SentMessage + VoiceTrainingSample in the same sequence
+        merge by timestamp, newest first, capped at 5."""
+        _add_user(session_factory, "ab@firm.com")
+        # Seed 2 real sends (dated)
+        _seed_sent_message(
+            session_factory, sender_email="ab@firm.com",
+            sequence=2, subject="sent-old", body="old body",
+            sent_at=datetime.utcnow() - timedelta(days=5),
+        )
+        _seed_sent_message(
+            session_factory, sender_email="ab@firm.com",
+            sequence=2, subject="sent-new", body="new body",
+            sent_at=datetime.utcnow() - timedelta(hours=1),
+        )
+        # Plus a training sample created "now" (most recent)
+        with session_factory() as s:
+            u = s.execute(
+                __import__("sqlalchemy").select(User)
+                .where(User.email == "ab@firm.com")
+            ).scalar_one()
+            s.add(VoiceTrainingSample(
+                user_id=u.id, sequence_index=2, tone="direct",
+                subject="training-newest", body="training body",
+            ))
+            s.commit()
+
+        r = client.get(
+            "/api/users/me/voice-samples",
+            headers={"X-Prospero-User-Email": "ab@firm.com"},
+        )
+        assert r.status_code == 200
+        samples = r.json()["2"]
+        assert len(samples) == 3
+        # Newest first: training-newest, sent-new, sent-old
+        assert samples[0]["subject"] == "training-newest"
+        assert samples[1]["subject"] == "sent-new"
+        assert samples[2]["subject"] == "sent-old"
+
+    def test_window_caps_merged_pool_at_five(self, client, session_factory) -> None:
+        """If training + sends together exceed 5, only the newest 5
+        are returned."""
+        uid = _add_user(session_factory, "ab@firm.com")
+        # 3 real sends, 4 training samples = 7 total
+        for i in range(3):
+            _seed_sent_message(
+                session_factory, sender_email="ab@firm.com",
+                sequence=1, subject=f"sent-{i}", body=f"body-{i}",
+                sent_at=datetime.utcnow() - timedelta(hours=10 + i),
+            )
+        with session_factory() as s:
+            for i in range(4):
+                s.add(VoiceTrainingSample(
+                    user_id=uid, sequence_index=1, tone="informal",
+                    subject=f"training-{i}", body=f"body",
+                ))
+            s.commit()
+        r = client.get(
+            "/api/users/me/voice-samples",
+            headers={"X-Prospero-User-Email": "ab@firm.com"},
+        )
+        assert r.status_code == 200
+        assert len(r.json()["1"]) == 5
+
+    def test_training_samples_isolated_per_user(self, client, session_factory) -> None:
+        a_id = _add_user(session_factory, "a@firm.com", display_name="A")
+        _add_user(session_factory, "b@firm.com", display_name="B")
+        with session_factory() as s:
+            s.add(VoiceTrainingSample(
+                user_id=a_id, sequence_index=1, tone="informal",
+                subject="A's training", body="A's body",
+            ))
+            s.commit()
+        r = client.get(
+            "/api/users/me/voice-samples",
+            headers={"X-Prospero-User-Email": "b@firm.com"},
+        )
+        assert r.status_code == 200
         assert r.json()["1"] == []
