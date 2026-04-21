@@ -4,6 +4,7 @@ import type { Dispatch, SetStateAction } from "react";
 
 import type { ScoredJob, Source } from "../types";
 import SourceJobsDrawer from "./SourceJobsDrawer";
+import { FEATURES } from "../../lib/features";
 
 type Props = {
   src: Source;
@@ -151,14 +152,30 @@ export default function SourceCard({
               >
                 &#8635; Update
               </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); onRequestDelete(src.id); }}
-                className="text-[10px] font-medium px-1.5 py-0.5 rounded cursor-pointer"
-                style={{ background: "var(--bg-elevated)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
-                title="Remove this source"
-              >
-                &times;
-              </button>
+              {/* Remove button — gated by FEATURES.removeSourceButton so
+                  accidental deletes from demo/review sessions can't cascade
+                  through raw_jobs → enriched_jobs → classification_results.
+                  Flip the flag in web/src/app/lib/features.ts to re-enable. */}
+              {FEATURES.removeSourceButton ? (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRequestDelete(src.id); }}
+                  className="text-[10px] font-medium px-1.5 py-0.5 rounded cursor-pointer"
+                  style={{ background: "var(--bg-elevated)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+                  title="Remove this source"
+                >
+                  &times;
+                </button>
+              ) : (
+                <button
+                  disabled
+                  aria-disabled="true"
+                  className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+                  style={{ background: "transparent", color: "var(--text-muted)", border: "1px dashed var(--border-subtle)", opacity: 0.35, cursor: "not-allowed" }}
+                  title="Remove is disabled in this build. Flip FEATURES.removeSourceButton in web/src/app/lib/features.ts to re-enable."
+                >
+                  &times;
+                </button>
+              )}
             </div>
           )}
         </div>
