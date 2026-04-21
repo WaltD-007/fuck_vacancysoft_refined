@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
@@ -1106,3 +1107,251 @@ async def _enqueue_process_lead(
     asyncio.ensure_future(
         _scrape_and_generate_dossier(item_id, url, company, title)
     )
+
+
+# ── Sources page admin actions ──────────────────────────────────────
+#
+# Operator actions on the Sources page's expanded card "Jobs" drawer.
+# Each job row carries three buttons:
+#
+#   * Agy job         → POST /api/agency (in routes/campaigns.py) — the
+#                       existing handler already blocklists the employer
+#                       and cascades all their EnrichedJobs / dossiers /
+#                       campaigns / queue items / scores / classifications.
+#                       No new endpoint needed for this button.
+#   * Dead job        → DELETE /api/leads/{enriched_job_id} (below).
+#                       Hard-deletes the single job and marks the underlying
+#                       RawJob.is_deleted_at_source=True so the enrichment
+#                       pipeline's NOT EXISTS scan (pipelines/enrichment_
+#                       persistence.py) skips it on the next run and the
+#                       job doesn't come back on the next scrape.
+#   * Wrong location  → POST /api/leads/{enriched_job_id}/flag-location
+#                       (below). Non-destructive — inserts a row into
+#                       location_review_queue (migration 0010) for a
+#                       future /review UI to pick up.
+
+
+@router.delete("/api/leads/{enriched_job_id}")
+def delete_lead(enriched_job_id: str):
+    """Hard-delete a single enriched job and suppress re-enrichment.
+
+    Cascade delete order mirrors ``/api/agency`` (routes/campaigns.py)
+    for consistency: dossiers → campaign_outputs → review_queue →
+    scores → classifications → enriched_job. The RawJob is preserved
+    (it's the scraper's record of what was on the ATS) but its
+    ``is_deleted_at_source`` column is flipped to True so the
+    enrichment pass in ``pipelines/enrichment_persistence.py`` skips
+    it on the next run — otherwise the lead would re-appear on the
+    next scrape tick.
+
+    Deliberately does NOT auto-resolve any LocationReviewFlag rows
+    pointing at this enriched_job — those are audit rows, not live
+    state. See migration 0010's docstring for the rationale.
+
+    Returns a small dict with the rowcounts for each stage so the
+    frontend can optimistically confirm the job is gone.
+    """
+    from sqlalchemy import delete as sa_delete
+    from vacancysoft.db.models import (
+        CampaignOutput,
+        ClassificationResult,
+        IntelligenceDossier,
+        ReviewQueueItem,
+    )
+
+    with SessionLocal() as s:
+        ej = s.execute(
+            select(EnrichedJob).where(EnrichedJob.id == enriched_job_id)
+        ).scalar_one_or_none()
+        if ej is None:
+            raise HTTPException(status_code=404, detail="enriched job not found")
+
+        raw_job_id = ej.raw_job_id
+
+        dossier_ids = [
+            d.id for d in s.execute(
+                select(IntelligenceDossier).where(
+                    IntelligenceDossier.enriched_job_id == enriched_job_id
+                )
+            ).scalars()
+        ]
+        deleted_campaigns = 0
+        if dossier_ids:
+            deleted_campaigns = s.execute(
+                sa_delete(CampaignOutput).where(CampaignOutput.dossier_id.in_(dossier_ids))
+            ).rowcount or 0
+        deleted_dossiers = s.execute(
+            sa_delete(IntelligenceDossier).where(
+                IntelligenceDossier.enriched_job_id == enriched_job_id
+            )
+        ).rowcount or 0
+        deleted_queue = s.execute(
+            sa_delete(ReviewQueueItem).where(
+                ReviewQueueItem.enriched_job_id == enriched_job_id
+            )
+        ).rowcount or 0
+        deleted_scores = s.execute(
+            sa_delete(ScoreResult).where(
+                ScoreResult.enriched_job_id == enriched_job_id
+            )
+        ).rowcount or 0
+        deleted_classifications = s.execute(
+            sa_delete(ClassificationResult).where(
+                ClassificationResult.enriched_job_id == enriched_job_id
+            )
+        ).rowcount or 0
+        s.execute(
+            sa_delete(EnrichedJob).where(EnrichedJob.id == enriched_job_id)
+        )
+
+        # Mark the RawJob so enrichment doesn't re-create the EnrichedJob
+        # on the next pipeline pass. The column existed historically for
+        # "the ATS removed this posting" but nothing was reading it —
+        # this is the first live use (paired with the skip filter added
+        # to pipelines/enrichment_persistence.py).
+        raw = s.execute(
+            select(RawJob).where(RawJob.id == raw_job_id)
+        ).scalar_one_or_none()
+        if raw is not None:
+            raw.is_deleted_at_source = True
+
+        s.commit()
+
+    # Dead jobs vanish from every dashboard total and the per-card
+    # count, so both caches need to drop.
+    from vacancysoft.api.ledger import clear_ledger_caches
+    clear_ledger_caches()
+    clear_dashboard_cache()
+
+    return {
+        "message": "deleted",
+        "enriched_job_id": enriched_job_id,
+        "deleted_dossiers": deleted_dossiers,
+        "deleted_campaigns": deleted_campaigns,
+        "deleted_queue_items": deleted_queue,
+        "deleted_scores": deleted_scores,
+        "deleted_classifications": deleted_classifications,
+    }
+
+
+@router.post("/api/leads/{enriched_job_id}/flag-location")
+def flag_location(enriched_job_id: str, payload: dict | None = None):
+    """Flag an enriched job's location — auto-apply when possible.
+
+    Two-mode endpoint. If the operator's note parses cleanly through
+    ``normalise_location()`` (confidence ≥ 0.7, i.e. the operator
+    typed something like "Buffalo, NY, USA" or "New York, USA"), the
+    correction is **applied immediately**:
+      1. Update ``enriched_jobs.location_city`` / ``location_country``
+         on the target row AND any other enriched_jobs for the same
+         underlying URL (Google Jobs and a few aggregators can seed
+         multiple enriched rows for one advert; we want them all
+         corrected in one click).
+      2. Insert a ``location_review_queue`` row with ``resolved=True``
+         and ``resolved_at=NOW()`` so the review log still captures
+         the event for audit.
+      3. Drop the /sources and /dashboard caches so counts reflect
+         the new country.
+
+    If the note is empty or un-parseable (operator just wanted to
+    flag without correcting), we fall back to the original behaviour:
+    insert an unresolved row into ``location_review_queue`` for a
+    future /review UI to pick up.
+
+    Body shape:
+      { "note": "Buffalo, NY, USA", "flagged_by_user_id": "..." }
+
+    Response shape:
+      { "status": "applied" | "queued",
+        "flag_id": "...",
+        "enriched_job_id": "...",
+        "city": "Buffalo",         # only when status=applied
+        "country": "USA",          # only when status=applied
+        "affected_enriched_ids": [...]  # only when status=applied
+      }
+    """
+    from vacancysoft.db.models import LocationReviewFlag
+    from vacancysoft.enrichers.location_normaliser import normalise_location
+
+    payload = payload or {}
+    note = str(payload.get("note") or "").strip()
+    flagged_by = payload.get("flagged_by_user_id")
+    if flagged_by is not None:
+        flagged_by = str(flagged_by).strip() or None
+
+    # Try to parse the note. Confidence threshold 0.7 matches the
+    # scraper's own bar for treating a parse as trustworthy — below
+    # that and we'd risk writing noise into enriched_jobs.
+    parsed = normalise_location(note) if note else None
+    apply = bool(
+        parsed
+        and parsed.get("city")
+        and parsed.get("country")
+        and (parsed.get("confidence") or 0) >= 0.7
+    )
+
+    with SessionLocal() as s:
+        target = s.execute(
+            select(EnrichedJob).where(EnrichedJob.id == enriched_job_id)
+        ).scalar_one_or_none()
+        if target is None:
+            raise HTTPException(status_code=404, detail="enriched job not found")
+
+        affected_ids: list[str] = []
+        if apply:
+            # Resolve the URL so we can correct any sibling enriched_jobs
+            # created from separate raw_jobs that share the URL. Google
+            # Jobs and a handful of aggregators emit one RawJob per
+            # search-refresh — without this, the operator would have
+            # to fix the same advert two or three times.
+            url = s.execute(
+                select(RawJob.discovered_url)
+                .where(RawJob.id == target.raw_job_id)
+            ).scalar_one_or_none()
+
+            siblings: list[EnrichedJob] = [target]
+            if url:
+                siblings = list(s.execute(
+                    select(EnrichedJob)
+                    .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
+                    .where(RawJob.discovered_url == url)
+                ).scalars())
+
+            for ej in siblings:
+                ej.location_city = parsed["city"]
+                ej.location_country = parsed["country"]
+                affected_ids.append(ej.id)
+
+        flag = LocationReviewFlag(
+            enriched_job_id=enriched_job_id,
+            flagged_by_user_id=flagged_by,
+            note=note,
+            resolved=apply,
+            resolved_at=datetime.utcnow() if apply else None,
+        )
+        s.add(flag)
+        s.commit()
+        s.refresh(flag)
+        flag_id = flag.id
+
+    if apply:
+        # Country changes mean /sources card counts (country-scoped)
+        # and /dashboard daily totals need to rebuild. Mutation-time
+        # cache drop is cheap — next request re-materialises.
+        from vacancysoft.api.ledger import clear_ledger_caches
+        clear_ledger_caches()
+        clear_dashboard_cache()
+        return {
+            "status": "applied",
+            "flag_id": flag_id,
+            "enriched_job_id": enriched_job_id,
+            "city": parsed["city"],
+            "country": parsed["country"],
+            "affected_enriched_ids": affected_ids,
+        }
+
+    return {
+        "status": "queued",
+        "flag_id": flag_id,
+        "enriched_job_id": enriched_job_id,
+    }
