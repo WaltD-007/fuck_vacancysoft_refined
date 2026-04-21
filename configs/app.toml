@@ -205,3 +205,29 @@ use_deepseek_for_campaign = false
 dossier_model_deepseek = "deepseek-reasoner"
 campaign_model_deepseek = "deepseek-reasoner"
 campaign_fallback_model_deepseek = "deepseek-chat"
+
+# ─── Outreach email (Microsoft Graph) ──────────────────────────────
+# See docs/outreach_email.md for the full design + launch checklist.
+#
+# Master kill-switch lives at the env var OUTREACH_DRY_RUN (default
+# true). That takes precedence over anything here. The knobs below
+# control scheduling + cadence once live.
+[outreach]
+
+# Minutes between reply polls per conversation. Each send enqueues
+# its first poll at +10 minutes, then the poller re-enqueues itself
+# at this interval until either (a) a reply lands, or (b) we hit
+# poll_max_days since the first send in that conversation.
+poll_interval_minutes = 10
+
+# After this many days since the earliest send in a conversation,
+# stop polling for replies. Past this window the remaining sequence
+# (if any) has already completed and we're just spending Graph calls
+# on long-dead threads. 90 days covers the full 5-sequence x 28d
+# cadence plus a generous late-reply buffer.
+poll_max_days = 90
+
+# Default day-offsets for the 5-sequence schedule. First value must
+# be 0 (send immediately); remaining values are days after the first
+# send. UI overrides per-campaign when PR D lands.
+default_cadence_days = [0, 7, 14, 21, 28]
