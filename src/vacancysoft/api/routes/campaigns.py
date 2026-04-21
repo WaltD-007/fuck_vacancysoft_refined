@@ -19,7 +19,7 @@ Extracted verbatim from `api/server.py` during the Week 4 split.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
@@ -250,9 +250,29 @@ def get_lead_dossier(item_id: str):
 
 
 @router.post("/api/leads/{item_id}/campaign")
-async def generate_lead_campaign(item_id: str):
-    """Generate campaign outreach emails from an existing dossier."""
+async def generate_lead_campaign(
+    item_id: str,
+    request: Request,
+    regenerate: bool = False,
+):
+    """Generate (or return cached) campaign outreach emails for a lead.
+
+    Two modes:
+      * default (``regenerate=False``): returns the cached campaign if
+        one exists. Never calls the LLM. Runs operator-agnostic — no
+        user identity resolution. Matches the worker's pre-gen
+        behaviour for byte-identical output.
+      * ``regenerate=True``: bypasses the cache, resolves the current
+        operator, loads their authored tone prompts + last-5-sent
+        voice samples, and passes them to the resolver so the LLM
+        renders a voice-aware campaign. Falls back to operator-
+        agnostic generation if no user can be resolved (single-user-
+        mode empty, missing header, 401/404 on the resolver) — still
+        produces output, just without the voice layer.
+    """
+    from vacancysoft.api.auth import get_current_user
     from vacancysoft.db.models import CampaignOutput, IntelligenceDossier, ReviewQueueItem
+    from vacancysoft.intelligence.voice import build_user_context
 
     with SessionLocal() as s:
         item = s.execute(select(ReviewQueueItem).where(ReviewQueueItem.id == item_id)).scalar_one_or_none()
@@ -296,28 +316,47 @@ async def generate_lead_campaign(item_id: str):
         if not dossier:
             raise HTTPException(status_code=400, detail="Generate a dossier first before creating a campaign")
 
-        # Check for existing campaign
-        existing = s.execute(
-            select(CampaignOutput)
-            .where(CampaignOutput.dossier_id == dossier.id)
-            .order_by(CampaignOutput.created_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
+        # Cache-hit path — skip LLM, no user lookup, behaviour
+        # identical to pre-voice-layer.
+        if not regenerate:
+            existing = s.execute(
+                select(CampaignOutput)
+                .where(CampaignOutput.dossier_id == dossier.id)
+                .order_by(CampaignOutput.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
 
-        if existing:
-            return {
-                "id": existing.id,
-                "emails": existing.outreach_emails or [],
-                "model": existing.model_used,
-                "tokens": existing.tokens_used,
-                "tokens_prompt": existing.tokens_prompt,
-                "tokens_completion": existing.tokens_completion,
-                "cost_usd": existing.cost_usd,
-                "latency_ms": existing.latency_ms,
-            }
+            if existing:
+                return {
+                    "id": existing.id,
+                    "emails": existing.outreach_emails or [],
+                    "model": existing.model_used,
+                    "tokens": existing.tokens_used,
+                    "tokens_prompt": existing.tokens_prompt,
+                    "tokens_completion": existing.tokens_completion,
+                    "cost_usd": existing.cost_usd,
+                    "latency_ms": existing.latency_ms,
+                }
+
+        # Regenerate path OR no cached campaign yet — try to resolve
+        # the operator's identity. Missing/ambiguous identity is NOT
+        # a hard error here: we degrade gracefully to operator-
+        # agnostic generation so a missing user header never blocks
+        # the /campaigns page from rendering anything.
+        user_context = None
+        try:
+            user = get_current_user(request, s)
+            user_context = build_user_context(s, user)
+        except HTTPException:
+            user_context = None
 
         from vacancysoft.intelligence.campaign import generate_campaign
-        campaign = await generate_campaign(dossier.id, s)
+        campaign = await generate_campaign(
+            dossier.id,
+            s,
+            force=regenerate,
+            user_context=user_context,
+        )
         return {
             "id": campaign.id,
             "emails": campaign.outreach_emails or [],

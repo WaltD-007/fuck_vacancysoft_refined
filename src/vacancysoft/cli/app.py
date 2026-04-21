@@ -59,6 +59,8 @@ app.add_typer(export_app, name="export")
 app.add_typer(db_app, name="db")
 app.add_typer(agency_app, name="agency")
 app.add_typer(user_app, name="user")
+voice_app = typer.Typer(help="Campaign voice prompts (per-user, per-tone)")
+app.add_typer(voice_app, name="voice")
 
 
 @app.callback()
@@ -2309,6 +2311,153 @@ def user_show(email: str = typer.Argument(..., help="Look up by email")) -> None
         typer.echo(f"last_seen_at:    {u.last_seen_at or '(never)'}")
         typer.echo("preferences:")
         typer.echo(_json.dumps(u.preferences or {}, indent=2))
+
+
+# ── voice sub-app commands ─────────────────────────────────────────
+#
+# Headless authoring of the per-user, per-tone campaign voice prompts
+# added by migration 0011. Useful for bootstrapping before the
+# Settings → Voice UI (PR B) lands, and for seeding dev / demo envs.
+#
+# See `.claude/plans/linear-meandering-rossum.md` for the full design.
+
+
+def _voice_resolve_user(email: str | None):
+    """Find the target user by email, or fall back to the single
+    active user if there's exactly one. Returns the User row or
+    errors out via typer.Exit.
+    """
+    from sqlalchemy import select
+    from vacancysoft.db.models import User
+
+    with SessionLocal() as s:
+        if email:
+            u = s.execute(
+                select(User).where(User.email == email.strip().lower())
+            ).scalar_one_or_none()
+            if u is None:
+                typer.echo(f"not found: {email}", err=True)
+                raise typer.Exit(1)
+            return u
+        active = s.execute(
+            select(User).where(User.active.is_(True))
+        ).scalars().all()
+        if len(active) == 1:
+            return active[0]
+        if not active:
+            typer.echo(
+                "no active users; bootstrap with `prospero user add`",
+                err=True,
+            )
+            raise typer.Exit(1)
+        typer.echo(
+            "ambiguous user; pass --email X explicitly",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+
+_VOICE_ALLOWED_TONES = (
+    "formal", "informal", "consultative", "direct", "candidate_spec", "technical",
+)
+
+
+@voice_app.command("list")
+def voice_list(email: str = typer.Option(None, "--email", help="Target user; defaults to single-user mode")) -> None:
+    """Show all six tone prompts for a user. Empty ones read as (default)."""
+    from vacancysoft.intelligence.voice import load_tone_prompts
+
+    target = _voice_resolve_user(email)
+    with SessionLocal() as s:
+        prompts = load_tone_prompts(s, target)
+    typer.echo(f"Voice prompts for {target.email} ({target.display_name}):")
+    for tone in _VOICE_ALLOWED_TONES:
+        text = (prompts.get(tone) or "").strip()
+        label = f"  {tone:<14}"
+        if not text:
+            typer.echo(f"{label} (default — no override)")
+        else:
+            # Flatten newlines in the summary — voice prompts are
+            # often one-liners but can be longer; keep the list
+            # readable. Show first 200 chars then ellipsis.
+            flat = " ".join(text.split())
+            if len(flat) > 200:
+                flat = flat[:200] + "…"
+            typer.echo(f"{label} {flat}")
+
+
+@voice_app.command("set")
+def voice_set(
+    tone: str = typer.Option(..., "--tone", help=f"One of {', '.join(_VOICE_ALLOWED_TONES)}"),
+    text: str = typer.Option(..., "--text", help="Voice guidance for this tone"),
+    email: str = typer.Option(None, "--email", help="Target user; defaults to single-user mode"),
+) -> None:
+    """Upsert one tone's prompt for a user."""
+    from uuid import uuid4
+    from sqlalchemy import select
+    from vacancysoft.db.models import UserCampaignPrompt
+
+    if tone not in _VOICE_ALLOWED_TONES:
+        typer.echo(
+            f"unknown tone: {tone}; allowed: {', '.join(_VOICE_ALLOWED_TONES)}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    target = _voice_resolve_user(email)
+    with SessionLocal() as s:
+        existing = s.execute(
+            select(UserCampaignPrompt)
+            .where(UserCampaignPrompt.user_id == target.id)
+            .where(UserCampaignPrompt.tone == tone)
+        ).scalar_one_or_none()
+        if existing is None:
+            s.add(UserCampaignPrompt(
+                id=str(uuid4()),
+                user_id=target.id,
+                tone=tone,
+                instructions_text=text,
+            ))
+        else:
+            existing.instructions_text = text
+        s.commit()
+    typer.echo(f"set {tone} prompt for {target.email}")
+
+
+@voice_app.command("clear")
+def voice_clear(
+    tone: str = typer.Option(..., "--tone", help=f"One of {', '.join(_VOICE_ALLOWED_TONES)}"),
+    email: str = typer.Option(None, "--email", help="Target user; defaults to single-user mode"),
+) -> None:
+    """Clear one tone's prompt (keeps the row, empties the text).
+
+    After clear, the resolver falls back to the base template's
+    default guidance for that tone — behaviour matches a user who
+    has never authored a prompt for that tone.
+    """
+    from sqlalchemy import select
+    from vacancysoft.db.models import UserCampaignPrompt
+
+    if tone not in _VOICE_ALLOWED_TONES:
+        typer.echo(
+            f"unknown tone: {tone}; allowed: {', '.join(_VOICE_ALLOWED_TONES)}",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    target = _voice_resolve_user(email)
+    with SessionLocal() as s:
+        existing = s.execute(
+            select(UserCampaignPrompt)
+            .where(UserCampaignPrompt.user_id == target.id)
+            .where(UserCampaignPrompt.tone == tone)
+        ).scalar_one_or_none()
+        if existing is None:
+            typer.echo(f"{tone} already (default) for {target.email}")
+            return
+        existing.instructions_text = ""
+        s.commit()
+    typer.echo(f"cleared {tone} prompt for {target.email}")
 
 
 if __name__ == "__main__":

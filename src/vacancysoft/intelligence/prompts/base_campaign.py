@@ -48,6 +48,15 @@ Placeholder only used by v2 (silently ignored by v1's ``.format()``):
 
 Placeholder only used by v1 (silently ignored by v2's ``.format()``):
   {outreach_angle}              — domain-specific recruiter positioning
+
+Placeholder only used by v2 (silently ignored by v1's ``.format()``):
+  {voice_layer}                 — per-user tone overrides + voice
+                                  samples. Empty string when
+                                  user_context is None (worker
+                                  pre-gen) — renders byte-identical
+                                  to pre-voice-layer output. Filled
+                                  by the resolver when an operator
+                                  regenerates from the Builder.
 """
 
 CAMPAIGN_SYSTEM = "You are a specialist agency recruiter writing outreach emails. Return valid JSON only."
@@ -192,7 +201,7 @@ The sequence numbers and "early-stage / mid-stage / late-stage" labels above are
 - Prefer observational words ("determine", "tell", "gauge", "see", "spot") over evaluator words ("test", "assess", "judge", "measure", "evaluate") when describing what hiring teams are trying to do with CVs, shortlists or candidates. The email is a peer-to-peer note to the hiring manager, not an HR critique. "Harder to tell from inbound CVs" is correct; "harder to test from inbound CVs" is wrong.
 - When an offer or sentence references candidates, describe what they CAN DO in practical, concrete terms. "Someone who can run a Pillar 2 model review" is concrete. "Candidate patterns we're seeing when firms want X" or "someone who fits this shape" is meta-observation dressed up as a candidate reference — rewrite. Applies to every tone and every sequence.
 - Do not reference the hiring process stage or timeline in the email prose. Do NOT write "a recurring mid-stage tension", "early-stage pain", "late-stage", "at this point in the process", "by now you're probably seeing", "now that the role has been live a while", or any phrase that positions the email in time relative to the hiring cycle. The email must read as a standalone observation that could sit in any conversation. The stage-appropriate pain the email speaks to (thin inbound, spec scope issues, counter-offers, process fatigue, etc.) is fine; naming the stage itself is not. Applies to every tone and every sequence.
-
+{voice_layer}
 # Output schema
 
 Return this exact JSON shape. Replace "..." with real content. Every sequence MUST have all six tone keys populated. No tone may be null or empty-string for subject/body:

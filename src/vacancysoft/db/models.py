@@ -455,3 +455,41 @@ class LocationReviewFlag(Base):
     resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+# ── Campaign voice layer ────────────────────────────────────────────
+# Per-user, per-tone free-form voice guidance that the campaign prompt
+# resolver injects into the LLM prompt when an operator regenerates a
+# campaign. Six rows per user max (one per tone). Cold start (no rows)
+# means the base template's default tone->source voice guidance is
+# used unchanged — output is byte-identical to pre-voice-layer today.
+#
+# Voice SAMPLES (the last five actually-sent messages per sequence)
+# are NOT stored here — they're queried live from ``sent_messages`` by
+# the resolver. No samples table. See .claude/plans/linear-meandering-
+# rossum.md for the full design.
+
+
+class UserCampaignPrompt(Base):
+    __tablename__ = "user_campaign_prompts"
+    __table_args__ = (
+        # Caps each user at six rows (one per tone) and makes upserts
+        # in the PUT endpoint cheap.
+        UniqueConstraint("user_id", "tone", name="uq_user_campaign_prompts_user_tone"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), index=True
+    )
+    # One of the six campaign tones: formal / informal / consultative
+    # / direct / candidate_spec / technical. No check constraint —
+    # the API layer validates against the allowed set so new tones
+    # can be introduced without a schema change.
+    tone: Mapped[str] = mapped_column(String(32))
+    # Free-form voice guidance. Empty string means "fall back to the
+    # template's default guidance for this tone" — the resolver
+    # treats empty and missing as identical.
+    instructions_text: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

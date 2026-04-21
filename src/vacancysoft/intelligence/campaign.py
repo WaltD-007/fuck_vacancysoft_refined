@@ -39,6 +39,7 @@ async def generate_campaign(
     dossier_id: str,
     session: Session,
     force: bool = False,
+    user_context: dict[str, Any] | None = None,
 ) -> CampaignOutput:
     """Generate (or return cached) campaign emails for a dossier.
 
@@ -46,6 +47,19 @@ async def generate_campaign(
     and returns it without calling the LLM if one exists with a
     populated outreach_emails payload. Pass force=True to bypass
     the cache.
+
+    ``user_context`` is the per-operator voice layer (authored tone
+    prompts + last-5-sent voice samples). When None (the default, and
+    the path the worker's pre-generation uses) the campaign prompt
+    renders exactly as it did pre-voice-layer and the output is
+    operator-agnostic. When populated (set by the FastAPI route
+    POST /api/leads/{item_id}/campaign after resolving the current
+    user), the resolver injects a `# Voice layer for <name>` section
+    between the global rules and the output schema.
+
+    Cached campaigns are returned as-is regardless of user_context —
+    callers wanting a voice-aware regeneration must pass
+    ``force=True``.
     """
     if not force:
         existing = session.execute(
@@ -107,6 +121,7 @@ async def generate_campaign(
         job_data,
         dossier_sections,
         template_version=campaign_template_version,
+        user_context=user_context,
     )
 
     # Provider toggle: set use_deepseek_for_campaign=true in configs/app.toml
