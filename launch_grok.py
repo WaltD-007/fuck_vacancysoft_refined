@@ -285,6 +285,27 @@ def main() -> int:
         return 1
     print("  ✓ Postgres and Redis reachable")
 
+    # ── Alembic migrations ──────────────────────────────────────────
+    # Idempotent — if the DB is already at head, this is a fast no-op.
+    # Runs before FastAPI boots so the API never hits a missing table.
+    # Skip only if a prior FastAPI is already listening (the user is
+    # re-running the script against a live stack — the migration has
+    # presumably already been applied in whatever session started it).
+    if port_in_use(8000):
+        print("  — skipping alembic upgrade (FastAPI already live on :8000)")
+    else:
+        print("── Applying Alembic migrations (alembic upgrade head) ──")
+        alembic_cmd = find_launcher("alembic", "alembic")
+        rc = subprocess.call(alembic_cmd + ["upgrade", "head"], cwd=str(ROOT))
+        if rc != 0:
+            print(
+                "✗ `alembic upgrade head` failed. Fix the migration or the DB"
+                " connection before retrying.",
+                file=sys.stderr,
+            )
+            return 1
+        print("  ✓ DB schema at head")
+
     # ── FastAPI ─────────────────────────────────────────────────────
     if port_in_use(8000):
         print("  ✓ FastAPI already listening on :8000 — leaving it alone")
