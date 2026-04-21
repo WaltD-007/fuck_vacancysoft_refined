@@ -186,3 +186,40 @@ def dossier_to_dict(d) -> dict:
         "search_booleans": d.search_booleans or {},
         "hiring_managers": d.hiring_managers or [],
     }
+
+
+# ── Users (see alembic/versions/0009_add_users_table.py) ─────────────
+
+
+class UserOut(BaseModel):
+    """User as returned by GET /api/users/me and GET /api/users."""
+
+    id: str
+    email: str
+    display_name: str
+    role: str
+    active: bool
+    entra_object_id: str | None = None
+    preferences: dict
+    # last_seen_at + created_at / updated_at deliberately omitted from
+    # the client payload — not useful for the UI and adding them risks
+    # confusing the optimistic SWR cache in useCurrentUser.
+
+    class Config:
+        from_attributes = True
+
+
+class UserCreate(BaseModel):
+    """POST /api/users body — admin bootstrap only."""
+
+    email: str
+    display_name: str
+    entra_object_id: str | None = None
+    role: str = "operator"
+
+
+# PATCH /api/users/me/preferences body is a raw dict — FastAPI binds
+# ``patch: dict`` directly on the handler. No Pydantic schema needed
+# because the shape is frontend-owned: every top-level key is a
+# page-section identifier (dashboard_feed, leads_page, …) with an
+# opaque JSON object. Validation lives in the handler.
