@@ -52,17 +52,45 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$AUTH" ]]; then
-    # Random 16-char passphrase — alphanumeric to avoid shell-quoting issues.
-    AUTH="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)"
+    # Random 16-char passphrase. `openssl rand -hex` produces 16 safe
+    # characters with no pipe, avoiding the classic SIGPIPE gotcha that
+    # `tr -dc '…' < /dev/urandom | head -c 16` hits under
+    # `set -euo pipefail` (head closes the pipe after 16 bytes, tr gets
+    # SIGPIPE, pipefail + set -e abort the script silently).
+    # openssl is shipped with macOS by default — no extra dep.
+    AUTH="$(openssl rand -hex 8)"
 fi
 
 # ── Prereq checks ─────────────────────────────────────────────────────
 need() { command -v "$1" >/dev/null || { echo "✗ missing: $1" >&2; exit 1; }; }
-need uvicorn
-need arq
 need npm
 need ngrok
 need curl
+
+# uvicorn / arq: prefer the binary on PATH; fall back to the python module
+# form (``python3 -m uvicorn ...``). This handles the case where the user
+# installed Prospero's deps into a venv but their zsh-level auto-activation
+# isn't inherited by the bash subshell this script runs in.
+UVICORN_CMD=(uvicorn)
+ARQ_CMD=(arq)
+if ! command -v uvicorn >/dev/null; then
+    if python3 -c "import uvicorn" 2>/dev/null; then
+        UVICORN_CMD=(python3 -m uvicorn)
+    else
+        echo "✗ missing: uvicorn (not on PATH, and 'python3 -m uvicorn' doesn't work either)" >&2
+        echo "  try: pip install -e '.[dev]' in the project root" >&2
+        exit 1
+    fi
+fi
+if ! command -v arq >/dev/null; then
+    if python3 -c "import arq" 2>/dev/null; then
+        ARQ_CMD=(python3 -m arq)
+    else
+        echo "✗ missing: arq (not on PATH, and 'python3 -m arq' doesn't work either)" >&2
+        echo "  try: pip install -e '.[dev]' in the project root" >&2
+        exit 1
+    fi
+fi
 
 # ── Service helpers ───────────────────────────────────────────────────
 PIDS=()
@@ -117,7 +145,7 @@ if is_port_listening 8000; then
     echo "  ✓ FastAPI already listening on :8000 — leaving it alone"
 else
     start_bg "fastapi" "$REPO_ROOT" \
-        uvicorn vacancysoft.api.main:app --host 127.0.0.1 --port 8000 --reload
+        "${UVICORN_CMD[@]}" vacancysoft.api.main:app --host 127.0.0.1 --port 8000 --reload
 fi
 
 if [[ "$START_WORKER" == "1" ]]; then
@@ -127,7 +155,7 @@ if [[ "$START_WORKER" == "1" ]]; then
         echo "  ✓ ARQ worker already running — leaving it alone"
     else
         start_bg "worker" "$REPO_ROOT" \
-            arq vacancysoft.worker.settings.WorkerSettings
+            "${ARQ_CMD[@]}" vacancysoft.worker.settings.WorkerSettings
     fi
 else
     echo "  — skipping ARQ worker (--no-worker)"
