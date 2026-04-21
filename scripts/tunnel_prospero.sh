@@ -98,17 +98,36 @@ LABELS=()
 
 is_port_listening() { lsof -iTCP:"$1" -sTCP:LISTEN -n -P 2>/dev/null | grep -q LISTEN; }
 
+LAST_BG_PID=""   # last PID spawned by start_bg; used by assert_alive
+
 start_bg() {
-    local label="$1"; shift
+    # Usage: start_bg <label> <workdir> <cmd> [args...]
+    local label="$1"
+    local workdir="$2"
+    shift 2
     local logfile="$LOG_DIR/$label.log"
     (
-        cd "$2"; shift 2
+        cd "$workdir"
         exec "$@" >"$logfile" 2>&1
     ) &
     local pid=$!
     PIDS+=("$pid")
     LABELS+=("$label")
+    LAST_BG_PID="$pid"
     printf "  ▶ started %-10s pid=%-6d log=%s\n" "$label" "$pid" "$logfile"
+}
+
+# Sanity-check a recently-started background service didn't die immediately.
+# Call with (pid, label, logfile) after a brief settle; errors are surfaced
+# with the last lines of the log so the operator sees the real cause.
+assert_alive() {
+    local pid="$1"; local label="$2"; local logfile="$3"
+    sleep 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+        echo "✗ $label died on startup (pid $pid). Last 20 lines of log:" >&2
+        tail -n 20 "$logfile" 2>/dev/null >&2 || true
+        exit 1
+    fi
 }
 
 cleanup() {
@@ -146,6 +165,7 @@ if is_port_listening 8000; then
 else
     start_bg "fastapi" "$REPO_ROOT" \
         "${UVICORN_CMD[@]}" vacancysoft.api.main:app --host 127.0.0.1 --port 8000 --reload
+    assert_alive "$LAST_BG_PID" "fastapi" "$LOG_DIR/fastapi.log"
 fi
 
 if [[ "$START_WORKER" == "1" ]]; then
@@ -156,6 +176,7 @@ if [[ "$START_WORKER" == "1" ]]; then
     else
         start_bg "worker" "$REPO_ROOT" \
             "${ARQ_CMD[@]}" vacancysoft.worker.settings.WorkerSettings
+        assert_alive "$LAST_BG_PID" "worker" "$LOG_DIR/worker.log"
     fi
 else
     echo "  — skipping ARQ worker (--no-worker)"
@@ -166,6 +187,7 @@ if is_port_listening 3000; then
 else
     start_bg "nextjs" "$REPO_ROOT/web" \
         npm run dev
+    assert_alive "$LAST_BG_PID" "nextjs" "$LOG_DIR/nextjs.log"
 fi
 
 # ── Wait for :3000 to answer before starting ngrok ──
