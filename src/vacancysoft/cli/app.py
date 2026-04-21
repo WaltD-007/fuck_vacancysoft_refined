@@ -53,10 +53,12 @@ pipeline_app = typer.Typer(help="Pipeline commands")
 export_app = typer.Typer(help="Export helpers")
 db_app = typer.Typer(help="Database helpers")
 agency_app = typer.Typer(help="Agency-exclusion commands (add/remove recruiter names)")
+user_app = typer.Typer(help="User management (operator profiles + bootstrap)")
 app.add_typer(pipeline_app, name="pipeline")
 app.add_typer(export_app, name="export")
 app.add_typer(db_app, name="db")
 app.add_typer(agency_app, name="agency")
+app.add_typer(user_app, name="user")
 
 
 @app.callback()
@@ -2221,6 +2223,92 @@ def intel_cost_report(
     with SessionLocal() as s:
         report = build_report(s, since=cutoff)
     typer.echo(format_report(report))
+
+
+# ── prospero user ... ────────────────────────────────────────────────
+# Bootstrap + inspect operator profiles. Before Entra auth lands, this
+# is the only way to create a user row (no self-sign-up endpoint). Run
+# once on a fresh DB after `alembic upgrade head`, otherwise the
+# Dashboard's /api/users/me call 401s.
+
+
+@user_app.command("add")
+def user_add(
+    email: str = typer.Option(..., "--email", help="User's work email (UPN)"),
+    display_name: str = typer.Option(..., "--display-name", help="Name to show in UI"),
+    entra_object_id: str | None = typer.Option(
+        None, "--entra-object-id",
+        help="Azure AD / Entra Object ID. Optional pre-Entra.",
+    ),
+    role: str = typer.Option(
+        "operator", "--role",
+        help="Role string (operator / admin / viewer). Free-form for now.",
+    ),
+) -> None:
+    """Create a user row. Idempotent-ish: fails with exit 1 on duplicate email."""
+    from sqlalchemy import select
+    from vacancysoft.db.models import User
+
+    email_norm = email.strip().lower()
+    with SessionLocal() as s:
+        existing = s.execute(
+            select(User).where(User.email == email_norm)
+        ).scalar_one_or_none()
+        if existing:
+            typer.echo(f"user already exists: {email_norm}", err=True)
+            raise typer.Exit(1)
+        u = User(
+            email=email_norm,
+            display_name=display_name.strip(),
+            entra_object_id=entra_object_id.strip() if entra_object_id else None,
+            role=role.strip() or "operator",
+        )
+        s.add(u)
+        s.commit()
+        typer.echo(f"created user id={u.id} email={u.email}")
+
+
+@user_app.command("list")
+def user_list() -> None:
+    """List all users: id | email | display_name | role | active."""
+    from sqlalchemy import select
+    from vacancysoft.db.models import User
+
+    with SessionLocal() as s:
+        rows = s.execute(select(User).order_by(User.created_at)).scalars().all()
+        if not rows:
+            typer.echo("(no users; create one with `prospero user add`)")
+            return
+        for u in rows:
+            flag = "active" if u.active else "INACTIVE"
+            typer.echo(f"{u.id}  {u.email:<40s}  {u.display_name:<30s}  {u.role:<10s}  {flag}")
+
+
+@user_app.command("show")
+def user_show(email: str = typer.Argument(..., help="Look up by email")) -> None:
+    """Show one user's full detail including preferences JSON."""
+    import json as _json
+    from sqlalchemy import select
+    from vacancysoft.db.models import User
+
+    with SessionLocal() as s:
+        u = s.execute(
+            select(User).where(User.email == email.strip().lower())
+        ).scalar_one_or_none()
+        if u is None:
+            typer.echo(f"not found: {email}", err=True)
+            raise typer.Exit(1)
+        typer.echo(f"id:              {u.id}")
+        typer.echo(f"email:           {u.email}")
+        typer.echo(f"display_name:    {u.display_name}")
+        typer.echo(f"role:            {u.role}")
+        typer.echo(f"active:          {u.active}")
+        typer.echo(f"entra_object_id: {u.entra_object_id or '(unset)'}")
+        typer.echo(f"created_at:      {u.created_at}")
+        typer.echo(f"updated_at:      {u.updated_at}")
+        typer.echo(f"last_seen_at:    {u.last_seen_at or '(never)'}")
+        typer.echo("preferences:")
+        typer.echo(_json.dumps(u.preferences or {}, indent=2))
 
 
 if __name__ == "__main__":

@@ -381,3 +381,46 @@ class ReceivedReply(Base):
         ForeignKey("sent_messages.id"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+# ── Users (operator identity + per-user settings) ────────────────────
+# First step of the multi-user story. See docs/outreach_email.md §2.6
+# for where this plugs into the eventual Entra Application Access
+# Policy. For now:
+#   - email is the primary lookup key (UPNs in the 3-5-person team)
+#   - entra_object_id is nullable and backfilled when Entra auth lands
+#   - preferences is a free-shape JSON bag keyed by page-section
+#     (e.g. dashboard_feed) so adding per-page settings doesn't need
+#     new columns or migrations.
+#
+# No FK from other tables to User yet — the users story is intentionally
+# non-relational on day one so it can be rolled back without cascade
+# concerns (see the plan at .claude/plans/linear-meandering-rossum.md).
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    # Azure AD / Entra Object ID. Nullable for now because local/dev
+    # users don't have one. When Entra auth lands, backfill via
+    # `prospero user link-entra <email> <object-id>` (future CLI).
+    entra_object_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
+    )
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(32), default="operator")
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    # Per-user settings bag. Top-level keys are page-section identifiers
+    # (e.g. "dashboard_feed") and values are opaque to the backend — the
+    # frontend owns the shape. PATCH /api/users/me/preferences does a
+    # shallow top-level merge: new top-level keys replace whole
+    # sub-dicts, existing top-level keys are preserved.
+    preferences: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    # Debounced to one write per user per minute by the identity
+    # resolver. Nullable because we only write it after the user has
+    # actually made a request.
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
