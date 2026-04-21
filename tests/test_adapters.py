@@ -123,3 +123,71 @@ class TestLeverSlugFallback:
         adapter = LeverAdapter()
         with pytest.raises(ValueError, match="slug"):
             await adapter.discover(source_config={})
+
+
+class TestTeamtailorUrlDerivation:
+    """Teamtailor RSS URL derivation from the various board-URL shapes that
+    land in the sources.config_blob column.
+
+    Fix landed 2026-04-21. Before the fix, URLs with query strings or
+    fragments were producing garbage RSS URLs like
+    ``...teamtailor.com/jobs?split_view=true&query=/jobs.rss`` which the
+    server responded to with HTML error pages that failed XML parse.
+    GHIB (id=420) and IMPOWER Consulting (id=975) were both broken
+    this way — the two remaining teamtailor failures after the
+    148-cross-dupe cleanup were fixed by this URL-normalisation change.
+    """
+
+    def _derive(self, url: str) -> str:
+        from vacancysoft.adapters.teamtailor import _derive_rss_url
+        return _derive_rss_url(url)
+
+    def test_canonical_jobs_path(self) -> None:
+        """Already-clean URLs are unchanged."""
+        assert self._derive("https://bacb.teamtailor.com/jobs") == \
+               "https://bacb.teamtailor.com/jobs.rss"
+
+    def test_root_path_no_jobs_suffix(self) -> None:
+        """Bare board URL (no /jobs) just gets /jobs.rss appended."""
+        assert self._derive("https://bacb.teamtailor.com") == \
+               "https://bacb.teamtailor.com/jobs.rss"
+
+    def test_trailing_slash_stripped(self) -> None:
+        assert self._derive("https://bacb.teamtailor.com/jobs/") == \
+               "https://bacb.teamtailor.com/jobs.rss"
+
+    def test_query_string_stripped(self) -> None:
+        """Regression: GHIB (id=420). URL bar copy with split_view params
+        must not leak into the RSS URL."""
+        got = self._derive(
+            "https://ghanainternationalbank-1644937212.teamtailor.com/jobs"
+            "?split_view=true&query="
+        )
+        assert got == \
+            "https://ghanainternationalbank-1644937212.teamtailor.com/jobs.rss"
+
+    def test_fragment_stripped(self) -> None:
+        """Regression: IMPOWER Consulting (id=975). URL with JS-router
+        fragment must not leak into the RSS URL."""
+        got = self._derive("https://impowerconsulting.teamtailor.com/#jobs")
+        assert got == "https://impowerconsulting.teamtailor.com/jobs.rss"
+
+    def test_combined_query_and_fragment(self) -> None:
+        """Defensive: neither live source has both, but nothing in the
+        URL structure forbids it."""
+        got = self._derive("https://x.teamtailor.com/jobs?foo=bar#anchor")
+        assert got == "https://x.teamtailor.com/jobs.rss"
+
+    def test_whitespace_trimmed(self) -> None:
+        assert self._derive("  https://bacb.teamtailor.com/jobs  ") == \
+               "https://bacb.teamtailor.com/jobs.rss"
+
+    def test_not_teamtailor_host_still_rewrites_gracefully(self) -> None:
+        """The helper doesn't validate host — sources mis-tagged as
+        teamtailor are deactivated in the DB (launch plan C21) so the
+        adapter will never see them. But if one slipped through, this
+        helper should still produce a syntactically valid URL rather
+        than crashing; the HTTP call will fail cleanly downstream.
+        """
+        got = self._derive("https://example.com/careers?x=y")
+        assert got == "https://example.com/careers/jobs.rss"
