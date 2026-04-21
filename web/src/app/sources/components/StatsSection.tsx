@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
 import { AGGREGATOR_LABELS, type Source, type Stats, type SourceView } from "../types";
@@ -93,6 +94,12 @@ export default function StatsSection({
   getSubs,
   categoryColors,
 }: Props) {
+  // Adapter + aggregator chips are collapsed by default — they're
+  // directory-audit surfaces, noisy in normal use. Toggle reveals
+  // both rows together; state lives in this component because the
+  // toggle only controls its own rendering and nothing upstream.
+  const [showAdapterChips, setShowAdapterChips] = useState(false);
+
   if (!stats) return null;
   return (
     <div className="mb-5">
@@ -202,9 +209,24 @@ export default function StatsSection({
           </div>
         );
       })()}
-      {/* Adapter filter chips */}
-      {sortedAdapters.length > 1 && (
-        <div className="flex flex-wrap gap-1.5 mt-3">
+      {/* Adapter + aggregator filter chips — collapsed by default to
+          reduce visual noise. The chips are still useful when auditing
+          the directory but most of the time the operator is filtering
+          by category / sub-specialism / country, not by adapter or
+          aggregator. */}
+      {(sortedAdapters.length > 1 || sortedAggregators.length > 0) && (
+        <div className="mt-3">
+          <button
+            onClick={() => setShowAdapterChips((v) => !v)}
+            className="text-[10px] uppercase tracking-wider cursor-pointer hover:underline"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {showAdapterChips ? "▾ Hide" : "▸ Show"} adapter &amp; aggregator filters
+          </button>
+        </div>
+      )}
+      {showAdapterChips && sortedAdapters.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
           {sortedAdapters.map(([adapter, count]) => (
             <button
               key={adapter}
@@ -222,7 +244,7 @@ export default function StatsSection({
         </div>
       )}
       {/* Aggregator filter chips (audit which cards were contributed by each aggregator) */}
-      {sortedAggregators.length > 0 && (
+      {showAdapterChips && sortedAggregators.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-2 items-center">
           <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
             Aggregators:

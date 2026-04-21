@@ -64,12 +64,6 @@ export default function SourcesPage() {
   // so the operator always starts from the top of a fresh list.
   const PAGE_SIZE = 99;
   const [displayLimit, setDisplayLimit] = useState<number>(PAGE_SIZE);
-  // Board-source cards are hidden by default — the grid of ~1500 cards
-  // adds meaningful render + scroll cost, and for most Prospero work
-  // (reviewing leads, running campaigns) the operator doesn't need
-  // them. Click "Show sources" to expose the grid; "Hide sources" to
-  // collapse it again. Stats + filter chips remain visible either way.
-  const [showSources, setShowSources] = useState<boolean>(false);
 
   // Add Company (Coresignal taxonomy sweep) UI state. All internal
   // state of the wizard (name, phase, result, per-candidate busy flag,
@@ -709,42 +703,12 @@ export default function SourcesPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-7 pb-7">
-          {/* Source cards — collapsed by default behind a button to keep
-              the Sources page fast and focused. Click "Show source
-              cards" to expose the grid; click "Hide source cards" at
-              the top of the grid to collapse again. Stats + filter
-              chips above are always visible. */}
+          {/* Source cards */}
           {loading ? (
             <div className="text-center py-20 text-sm" style={{ color: "var(--text-muted)" }}>Loading sources...</div>
-          ) : !showSources ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-2">
-              <button
-                onClick={() => setShowSources(true)}
-                className="px-5 py-2.5 rounded-lg text-sm font-semibold cursor-pointer transition-colors"
-                style={{ background: "var(--accent-glow)", color: "var(--accent-light)", border: "1px solid rgba(108,92,231,0.3)" }}
-              >
-                Show source cards ({orderedSources.length.toLocaleString()})
-              </button>
-              <div className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-                Cards hidden by default. Stats &amp; filters above still work.
-              </div>
-            </div>
           ) : (
-            <>
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: "var(--text-muted)" }}>
-                  {orderedSources.length.toLocaleString()} source{orderedSources.length === 1 ? "" : "s"} in view
-                </div>
-                <button
-                  onClick={() => setShowSources(false)}
-                  className="text-xs px-2.5 py-1 rounded-md cursor-pointer"
-                  style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border-subtle)" }}
-                >
-                  Hide source cards
-                </button>
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {orderedSources.slice(0, displayLimit).map((src) => (
+            <div className="grid grid-cols-3 gap-3">
+              {orderedSources.slice(0, displayLimit).map((src) => (
                 <SourceCard
                   key={src.id}
                   src={src}
@@ -776,35 +740,34 @@ export default function SourcesPage() {
                   apiBase={API}
                 />
               ))}
+            </div>
+          )}
+          {/* Load more — only renders when there are still cards beyond
+              the current displayLimit. Each click reveals another PAGE_SIZE
+              batch. The 'X of Y shown' text gives the operator a sense of
+              how many remain. */}
+          {!loading && orderedSources.length > displayLimit && (
+            <div className="flex flex-col items-center gap-2 mt-6 mb-2">
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Showing {Math.min(displayLimit, orderedSources.length).toLocaleString()} of {orderedSources.length.toLocaleString()} sources
               </div>
-              {/* Load more — only renders when there are still cards beyond
-                  the current displayLimit. Lives inside the showSources
-                  block because "load more cards" only makes sense when
-                  cards are visible in the first place. */}
-              {orderedSources.length > displayLimit && (
-                <div className="flex flex-col items-center gap-2 mt-6 mb-2">
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    Showing {Math.min(displayLimit, orderedSources.length).toLocaleString()} of {orderedSources.length.toLocaleString()} sources
-                  </div>
-                  <button
-                    onClick={() => setDisplayLimit((n) => n + PAGE_SIZE)}
-                    className="px-5 py-2 rounded-lg text-sm font-semibold cursor-pointer"
-                    style={{ background: "var(--accent-glow)", color: "var(--accent-light)", border: "1px solid rgba(108,92,231,0.3)" }}
-                  >
-                    Load More?
-                  </button>
-                  {orderedSources.length - displayLimit > PAGE_SIZE && (
-                    <button
-                      onClick={() => setDisplayLimit(orderedSources.length)}
-                      className="text-[11px] cursor-pointer underline"
-                      style={{ color: "var(--text-muted)" }}
-                    >
-                      Load all remaining
-                    </button>
-                  )}
-                </div>
+              <button
+                onClick={() => setDisplayLimit((n) => n + PAGE_SIZE)}
+                className="px-5 py-2 rounded-lg text-sm font-semibold cursor-pointer"
+                style={{ background: "var(--accent-glow)", color: "var(--accent-light)", border: "1px solid rgba(108,92,231,0.3)" }}
+              >
+                Load More?
+              </button>
+              {orderedSources.length - displayLimit > PAGE_SIZE && (
+                <button
+                  onClick={() => setDisplayLimit(orderedSources.length)}
+                  className="text-[11px] cursor-pointer underline"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Load all remaining
+                </button>
               )}
-            </>
+            </div>
           )}
         </div>
       </main>
