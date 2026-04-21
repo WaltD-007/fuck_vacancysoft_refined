@@ -29,6 +29,12 @@ dependencies = [
   "python-dotenv>=1.0,<2",
   "fastapi>=0.115,<1",
   "uvicorn[standard]>=0.30,<1",
+  # Microsoft Graph outreach stack (see docs/outreach_email.md).
+  # Required in prod for Key Vault secret fetch. Graph API itself is
+  # called via httpx rather than the Graph SDK — the SDK is much heavier
+  # and we use a tiny subset of the API.
+  "azure-identity>=1.17,<2",
+  "azure-keyvault-secrets>=4.8,<5",
 ]
 
 [project.optional-dependencies]
