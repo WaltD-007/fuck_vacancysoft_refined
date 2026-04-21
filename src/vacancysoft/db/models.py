@@ -493,3 +493,41 @@ class UserCampaignPrompt(Base):
     instructions_text: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+# ── Voice training samples ──────────────────────────────────────────
+# Operator-authored voice samples saved from the Campaign Builder's
+# "Save as training sample" button. Lets the voice layer imitate an
+# operator's voice before the Graph send flow exists (i.e. before any
+# SentMessage rows with status='sent' are being written).
+#
+# The resolver unions these with SentMessage.status='sent' rows to
+# build the per-sequence voice-sample pool. Once real sends start
+# accruing, the 5-per-step rolling window naturally pushes training
+# rows out (training is the bootstrap; real sends are the authoritative
+# voice signal once they exist).
+
+
+class VoiceTrainingSample(Base):
+    __tablename__ = "voice_training_samples"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id"), index=True
+    )
+    # 1–5, matching the campaign sequence indices.
+    sequence_index: Mapped[int] = mapped_column(Integer, index=True)
+    # One of the six campaign tones: formal / informal / consultative
+    # / direct / candidate_spec / technical. API-layer validated;
+    # no DB-level CHECK constraint so new tones are schema-free.
+    tone: Mapped[str] = mapped_column(String(32))
+    subject: Mapped[str] = mapped_column(String(500))
+    body: Mapped[str] = mapped_column(Text)
+    # Optional link back to the lead the operator was viewing when
+    # they saved the sample — useful for future analytics. No FK
+    # cascade: if the enriched_job is later deleted (Dead job), the
+    # training sample stays because the voice signal is still useful.
+    source_enriched_job_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

@@ -27,7 +27,7 @@ from sqlalchemy import select
 from vacancysoft.api.auth import get_current_user
 from vacancysoft.api.schemas import UserCampaignPromptsOut
 from vacancysoft.db.engine import SessionLocal
-from vacancysoft.db.models import UserCampaignPrompt
+from vacancysoft.db.models import UserCampaignPrompt, VoiceTrainingSample
 from vacancysoft.intelligence.voice import (
     CAMPAIGN_TONES,
     load_tone_prompts,
@@ -111,13 +111,93 @@ def get_my_voice_samples(request: Request):
 
     Read-only audit view. The resolver consumes the same shape
     internally — this endpoint just lets the operator see what's on
-    file. Empty lists on every sequence is normal for a fresh user
-    or pre-send-flow envs (the rollout order means
-    ``sent_messages`` won't have any ``status='sent'`` rows until
-    the Graph send flow lands).
+    file. Samples are unioned from real sent_messages (status='sent')
+    AND operator-authored training samples (migration 0012), newest
+    first, capped at the resolver's window size.
     """
     with SessionLocal() as s:
         user = get_current_user(request, s)
         samples = load_voice_samples(s, user)
     # Already plain dicts with subject/body/tone — no schema coercion.
     return samples
+
+
+@router.post("/api/users/me/voice-training-samples")
+def post_my_voice_training_sample(request: Request, payload: dict):
+    """Save an operator-authored voice training sample.
+
+    Called from the Campaign Builder's "Save as training sample"
+    button — lets operators seed the voice pool with hand-edited
+    variants before the Graph send flow exists, so the voice layer
+    has something to imitate on the next campaign regeneration.
+
+    Body shape::
+
+        {
+          "sequence_index": 1-5,
+          "tone": "informal",
+          "subject": "...",
+          "body": "...",
+          "source_enriched_job_id": "..." (optional)
+        }
+
+    Validation:
+      * tone must be one of the six campaign tones
+      * sequence_index 1..5
+      * subject + body both non-empty
+
+    Returns the created row's id + created_at so the frontend can
+    show a confirmation pill without a follow-up GET.
+    """
+    from uuid import uuid4
+
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "body must be a JSON object")
+
+    tone = payload.get("tone")
+    if tone not in CAMPAIGN_TONES:
+        raise HTTPException(
+            400,
+            f"tone must be one of {list(CAMPAIGN_TONES)}; got {tone!r}",
+        )
+
+    try:
+        sequence_index = int(payload.get("sequence_index"))
+    except (TypeError, ValueError):
+        raise HTTPException(400, "sequence_index must be an int 1-5")
+    if sequence_index < 1 or sequence_index > 5:
+        raise HTTPException(400, "sequence_index must be 1-5")
+
+    subject = (payload.get("subject") or "").strip()
+    body = (payload.get("body") or "").strip()
+    if not subject:
+        raise HTTPException(400, "subject must be non-empty")
+    if not body:
+        raise HTTPException(400, "body must be non-empty")
+    # SentMessage.subject is String(500); mirror that cap so the two
+    # sources can live side-by-side without accidental truncation.
+    if len(subject) > 500:
+        raise HTTPException(400, "subject must be ≤ 500 characters")
+
+    source_enriched_job_id = payload.get("source_enriched_job_id")
+    if source_enriched_job_id is not None:
+        source_enriched_job_id = str(source_enriched_job_id).strip() or None
+
+    with SessionLocal() as s:
+        user = get_current_user(request, s)
+        row = VoiceTrainingSample(
+            id=str(uuid4()),
+            user_id=user.id,
+            sequence_index=sequence_index,
+            tone=tone,
+            subject=subject,
+            body=body,
+            source_enriched_job_id=source_enriched_job_id,
+        )
+        s.add(row)
+        s.commit()
+        s.refresh(row)
+        return {
+            "id": row.id,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }

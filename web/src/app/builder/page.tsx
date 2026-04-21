@@ -99,6 +99,10 @@ function BuilderPageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verifiedHmEmail, setVerifiedHmEmail] = useState("");
+  // "Save as training sample" button state. Separate from the main
+  // loading/error so the save request doesn't block the preview.
+  const [trainSaving, setTrainSaving] = useState(false);
+  const [trainFeedback, setTrainFeedback] = useState<{kind: "ok" | "err"; text: string} | null>(null);
 
   // When leadId changes, fetch the campaign and populate variants
   useEffect(() => {
@@ -170,6 +174,52 @@ function BuilderPageInner() {
           : s
       )
     );
+  };
+
+  // Save the currently-active variant as a voice training sample.
+  // Writes to voice_training_samples (migration 0012); the resolver
+  // unions these rows with real SentMessage rows on the next campaign
+  // regeneration, so the voice layer starts imitating the operator's
+  // voice without waiting for the Graph send flow.
+  const saveAsTrainingSample = async () => {
+    if (trainSaving) return;
+    if (!current || !currentVariant) return;
+    const subject = (currentVariant.subject || "").trim();
+    const body = (currentVariant.body || "").trim();
+    if (!subject || !body) {
+      setTrainFeedback({ kind: "err", text: "Subject and body must both be non-empty." });
+      return;
+    }
+    setTrainSaving(true);
+    setTrainFeedback(null);
+    try {
+      const res = await fetch(`${API}/users/me/voice-training-samples`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sequence_index: activeStep,
+          tone: current.tone,
+          subject,
+          body,
+          source_enriched_job_id: leadId || null,
+        }),
+      });
+      if (res.ok) {
+        setTrainFeedback({ kind: "ok", text: `Saved · ${current.tone} / step ${activeStep}` });
+      } else {
+        const detail = await res.json().catch(() => null);
+        setTrainFeedback({
+          kind: "err",
+          text: detail?.detail || `Save failed (${res.status}).`,
+        });
+      }
+    } catch {
+      setTrainFeedback({ kind: "err", text: "Network error — sample not saved." });
+    } finally {
+      setTrainSaving(false);
+      // Auto-clear the feedback pill after 4s so it doesn't linger.
+      setTimeout(() => setTrainFeedback(null), 4000);
+    }
   };
 
   const updateStepTone = (stepNum: number, tone: ToneKey) => {
@@ -362,6 +412,48 @@ function BuilderPageInner() {
                     fontFamily: "inherit",
                   }}
                 />
+                {/* "Train model" action — saves the currently-edited
+                    Subject + Body as a voice training sample so the
+                    next campaign regeneration picks it up via the
+                    voice layer. Sits inside the preview card, below
+                    the body textarea, so it reads as "save what you
+                    just wrote". */}
+                <div className="mt-3 pt-3 flex items-center gap-2" style={{ borderTop: "1px solid #1f1f2f" }}>
+                  <button
+                    onClick={() => void saveAsTrainingSample()}
+                    disabled={trainSaving || !currentVariant.body.trim() || !currentVariant.subject.trim()}
+                    className="px-3 py-1.5 rounded-md text-[11px] font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{
+                      background: "rgba(108,92,231,0.12)",
+                      color: "#a29bfe",
+                      border: "1px solid rgba(108,92,231,0.3)",
+                    }}
+                    title="Save the edited subject + body as a voice training sample. The voice layer picks it up on the next campaign regeneration so future output imitates your voice."
+                  >
+                    {trainSaving ? "Saving…" : "⚡ Train model on this"}
+                  </button>
+                  {trainFeedback && (
+                    <span
+                      className="text-[11px] font-semibold px-2 py-0.5 rounded"
+                      style={{
+                        background: trainFeedback.kind === "ok"
+                          ? "rgba(0,210,160,0.1)"
+                          : "rgba(255,107,107,0.1)",
+                        color: trainFeedback.kind === "ok" ? "#00d2a0" : "#ff6b6b",
+                        border: `1px solid ${trainFeedback.kind === "ok" ? "rgba(0,210,160,0.3)" : "rgba(255,107,107,0.3)"}`,
+                      }}
+                    >
+                      {trainFeedback.text}
+                    </span>
+                  )}
+                  <span
+                    className="ml-auto text-[10px]"
+                    style={{ color: "#555570" }}
+                    title="The voice layer injects these as few-shot examples on the next regeneration. Cold start is zero samples; 3-5 samples per step is the sweet spot."
+                  >
+                    ← captures what you&apos;ve written above
+                  </span>
+                </div>
               </div>
 
               {/* Verified Hiring Manager Email */}
