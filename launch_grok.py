@@ -147,16 +147,34 @@ def assert_alive(label: str, p: subprocess.Popen, wait: float = 1.5) -> None:
         sys.exit(1)
 
 
-def wait_for_port(port: int, timeout: int = 60, label: str = "") -> bool:
-    """Block until :port is reachable, or timeout."""
+def wait_for_port(
+    port: int,
+    timeout: int = 60,
+    label: str = "",
+    progress_every: int = 5,
+) -> bool:
+    """Block until :port is reachable, or timeout.
+
+    Prints a heartbeat every ``progress_every`` seconds so a slow cold
+    boot looks like progress rather than a hang. FastAPI's on-startup
+    sweep through pending leads can legitimately take 30-60s on a
+    busy DB.
+    """
     end = time.monotonic() + timeout
+    started = time.monotonic()
+    next_heartbeat = started + progress_every
     while time.monotonic() < end:
         if port_in_use(port):
             return True
+        if time.monotonic() >= next_heartbeat:
+            elapsed = int(time.monotonic() - started)
+            print(f"    …still waiting on :{port} ({elapsed}s elapsed)")
+            next_heartbeat += progress_every
         time.sleep(1)
     if label:
         print(
-            f"✗ {label}: port {port} didn't come up within {timeout}s",
+            f"✗ {label}: port {port} didn't come up within {timeout}s\n"
+            f"  check: tail .data/tunnel_logs/{label}.log",
             file=sys.stderr,
         )
     return False
@@ -276,15 +294,17 @@ def main() -> int:
             ROOT,
             uvicorn_cmd
             + [
-                "vacancysoft.api.main:app",
+                "vacancysoft.api.server:app",
                 "--host", "127.0.0.1",
                 "--port", "8000",
                 "--reload",
             ],
         )
-        # Bail loudly on immediate crash
-        assert_alive("fastapi", p, wait=1.5)
-        if not wait_for_port(8000, timeout=30, label="fastapi"):
+        # Bail loudly on immediate crash (bad imports, missing env)
+        assert_alive("fastapi", p, wait=3.0)
+        # FastAPI's on-startup hook does a self-heal sweep over pending
+        # leads that can take 30-60s on a busy DB. Give it 120s.
+        if not wait_for_port(8000, timeout=120, label="fastapi"):
             assert_alive("fastapi", p, wait=0)
             return 1
         print("  ✓ FastAPI is up")

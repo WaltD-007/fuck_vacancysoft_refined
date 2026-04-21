@@ -104,7 +104,7 @@ Each terminal stays open until you kill it. Run them in this order:
 
 ```bash
 cd "/Users/antonyberou/Documents/Work Stuff/AI Stuff/Python projects/Useful Code/fuck_vacancysoft_refined"
-uvicorn vacancysoft.api.main:app --host 127.0.0.1 --port 8000 --reload
+uvicorn vacancysoft.api.server:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Bind to `127.0.0.1` (not `0.0.0.0`) — the API is reached by the
@@ -236,7 +236,7 @@ pg_dump -t sources -t raw_jobs -t enriched_jobs -t intelligence_dossiers \
 
 # Start the FastAPI pointing at the demo DB (rest of the four-terminal
 # flow stays the same — DATABASE_URL propagates via the env var):
-uvicorn vacancysoft.api.main:app --host 127.0.0.1 --port 8000 --reload
+uvicorn vacancysoft.api.server:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 When done: `docker stop prospero-demo` (auto-removes the container

@@ -164,7 +164,7 @@ if is_port_listening 8000; then
     echo "  ✓ FastAPI already listening on :8000 — leaving it alone"
 else
     start_bg "fastapi" "$REPO_ROOT" \
-        "${UVICORN_CMD[@]}" vacancysoft.api.main:app --host 127.0.0.1 --port 8000 --reload
+        "${UVICORN_CMD[@]}" vacancysoft.api.server:app --host 127.0.0.1 --port 8000 --reload
     assert_alive "$LAST_BG_PID" "fastapi" "$LOG_DIR/fastapi.log"
 fi
 
