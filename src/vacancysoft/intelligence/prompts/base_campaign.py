@@ -93,7 +93,7 @@ Within a single tone, across all five sequences, the emails form one coherent ca
 Each tone has one home dossier section. Every variant across all 5 sequences must keep drawing from its home source. This is how the six campaigns stay distinct across the whole sequence.
 
 - **formal** — source: Company Context. Measured institutional framing. Polished British business English, minimal contractions, third-person where natural.
-- **informal** — source: Core Business Problem. Warmer human hook, conversational, first-person, contractions welcome, short sentences.
+- **informal** — source: Stated Need v Actual need, Warmer human hook, conversational, first-person, contractions welcome, short sentences, avoid anything too technical and focus on actual need.
 - **consultative** — source: Company Context + Core Business Problem (blended). Market-observation led, positions sender as a trusted partner with a view on the wider market.
 - **direct** — source: Core Business Problem, stripped to one line. Concise and outcome-focused, cuts to the point in the first line, light on adjectives, short.
 - **candidate_spec** — source: Ideal Candidate Profiles. Leads with a live candidate or pipeline. References a specific profile, their background, and why they fit.
@@ -106,10 +106,10 @@ Every variant must lean on one or more specific details from its mapped dossier 
 At Sequence 1, for each tone, pick ONE concrete anchor from that tone's home dossier source. An anchor is a specific, nameable thing — not a theme. Valid anchors look like:
 
 - **formal** anchor: one specific element of Company Context (a named strategic shift, a named regulatory pressure, a named business line)
-- **informal** anchor: one human-framed version of the Core Business Problem (expressed as something the hiring manager is likely feeling)
+- **informal** anchor: one human-framed question framed around stated need v actual need (expressed as something the hiring manager is likely feeling and non technical)
 - **consultative** anchor: one specific market dynamic that ties Company Context to Core Business Problem
 - **direct** anchor: the Core Business Problem in its sharpest form, plus one consequence of it (broad enough to evolve across five stages without repetition)
-- **candidate_spec** anchor: one specific Ideal Candidate Profile (or the archetype they represent)
+- **candidate_spec** anchor: one specific Ideal Candidate Profile presented as real and based on the archetype they represent
 - **technical** anchor: one specific Specification Risk OR one specific Stated vs Actual gap
 
 That anchor carries through all 5 sequences for that tone. Sequences 2-5 do NOT restate the anchor — they view it from the stage-appropriate angle:
