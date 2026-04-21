@@ -489,10 +489,11 @@ export default function DashboardPage() {
                                     button. Three coloured buttons:
                                     Dead job (blue, one-job scope),
                                     Wrong loc (amber, flag-or-apply),
-                                    agy job (grey, company-scope —
-                                    kept visually subdued because it's
-                                    the most destructive of the three
-                                    and has its own 5-sec undo flow). */}
+                                    agy job (red, company-scope —
+                                    matches the Sources drawer's red
+                                    Agy styling so the most destructive
+                                    action reads as such. 5-sec undo
+                                    flow stays as the safety net. */}
                                 <button
                                   className="ml-auto px-2 py-1 rounded text-[10px] font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
                                   style={{ background: "rgba(77,171,247,0.08)", color: "#4dabf7", border: "1px solid rgba(77,171,247,0.25)" }}
@@ -508,8 +509,8 @@ export default function DashboardPage() {
                                   onClick={() => void handleWrongLocation(lead.id, lead.title, lead.location)}
                                 >Wrong loc</button>
                                 <button
-                                  className="px-2 py-1 rounded text-[10px] font-medium cursor-pointer"
-                                  style={{ background: "transparent", color: "#555570", border: "1px solid #2a2a3a" }}
+                                  className="px-2 py-1 rounded text-[10px] font-semibold cursor-pointer"
+                                  style={{ background: "rgba(255,107,107,0.08)", color: "#ff6b6b", border: "1px solid rgba(255,107,107,0.25)" }}
                                   title="Mark this company as a recruitment agency"
                                   onClick={() => {
                                     setPendingUndo((prev) => ({ ...prev, [lead.company]: Date.now() + 5000 }));
