@@ -10,6 +10,65 @@
 
 ---
 
+## TL;DR — paste-ready commands
+
+Prerequisites met once per machine:
+```bash
+brew install ngrok                           # one-time install
+cd "/Users/antonyberou/Documents/Work Stuff/AI Stuff/Python projects/Useful Code/fuck_vacancysoft_refined" && git pull --ff-only
+```
+
+**Four terminals, run in this order:**
+
+```bash
+# Terminal 1 — FastAPI (loopback only, never exposed)
+cd "/Users/antonyberou/Documents/Work Stuff/AI Stuff/Python projects/Useful Code/fuck_vacancysoft_refined"
+uvicorn vacancysoft.api.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+```bash
+# Terminal 2 — ARQ worker (only needed if colleague will trigger
+# anything that enqueues jobs: dossier regen, campaign gen, etc.)
+cd "/Users/antonyberou/Documents/Work Stuff/AI Stuff/Python projects/Useful Code/fuck_vacancysoft_refined"
+arq vacancysoft.worker.settings.WorkerSettings
+```
+
+```bash
+# Terminal 3 — Next.js frontend (the only service exposed)
+cd "/Users/antonyberou/Documents/Work Stuff/AI Stuff/Python projects/Useful Code/fuck_vacancysoft_refined/web"
+npm run dev
+```
+
+```bash
+# Terminal 4 — ngrok tunnel (pick any passphrase, no spaces)
+ngrok http 3000 --basic-auth "reviewer:prospero-demo-2026"
+```
+
+Grab the `https://*.ngrok-free.app` URL from terminal 4. Send to colleague with:
+```
+URL: https://<random>.ngrok-free.app
+User: reviewer
+Password: prospero-demo-2026
+```
+
+**Kill:** `Ctrl-C` in each terminal. Tunnel URL is dead the instant you kill terminal 4.
+
+**Verify nothing left listening:**
+```bash
+lsof -i :3000 -i :8000 | grep LISTEN   # should return nothing after Ctrl-C × 3
+```
+
+---
+
+**Never tunnel** these ports:
+- `:5432` — Postgres (database)
+- `:6379` — Redis (queue)
+- `:8000` — FastAPI (it's reached server-side via Next.js rewrite, not by the colleague's browser)
+
+Only `:3000` goes through ngrok. Everything else stays on loopback.
+
+---
+
 ## Before you start — what the colleague will see
 
 - **Everything.** Prospero has **no authentication** — anyone with
