@@ -45,7 +45,19 @@ class WorkerSettings:
     """ARQ worker configuration."""
 
     from vacancysoft.worker.tasks import process_lead, scrape_source
-    functions = [process_lead, scrape_source]
+    from vacancysoft.worker.outreach_tasks import (
+        poll_replies_for_conversation,
+        send_outreach_email,
+    )
+    functions = [
+        process_lead,
+        scrape_source,
+        # Outreach email stack (see docs/outreach_email.md).
+        # Safe to register in dry-run mode — tasks short-circuit
+        # through GraphClient's is_dry_run() check.
+        send_outreach_email,
+        poll_replies_for_conversation,
+    ]
 
     redis_settings = _redis_settings()
     max_jobs = config.get("max_concurrent", 25)
