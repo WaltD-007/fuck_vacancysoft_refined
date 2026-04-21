@@ -42,7 +42,8 @@ from vacancysoft.intelligence.prompts.base_dossier import (
 )
 from vacancysoft.intelligence.prompts.base_campaign import (
     CAMPAIGN_SYSTEM,
-    CAMPAIGN_TEMPLATE,
+    CAMPAIGN_TEMPLATE_V1,
+    CAMPAIGN_TEMPLATE_V2,
 )
 from vacancysoft.intelligence.prompts.category_blocks import (
     CATEGORY_BLOCKS,
@@ -89,8 +90,10 @@ def write_index_sheet(wb: Workbook) -> None:
          "src/vacancysoft/intelligence/dossier.py::_build_hm_prompt + "
          "prompts/category_blocks.py::_*_HM_SEARCHES"),
         ("Campaign", "Campaign email-sequence template "
-                     "(5 sequences × 6 tones)",
-         "src/vacancysoft/intelligence/prompts/base_campaign.py::CAMPAIGN_TEMPLATE"),
+                     "(5 sequences × 6 tones). Row 3 is V2 (live, default); "
+                     "row 4 is V1 (legacy rollback target — not in use).",
+         "src/vacancysoft/intelligence/prompts/base_campaign.py::"
+         "CAMPAIGN_TEMPLATE_V2 / CAMPAIGN_TEMPLATE_V1"),
         ("Categories", "Per-category blocks: research scope, market context, "
                        "outreach angle, HM function guidance (injected into the templates above)",
          "src/vacancysoft/intelligence/prompts/category_blocks.py::CATEGORY_BLOCKS"),
@@ -158,19 +161,30 @@ def write_hm_search_sheet(wb: Workbook) -> None:
 
 
 def write_campaign_sheet(wb: Workbook) -> None:
+    """Campaign sheet — v2 (live, default) at the top, v1 (rollback target)
+    archived below. Operators almost always want v2; v1 is kept in the
+    workbook so a rollback review has the legacy text to hand."""
     ws = wb.create_sheet("Campaign")
     ws.cell(row=1, column=1, value="Field")
     ws.cell(row=1, column=2, value="Content")
     for c in (ws.cell(row=1, column=1), ws.cell(row=1, column=2)):
         _style_header(c)
+
     ws.cell(row=2, column=1, value="CAMPAIGN_SYSTEM (system message)")
     ws.cell(row=2, column=2, value=CAMPAIGN_SYSTEM)
     _style_prompt_cell(ws.cell(row=2, column=2))
-    ws.cell(row=3, column=1, value="CAMPAIGN_TEMPLATE (user message, with placeholders)")
-    ws.cell(row=3, column=2, value=CAMPAIGN_TEMPLATE)
+
+    ws.cell(row=3, column=1, value="CAMPAIGN_TEMPLATE_V2 (live — user message, with placeholders)")
+    ws.cell(row=3, column=2, value=CAMPAIGN_TEMPLATE_V2)
     _style_prompt_cell(ws.cell(row=3, column=2))
-    ws.row_dimensions[3].height = 500
-    _autofit(ws, {1: 30, 2: 120})
+    ws.row_dimensions[3].height = 750
+
+    ws.cell(row=4, column=1, value="CAMPAIGN_TEMPLATE_V1 (legacy / rollback target)")
+    ws.cell(row=4, column=2, value=CAMPAIGN_TEMPLATE_V1)
+    _style_prompt_cell(ws.cell(row=4, column=2))
+    ws.row_dimensions[4].height = 500
+
+    _autofit(ws, {1: 48, 2: 120})
     ws.freeze_panes = "A2"
 
 
