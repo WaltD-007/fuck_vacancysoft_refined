@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import Sidebar from "./components/Sidebar";
 import { API, fetcher } from "./lib/swr";
 import { useCurrentUser } from "./lib/useCurrentUser";
@@ -20,6 +20,11 @@ type Dashboard = {
   daily_leads: number[];
   categories: Record<string, number>;
   recent_leads: Array<{
+    // enriched_job_id — used by the row-level admin buttons (Dead
+    // job, Wrong location) to reference the DB row server-side.
+    // Null-tolerated defensively; the join filters in
+    // get_dashboard guarantee a populated value in practice.
+    id: string | null;
     title: string; company: string; location: string | null;
     country: string | null; category: string; sub_specialism: string;
     url: string | null; discovered: string | null;
@@ -198,6 +203,76 @@ export default function DashboardPage() {
       }
     });
   }, [nowTick, pendingUndo]);
+
+  // Dashboard row-level admin actions (mirrors the Sources drawer's
+  // Dead job / Wrong location buttons — same endpoints, same confirm
+  // prompts). Both require the lead's enriched_job_id, which the
+  // dashboard payload now carries as `lead.id` (backend change
+  // 2026-04-21).
+  //
+  // The pending-delete set greys out a row between the operator's
+  // confirm and the server's response, so rapid clicks can't fire
+  // the DELETE twice. SWR mutate("/dashboard") revalidates the feed
+  // so deleted rows vanish and the "wrong location" auto-apply path
+  // reflects the new city/country the next render.
+  const { mutate: swrMutate } = useSWRConfig();
+  const [deadPending, setDeadPending] = useState<Set<string>>(new Set());
+
+  const handleDeadJob = async (leadId: string | null, title: string) => {
+    if (!leadId) return;
+    const confirmed = window.confirm(
+      `Delete "${title}"? The job is removed from the DB and won't re-enrich on the next scrape.`,
+    );
+    if (!confirmed) return;
+    setDeadPending((prev) => new Set(prev).add(leadId));
+    try {
+      await fetch(`${API}/leads/${encodeURIComponent(leadId)}`, {
+        method: "DELETE",
+      });
+    } finally {
+      // Pull fresh dashboard data so the deleted row leaves the feed.
+      void swrMutate("/dashboard");
+      setDeadPending((prev) => {
+        const next = new Set(prev);
+        next.delete(leadId);
+        return next;
+      });
+    }
+  };
+
+  const handleWrongLocation = async (leadId: string | null, title: string, currentLocation: string | null) => {
+    if (!leadId) return;
+    const note = window.prompt(
+      `Correct location for "${title}" (currently ${currentLocation ?? "—"}).\n\n` +
+        `If you type a real location (e.g. "Buffalo, NY, USA" or "London, UK") it will be applied immediately. ` +
+        `Leave blank or type free text to just flag for manual review.`,
+      "",
+    );
+    if (note === null) return; // operator cancelled
+    try {
+      const res = await fetch(
+        `${API}/leads/${encodeURIComponent(leadId)}/flag-location`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ note }),
+        },
+      );
+      if (res.ok) {
+        const body = await res.json().catch(() => null);
+        if (body?.status === "applied") {
+          window.alert(`Location updated to ${body.city}, ${body.country}.`);
+        } else if (body?.status === "queued") {
+          window.alert("Flagged for manual review — location was left unchanged.");
+        }
+      }
+    } finally {
+      // Re-fetch so the new city/country shows on the next render
+      // in the "applied" case, or so a re-flag isn't shown as
+      // stale in the queued case.
+      void swrMutate("/dashboard");
+    }
+  };
 
   // Real data only — no fallbacks that pretend to be live numbers.
   const totalLeads = data?.total_jobs ?? 0;
@@ -409,8 +484,31 @@ export default function DashboardPage() {
                                     }}
                                   >+ Add Lead</button>
                                 )}
+                                {/* Row-level admin cluster, floated
+                                    right via `ml-auto` on the first
+                                    button. Three coloured buttons:
+                                    Dead job (blue, one-job scope),
+                                    Wrong loc (amber, flag-or-apply),
+                                    agy job (grey, company-scope —
+                                    kept visually subdued because it's
+                                    the most destructive of the three
+                                    and has its own 5-sec undo flow). */}
                                 <button
-                                  className="ml-auto px-2 py-1 rounded text-[10px] font-medium cursor-pointer"
+                                  className="ml-auto px-2 py-1 rounded text-[10px] font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                                  style={{ background: "rgba(77,171,247,0.08)", color: "#4dabf7", border: "1px solid rgba(77,171,247,0.25)" }}
+                                  title="Delete this job and stop it from re-enriching"
+                                  disabled={!lead.id || (lead.id != null && deadPending.has(lead.id))}
+                                  onClick={() => void handleDeadJob(lead.id, lead.title)}
+                                >Dead job</button>
+                                <button
+                                  className="px-2 py-1 rounded text-[10px] font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                                  style={{ background: "rgba(255,179,64,0.08)", color: "#ffd93d", border: "1px solid rgba(255,179,64,0.25)" }}
+                                  title="Flag this location as wrong — type the correct one to auto-apply"
+                                  disabled={!lead.id}
+                                  onClick={() => void handleWrongLocation(lead.id, lead.title, lead.location)}
+                                >Wrong loc</button>
+                                <button
+                                  className="px-2 py-1 rounded text-[10px] font-medium cursor-pointer"
                                   style={{ background: "transparent", color: "#555570", border: "1px solid #2a2a3a" }}
                                   title="Mark this company as a recruitment agency"
                                   onClick={() => {

@@ -245,6 +245,13 @@ def get_dashboard():
                 ScoreResult.export_eligibility_score,
                 ClassificationResult.employment_type,
                 ClassificationResult.sub_specialism,
+                # EnrichedJob.id added 2026-04-21 so the Dashboard's
+                # Live Feed rows can target the Dead job / Wrong
+                # location admin buttons (same pair that lives on the
+                # Sources page drawer via PR #36). Kept at the tail
+                # of the SELECT so existing tuple index positions
+                # stay stable.
+                EnrichedJob.id,
             )
             .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
             .join(Source, RawJob.source_id == Source.id)
@@ -282,6 +289,14 @@ def get_dashboard():
                     company = extracted
 
             leads.append({
+                # enriched_job_id — new 2026-04-21. Needed by the
+                # Dashboard's Live Feed row-level admin buttons (Dead
+                # job, Wrong location) to reference the DB row server-
+                # side. Opaque UUID; safe to expose. Can be null in
+                # theory for leads that lost their enriched_job
+                # reference, but the join filters guarantee a non-
+                # null value in practice.
+                "id": r[13],
                 "title": title,
                 "company": company,
                 "location": r[2],
