@@ -157,6 +157,28 @@ class TestTemplateVersions:
         assert "observational words" not in CAMPAIGN_TEMPLATE_V1
         assert "describe what they CAN DO" not in CAMPAIGN_TEMPLATE_V1
 
+    def test_v2_suppresses_stage_leakage(self) -> None:
+        """Revised 2026-04-21 after a smoke-test email opened with
+        'A recurring mid-stage tension on this sort of brief is…'.
+        The sequence-stage labels in the prompt (early-stage /
+        mid-stage / late-stage) are internal targeting, not body
+        language. The rule + checklist item below explicitly ban
+        echoing them — applies to every tone and every sequence."""
+        # Dedicated sub-section after the sequence descriptions
+        assert "Stage framing is internal" in CAMPAIGN_TEMPLATE_V2
+        # Global-rule bullet
+        assert "Do not reference the hiring process stage or timeline in the email prose" in CAMPAIGN_TEMPLATE_V2
+        # Negative examples the rule names explicitly
+        assert '"a recurring mid-stage tension"' in CAMPAIGN_TEMPLATE_V2
+        assert '"early-stage pain"' in CAMPAIGN_TEMPLATE_V2
+        assert '"by now you\'re probably seeing"' in CAMPAIGN_TEMPLATE_V2
+        # Self-check on the verification list
+        assert "no email references the hiring process stage or timeline" in CAMPAIGN_TEMPLATE_V2
+
+    def test_v1_does_not_have_stage_leak_guard(self) -> None:
+        assert "Stage framing is internal" not in CAMPAIGN_TEMPLATE_V1
+        assert "Do not reference the hiring process stage" not in CAMPAIGN_TEMPLATE_V1
+
 
 # ── resolve_campaign_prompt selects by flag ───────────────────────
 

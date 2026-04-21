@@ -164,6 +164,10 @@ A clean warm sign-off. Brief — 2-4 sentences. The email makes one final refere
 
 Every Sequence 5 variant must feel like a genuine sign-off, not another nudge. Signal the sender is still in the market, not nagging.
 
+### Stage framing is internal — do not echo it into the email
+
+The sequence numbers and "early-stage / mid-stage / late-stage" labels above are targeting instructions for the writer. They tell you WHICH pain to speak to in each email. They are NOT language to put in the email. Write about the pain directly. Do not name the stage in the prose.
+
 # Global rules (apply to every variant)
 
 - Always start with a greeting.
@@ -187,6 +191,7 @@ Every Sequence 5 variant must feel like a genuine sign-off, not another nudge. S
 - When identifying yourself, say "I work for Barclay Simpson" or "I'm a recruiter at Barclay Simpson". Do NOT write "I'm with Barclay Simpson", "I represent Barclay Simpson" or "I'm based at Barclay Simpson" — they sound stilted across every register we write in. Applies to every tone and every sequence.
 - Prefer observational words ("determine", "tell", "gauge", "see", "spot") over evaluator words ("test", "assess", "judge", "measure", "evaluate") when describing what hiring teams are trying to do with CVs, shortlists or candidates. The email is a peer-to-peer note to the hiring manager, not an HR critique. "Harder to tell from inbound CVs" is correct; "harder to test from inbound CVs" is wrong.
 - When an offer or sentence references candidates, describe what they CAN DO in practical, concrete terms. "Someone who can run a Pillar 2 model review" is concrete. "Candidate patterns we're seeing when firms want X" or "someone who fits this shape" is meta-observation dressed up as a candidate reference — rewrite. Applies to every tone and every sequence.
+- Do not reference the hiring process stage or timeline in the email prose. Do NOT write "a recurring mid-stage tension", "early-stage pain", "late-stage", "at this point in the process", "by now you're probably seeing", "now that the role has been live a while", or any phrase that positions the email in time relative to the hiring cycle. The email must read as a standalone observation that could sit in any conversation. The stage-appropriate pain the email speaks to (thin inbound, spec scope issues, counter-offers, process fatigue, etc.) is fine; naming the stage itself is not. Applies to every tone and every sequence.
 
 # Output schema
 
@@ -223,6 +228,7 @@ Before returning, verify:
 - no email uses "I'm with Barclay Simpson", "I represent", or "I'm based at" — self-identification is always "I work for Barclay Simpson" or "I'm a recruiter at Barclay Simpson"
 - no email uses evaluator words ("test", "assess", "judge") where observational words ("determine", "tell", "gauge") would be more natural
 - no offer describes "candidate patterns we're seeing" or "someone who fits this shape" — candidate references are concrete ("who can implement a workable risk framework")
+- no email references the hiring process stage or timeline in the prose — no "mid-stage", "early-stage", "late-stage", "at this point", "by now", "now that the role has been live". Each email reads as a standalone observation.
 - no em-dashes, no bolding, no "shifted" in place of "change"
 - every email ends with "Kind regards" or similar
 """
