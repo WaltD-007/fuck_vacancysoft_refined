@@ -123,17 +123,39 @@ export default function SourceJobsDrawer({
 
   const handleWrongLocation = async (job: ScoredJob) => {
     const note = window.prompt(
-      `Flag "${job.title}" (${job.location ?? "—"}) for manual location review. Optional note:`,
+      `Correct location for "${job.title}" (currently ${job.location ?? "—"}).\n\n` +
+        `If you type a real location (e.g. "Buffalo, NY, USA" or "London, UK") it will be applied immediately. ` +
+        `Leave blank or type free text to just flag for manual review.`,
       "",
     );
     if (note === null) return;   // operator cancelled
-    // Non-destructive — the row stays visible until the next refresh.
     try {
-      await fetch(`${apiBase}/leads/${encodeURIComponent(job.id)}/flag-location`, {
+      const res = await fetch(`${apiBase}/leads/${encodeURIComponent(job.id)}/flag-location`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ note }),
       });
+      if (res.ok) {
+        const body = await res.json().catch(() => null);
+        if (body?.status === "applied") {
+          // Optimistic local patch so the operator sees the fix land
+          // before the server's next refresh pushes counts through.
+          setSourceJobs((prev) => {
+            const next: Record<string, ScoredJob[]> = {};
+            for (const [k, v] of Object.entries(prev)) {
+              next[k] = v.map((r) =>
+                r.id === job.id
+                  ? { ...r, location: body.city, country: body.country }
+                  : r,
+              );
+            }
+            return next;
+          });
+          window.alert(`Location updated to ${body.city}, ${body.country}.`);
+        } else if (body?.status === "queued") {
+          window.alert("Flagged for manual review — location was left unchanged.");
+        }
+      }
     } finally {
       onAdminAction?.();
     }

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
@@ -1235,20 +1236,42 @@ def delete_lead(enriched_job_id: str):
 
 @router.post("/api/leads/{enriched_job_id}/flag-location")
 def flag_location(enriched_job_id: str, payload: dict | None = None):
-    """Flag an enriched job's location for manual review.
+    """Flag an enriched job's location — auto-apply when possible.
 
-    Non-destructive. Inserts a row into ``location_review_queue``
-    (migration 0010) and returns the flag id. A future ``/review`` UI
-    reads these rows; this endpoint just captures the flag event.
+    Two-mode endpoint. If the operator's note parses cleanly through
+    ``normalise_location()`` (confidence ≥ 0.7, i.e. the operator
+    typed something like "Buffalo, NY, USA" or "New York, USA"), the
+    correction is **applied immediately**:
+      1. Update ``enriched_jobs.location_city`` / ``location_country``
+         on the target row AND any other enriched_jobs for the same
+         underlying URL (Google Jobs and a few aggregators can seed
+         multiple enriched rows for one advert; we want them all
+         corrected in one click).
+      2. Insert a ``location_review_queue`` row with ``resolved=True``
+         and ``resolved_at=NOW()`` so the review log still captures
+         the event for audit.
+      3. Drop the /sources and /dashboard caches so counts reflect
+         the new country.
 
-    Body is optional. If supplied, ``{"note": "..."}`` is stored
-    verbatim in the ``note`` column; ``{"flagged_by_user_id": "..."}``
-    attributes the flag to the given user (no validation of the
-    user id is done — the FK handles that). Once the identity
-    resolver is widely adopted we'll switch to resolving this from
-    the request headers instead of an explicit body field.
+    If the note is empty or un-parseable (operator just wanted to
+    flag without correcting), we fall back to the original behaviour:
+    insert an unresolved row into ``location_review_queue`` for a
+    future /review UI to pick up.
+
+    Body shape:
+      { "note": "Buffalo, NY, USA", "flagged_by_user_id": "..." }
+
+    Response shape:
+      { "status": "applied" | "queued",
+        "flag_id": "...",
+        "enriched_job_id": "...",
+        "city": "Buffalo",         # only when status=applied
+        "country": "USA",          # only when status=applied
+        "affected_enriched_ids": [...]  # only when status=applied
+      }
     """
     from vacancysoft.db.models import LocationReviewFlag
+    from vacancysoft.enrichers.location_normaliser import normalise_location
 
     payload = payload or {}
     note = str(payload.get("note") or "").strip()
@@ -1256,25 +1279,79 @@ def flag_location(enriched_job_id: str, payload: dict | None = None):
     if flagged_by is not None:
         flagged_by = str(flagged_by).strip() or None
 
+    # Try to parse the note. Confidence threshold 0.7 matches the
+    # scraper's own bar for treating a parse as trustworthy — below
+    # that and we'd risk writing noise into enriched_jobs.
+    parsed = normalise_location(note) if note else None
+    apply = bool(
+        parsed
+        and parsed.get("city")
+        and parsed.get("country")
+        and (parsed.get("confidence") or 0) >= 0.7
+    )
+
     with SessionLocal() as s:
-        ej = s.execute(
-            select(EnrichedJob.id).where(EnrichedJob.id == enriched_job_id)
+        target = s.execute(
+            select(EnrichedJob).where(EnrichedJob.id == enriched_job_id)
         ).scalar_one_or_none()
-        if ej is None:
+        if target is None:
             raise HTTPException(status_code=404, detail="enriched job not found")
+
+        affected_ids: list[str] = []
+        if apply:
+            # Resolve the URL so we can correct any sibling enriched_jobs
+            # created from separate raw_jobs that share the URL. Google
+            # Jobs and a handful of aggregators emit one RawJob per
+            # search-refresh — without this, the operator would have
+            # to fix the same advert two or three times.
+            url = s.execute(
+                select(RawJob.discovered_url)
+                .where(RawJob.id == target.raw_job_id)
+            ).scalar_one_or_none()
+
+            siblings: list[EnrichedJob] = [target]
+            if url:
+                siblings = list(s.execute(
+                    select(EnrichedJob)
+                    .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
+                    .where(RawJob.discovered_url == url)
+                ).scalars())
+
+            for ej in siblings:
+                ej.location_city = parsed["city"]
+                ej.location_country = parsed["country"]
+                affected_ids.append(ej.id)
 
         flag = LocationReviewFlag(
             enriched_job_id=enriched_job_id,
             flagged_by_user_id=flagged_by,
             note=note,
+            resolved=apply,
+            resolved_at=datetime.utcnow() if apply else None,
         )
         s.add(flag)
         s.commit()
         s.refresh(flag)
         flag_id = flag.id
 
+    if apply:
+        # Country changes mean /sources card counts (country-scoped)
+        # and /dashboard daily totals need to rebuild. Mutation-time
+        # cache drop is cheap — next request re-materialises.
+        from vacancysoft.api.ledger import clear_ledger_caches
+        clear_ledger_caches()
+        clear_dashboard_cache()
+        return {
+            "status": "applied",
+            "flag_id": flag_id,
+            "enriched_job_id": enriched_job_id,
+            "city": parsed["city"],
+            "country": parsed["country"],
+            "affected_enriched_ids": affected_ids,
+        }
+
     return {
-        "message": "flagged",
+        "status": "queued",
         "flag_id": flag_id,
         "enriched_job_id": enriched_job_id,
     }

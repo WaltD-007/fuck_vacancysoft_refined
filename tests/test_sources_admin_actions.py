@@ -223,23 +223,116 @@ def test_delete_lead_then_enrichment_skips_raw_job(patched_route, session_factor
 # ── POST /api/leads/{id}/flag-location ──────────────────────────────────
 
 
-def test_flag_location_creates_row(patched_route, session_factory):
+def test_flag_location_unparseable_note_queues_for_review(patched_route, session_factory):
+    """A free-text note that doesn't parse as a location → queue only."""
     ej_id, _ = _seed_lead(session_factory)
 
-    result = leads_module.flag_location(ej_id, {"note": "Says NYC in body"})
+    # Note contains no recognisable place name — normaliser returns
+    # confidence 0.1, well below the 0.7 apply threshold.
+    result = leads_module.flag_location(ej_id, {"note": "please check this one"})
 
-    assert result["message"] == "flagged"
+    assert result["status"] == "queued"
     assert result["enriched_job_id"] == ej_id
     assert result["flag_id"]
+    # No auto-apply fields
+    assert "city" not in result
 
     with session_factory() as s:
         flag = s.execute(
             select(LocationReviewFlag).where(LocationReviewFlag.enriched_job_id == ej_id)
         ).scalar_one()
-        assert flag.note == "Says NYC in body"
+        assert flag.note == "please check this one"
         assert flag.resolved is False
         assert flag.resolved_at is None
         assert flag.flagged_by_user_id is None
+        # Enriched job unchanged
+        ej = s.execute(select(EnrichedJob).where(EnrichedJob.id == ej_id)).scalar_one()
+        assert ej.location_city == "London"
+        assert ej.location_country == "UK"
+
+
+def test_flag_location_parseable_note_applies_correction(patched_route, session_factory):
+    """Operator types 'Buffalo, NY, USA' → endpoint updates the enriched
+    job directly, marks the flag row resolved, and reports status=applied.
+    """
+    ej_id, _ = _seed_lead(session_factory)
+
+    result = leads_module.flag_location(ej_id, {"note": "Buffalo, NY, USA"})
+
+    assert result["status"] == "applied"
+    assert result["city"] == "Buffalo"
+    assert result["country"] == "USA"
+    assert ej_id in result["affected_enriched_ids"]
+
+    with session_factory() as s:
+        ej = s.execute(select(EnrichedJob).where(EnrichedJob.id == ej_id)).scalar_one()
+        assert ej.location_city == "Buffalo"
+        assert ej.location_country == "USA"
+
+        flag = s.execute(
+            select(LocationReviewFlag).where(LocationReviewFlag.enriched_job_id == ej_id)
+        ).scalar_one()
+        assert flag.resolved is True
+        assert flag.resolved_at is not None
+        assert flag.note == "Buffalo, NY, USA"
+
+
+def test_flag_location_applies_to_all_url_siblings(patched_route, session_factory):
+    """When two enriched_jobs share a URL (Google Jobs duplicate pattern),
+    the correction fixes them all in one shot."""
+    ej_id, raw_id = _seed_lead(session_factory, url="https://example.com/dup")
+
+    # Seed a second enriched_job pointing at a different raw_job that
+    # happens to share the same URL.
+    with session_factory() as s:
+        src = s.execute(select(Source)).scalars().first()
+        run = SourceRun(
+            id=str(uuid4()), source_id=src.id, run_type="discovery",
+            status="success", trigger="manual",
+        )
+        s.add(run)
+        s.flush()
+        attempt = ExtractionAttempt(
+            id=str(uuid4()), source_run_id=run.id, source_id=src.id,
+            stage="listing", method="api", success=True,
+        )
+        s.add(attempt)
+        s.flush()
+        raw2 = RawJob(
+            source_id=src.id,
+            source_run_id=run.id,
+            extraction_attempt_id=attempt.id,
+            external_job_id=f"ext-dup-{uuid4()}",
+            discovered_url="https://example.com/dup",  # same URL!
+            title_raw="Credit Risk Analyst",
+            job_fingerprint=f"rfp-dup-{uuid4()}",
+            is_deleted_at_source=False,
+        )
+        s.add(raw2)
+        s.flush()
+        ej2 = EnrichedJob(
+            raw_job_id=raw2.id,
+            canonical_job_key=f"ck-{uuid4()}",
+            title="Credit Risk Analyst",
+            location_city="London",
+            location_country="UK",
+            team="Example Bank",
+            detail_fetch_status="enriched",
+        )
+        s.add(ej2)
+        s.commit()
+        ej2_id = ej2.id
+
+    result = leads_module.flag_location(ej_id, {"note": "Buffalo, NY, USA"})
+
+    assert result["status"] == "applied"
+    assert set(result["affected_enriched_ids"]) == {ej_id, ej2_id}
+
+    with session_factory() as s:
+        for eid in (ej_id, ej2_id):
+            ej = s.execute(select(EnrichedJob).where(EnrichedJob.id == eid)).scalar_one()
+            assert ej.location_city == "Buffalo"
+            assert ej.location_country == "USA"
 
 
 def test_flag_location_missing_lead_returns_404(patched_route):
@@ -248,18 +341,19 @@ def test_flag_location_missing_lead_returns_404(patched_route):
     assert exc.value.status_code == 404
 
 
-def test_flag_location_empty_body_defaults(patched_route, session_factory):
-    """Operator may hit the button with no context — endpoint accepts it."""
+def test_flag_location_empty_body_queues(patched_route, session_factory):
+    """Operator may hit the button with no context — queued for review."""
     ej_id, _ = _seed_lead(session_factory)
 
     result = leads_module.flag_location(ej_id, None)
 
-    assert result["message"] == "flagged"
+    assert result["status"] == "queued"
     with session_factory() as s:
         flag = s.execute(
             select(LocationReviewFlag).where(LocationReviewFlag.enriched_job_id == ej_id)
         ).scalar_one()
         assert flag.note == ""
+        assert flag.resolved is False
 
 
 def test_flag_location_accepts_user_id(patched_route, session_factory):
