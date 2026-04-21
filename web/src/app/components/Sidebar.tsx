@@ -5,6 +5,7 @@ import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "../lib/swr";
 import { FEATURES } from "../lib/features";
+import { useCurrentUser } from "../lib/useCurrentUser";
 
 const sections = ["OVERVIEW", "PIPELINE", "SETTINGS"];
 
@@ -20,6 +21,24 @@ type NavItem = {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  // Shares the SWR cache key "/users/me" with the Dashboard's own
+  // useCurrentUser call — no duplicate fetch. Falls back to the
+  // historical hardcoded strings when no user exists yet (backend
+  // 401/404), so the Sidebar never shows a blank user card.
+  const { user } = useCurrentUser();
+  const initials = user
+    ? user.display_name
+        .split(/\s+/)
+        .map((s) => s[0])
+        .filter(Boolean)
+        .slice(0, 2)
+        .join("")
+        .toUpperCase()
+    : "AB";
+  const userLabel = user?.display_name ?? "Antony B.";
+  const userSublabel = user?.role
+    ? user.role[0].toUpperCase() + user.role.slice(1)
+    : "Pro Plan";
   // Shares the same SWR cache key ("/queue") as the Leads page — when
   // both are mounted there's exactly one HTTP request every 5s, not two.
   const { data: queueData } = useSWR<Array<unknown>>("/queue", fetcher, {
@@ -98,10 +117,10 @@ export default function Sidebar() {
 
       {/* User */}
       <div className="px-4 py-4 flex items-center gap-2.5" style={{ borderTop: "1px solid #1f1f2f" }}>
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: "linear-gradient(135deg, #6c5ce7, #fd79a8)" }}>AB</div>
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white" style={{ background: "linear-gradient(135deg, #6c5ce7, #fd79a8)" }}>{initials}</div>
         <div className="flex-1">
-          <div className="text-[13px] font-semibold">Antony B.</div>
-          <div className="text-[11px]" style={{ color: "#555570" }}>Pro Plan</div>
+          <div className="text-[13px] font-semibold">{userLabel}</div>
+          <div className="text-[11px]" style={{ color: "#555570" }}>{userSublabel}</div>
         </div>
       </div>
     </aside>

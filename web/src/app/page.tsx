@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import useSWR from "swr";
 import Sidebar from "./components/Sidebar";
 import { API, fetcher } from "./lib/swr";
+import { useCurrentUser } from "./lib/useCurrentUser";
 
 type Dashboard = {
   total_scored: number;
@@ -77,10 +78,84 @@ export default function DashboardPage() {
     dedupingInterval: 2000,
     keepPreviousData: true,
   });
-  const [feedCategory, setFeedCategory] = useState("");
-  const [feedCountry, setFeedCountry] = useState("");
-  const [feedSubSpec, setFeedSubSpec] = useState("");
-  const [feedEmploymentType, setFeedEmploymentType] = useState("Permanent");
+  // Live-feed filter state. Initial values come from the current
+  // user's saved preferences (if any); changes push back to the
+  // backend on a 500ms debounce. When the user hook resolves async,
+  // a `useEffect` below overwrites the local state once so the
+  // operator sees their last selections restore on reload.
+  //
+  // Falls back to hardcoded defaults when no user exists (backend
+  // 401) — so the Dashboard still works on a stack without the
+  // users backend deployed, or before `prospero user add` has been
+  // run, just without persistence.
+  const { user, preferences, updatePreferences } = useCurrentUser();
+  const savedFeed = preferences.dashboard_feed ?? {};
+  const [feedCategory, setFeedCategoryRaw] = useState<string>(
+    savedFeed.category ?? "",
+  );
+  const [feedCountry, setFeedCountryRaw] = useState<string>(
+    savedFeed.country ?? "",
+  );
+  const [feedSubSpec, setFeedSubSpecRaw] = useState<string>(
+    savedFeed.sub_specialism ?? "",
+  );
+  const [feedEmploymentType, setFeedEmploymentTypeRaw] = useState<string>(
+    savedFeed.employment_type ?? "Permanent",
+  );
+
+  // When the user resolves async (SWR fetch completes), overwrite the
+  // four filter states from their saved preferences. Keyed on
+  // `user?.id` so this runs exactly once per user-identity change;
+  // subsequent preference updates come via `updatePreferences` and
+  // don't need to re-sync local state (we're the source of truth
+  // for them during this session).
+  useEffect(() => {
+    if (!user) return;
+    const d = user.preferences.dashboard_feed ?? {};
+    if (d.category !== undefined) setFeedCategoryRaw(d.category);
+    if (d.country !== undefined) setFeedCountryRaw(d.country);
+    if (d.sub_specialism !== undefined) setFeedSubSpecRaw(d.sub_specialism);
+    if (d.employment_type !== undefined) setFeedEmploymentTypeRaw(d.employment_type);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  // Every setter wraps its `setXRaw` sibling and fires an
+  // `updatePreferences` with the full `dashboard_feed` blob.
+  // We rebuild the whole section each time because the backend does
+  // a shallow top-level merge — sending partial keys would wipe the
+  // others.
+  function pushFeedPrefs(next: Partial<{
+    category: string;
+    country: string;
+    sub_specialism: string;
+    employment_type: string;
+  }>) {
+    updatePreferences({
+      dashboard_feed: {
+        category: next.category ?? feedCategory,
+        country: next.country ?? feedCountry,
+        sub_specialism: next.sub_specialism ?? feedSubSpec,
+        employment_type: next.employment_type ?? feedEmploymentType,
+      },
+    });
+  }
+
+  const setFeedCategory = (v: string) => {
+    setFeedCategoryRaw(v);
+    pushFeedPrefs({ category: v });
+  };
+  const setFeedCountry = (v: string) => {
+    setFeedCountryRaw(v);
+    pushFeedPrefs({ country: v });
+  };
+  const setFeedSubSpec = (v: string) => {
+    setFeedSubSpecRaw(v);
+    pushFeedPrefs({ sub_specialism: v });
+  };
+  const setFeedEmploymentType = (v: string) => {
+    setFeedEmploymentTypeRaw(v);
+    pushFeedPrefs({ employment_type: v });
+  };
   const [queued, setQueued] = useState<Set<string>>(new Set());
   const [excludedCompanies, setExcludedCompanies] = useState<Set<string>>(new Set());
   // company -> end timestamp ms; non-empty rows are greyed out and
