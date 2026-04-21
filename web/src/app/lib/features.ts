@@ -41,6 +41,18 @@ export const FEATURES = {
   // the change-request review flow lands (or immediately if you want to
   // expose the current "DB cascade only" behaviour to colleagues).
   markAgencyButton: true,
+
+  // "×" remove button on Source cards. Default OFF — when a colleague
+  // is clicking around via the review tunnel (or any read-only demo
+  // scenario) an accidental delete is a real risk: the endpoint
+  // cascades and removes the source + its raw_jobs + downstream rows.
+  // Flip to true when you're operating the directory yourself and
+  // want the button back.
+  //
+  // When OFF, the button still renders but is visually greyed and
+  // non-clickable. The confirm-delete popover flow remains in code;
+  // it's just unreachable until the flag flips.
+  removeSourceButton: false,
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;
