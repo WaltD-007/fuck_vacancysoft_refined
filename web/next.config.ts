@@ -19,6 +19,21 @@ const backendApiUrl = process.env.BACKEND_API_URL ?? "http://localhost:8000";
 const nextConfig: NextConfig = {
   devIndicators: false,
   reactStrictMode: false,
+  // Next.js 16+ blocks cross-origin requests to dev resources (HMR,
+  // webpack chunks, dev fonts) unless the origin is explicitly
+  // allowed. This broke sharing dev-mode Prospero via ngrok or
+  // Cloudflare Tunnel — the colleague's browser got the HTML but
+  // every subsequent dev-resource fetch 404'd, which looked like
+  // the UI hanging.
+  //
+  // Wildcard patterns cover the random subdomains those tunnel
+  // providers hand out. Prod builds ignore this setting entirely
+  // (it's dev-only), so it's safe to keep even after deploy.
+  allowedDevOrigins: [
+    "*.ngrok-free.dev",
+    "*.ngrok-free.app",
+    "*.trycloudflare.com",
+  ],
   async rewrites() {
     return [
       {
