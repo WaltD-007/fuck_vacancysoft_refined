@@ -38,7 +38,18 @@ def _render_voice_layer(user_context: dict[str, Any] | None) -> str:
       * user_context has no authored tone prompts AND no voice
         samples — a cold-start user with only an id/email.
 
-    Otherwise returns a block starting with a leading newline so the
+    Samples are grouped PER TONE (not per sequence) so the model
+    gets strict per-tone voice matching: when writing the
+    ``informal`` variant of sequence 2, it imitates only samples
+    listed under the informal heading, not the formal or direct
+    ones. This is deliberate — the six tones exist specifically
+    because they should sound different, so cross-tone imitation
+    would defeat the point of having six tones at all.
+
+    Voice sample input shape (set by ``build_user_context``):
+        ``{tone: {sequence_index: [sample, ...]}}``
+
+    Returns a block starting with a leading newline so the
     template rendering lands cleanly between the preceding
     "Do not invent dossier details." line and the "# Output schema"
     heading.
@@ -47,11 +58,16 @@ def _render_voice_layer(user_context: dict[str, Any] | None) -> str:
         return ""
 
     tone_prompts: dict[str, str] = user_context.get("tone_prompts") or {}
-    voice_samples: dict[int, list[dict]] = user_context.get("voice_samples_by_step") or {}
+    voice_samples: dict[str, dict[int, list[dict]]] = (
+        user_context.get("voice_samples_by_tone") or {}
+    )
     display_name = (user_context.get("display_name") or "the operator").strip()
 
     has_authored = any((tone_prompts.get(t) or "").strip() for t in _CAMPAIGN_TONES)
-    has_samples = any(voice_samples.get(seq) for seq in range(1, 6))
+    has_samples = any(
+        any(voice_samples.get(tone, {}).get(seq) for seq in range(1, 6))
+        for tone in _CAMPAIGN_TONES
+    )
     if not has_authored and not has_samples:
         return ""
 
@@ -78,26 +94,38 @@ def _render_voice_layer(user_context: dict[str, Any] | None) -> str:
 
     if has_samples:
         parts.extend([
-            f"## How {display_name} actually writes (last 5 sent messages per sequence)",
+            f"## How {display_name} actually writes (strict per-tone voice samples)",
             "",
-            "The emails below were sent by this operator. Learn the voice — sentence length, opener patterns, closer patterns, word choice, rhythm. Do NOT copy subjects or phrasings verbatim. Do NOT invent signed-off-by text from these; they are voice reference only. Do NOT quote them as if they were part of this conversation.",
+            "STRICT TONE MATCHING: When writing a specific tone variant (e.g. the `informal` cell of sequence 2), imitate ONLY the samples listed under that tone's heading below. Do NOT cross-pollinate patterns between tones — the six tones exist precisely because they should sound different. A sample shown under `formal` trains the formal variants only; it tells you NOTHING about how to write `informal` or `direct` variants.",
+            "",
+            "For each tone's section below, learn the voice — sentence length, opener patterns, closer patterns, word choice, rhythm, sign-off style. Do NOT copy subjects or body text verbatim. Do NOT invent signed-off-by lines from these samples; they are voice reference only. Do NOT quote them as if they were part of this conversation.",
+            "",
+            "Tones with no samples on file are omitted from this section — for those, fall back to the authored tone guidance above or the default tone->source voice notes.",
             "",
         ])
-        for seq in range(1, 6):
-            rows = voice_samples.get(seq) or []
-            if not rows:
-                continue
-            parts.append(f"### Sequence {seq} samples (most recent first)")
+
+        for tone in _CAMPAIGN_TONES:
+            tone_samples = voice_samples.get(tone, {})
+            if not any(tone_samples.get(seq) for seq in range(1, 6)):
+                continue   # skip tones with no samples
+
+            total = sum(len(tone_samples.get(seq) or []) for seq in range(1, 6))
+            parts.append(f"### {tone} — {total} sample{'s' if total != 1 else ''} on file")
             parts.append("")
-            for idx, row in enumerate(rows, start=1):
-                # Same brace-escape reasoning as above — operator-
-                # written bodies may contain curly braces.
-                subj = (row.get("subject") or "").replace("{", "{{").replace("}", "}}").strip()
-                body = (row.get("body") or "").replace("{", "{{").replace("}", "}}").strip()
-                tone = (row.get("tone") or "").strip() or "unknown"
-                parts.append(f"{idx}. [tone: {tone}] Subject: \"{subj}\"")
-                parts.append(f"   Body: \"{body}\"")
-                parts.append("")
+
+            for seq in range(1, 6):
+                rows = tone_samples.get(seq) or []
+                if not rows:
+                    continue
+                for idx, row in enumerate(rows, start=1):
+                    # Brace-escape operator-written content so the
+                    # outer template.format() doesn't misinterpret
+                    # literal `{` / `}` as placeholders.
+                    subj = (row.get("subject") or "").replace("{", "{{").replace("}", "}}").strip()
+                    body = (row.get("body") or "").replace("{", "{{").replace("}", "}}").strip()
+                    parts.append(f"{idx}. [seq {seq}] Subject: \"{subj}\"")
+                    parts.append(f"   Body: \"{body}\"")
+                    parts.append("")
 
     return "\n".join(parts)
 

@@ -59,6 +59,7 @@ def _empty_user_context() -> dict:
     """A user_context shape with a real user id/email but no authored
     prompts and no voice samples. Cold-start — should render identical
     to user_context=None."""
+    _empty_tone_samples = {seq: [] for seq in range(1, 6)}
     return {
         "user_id": "abc",
         "display_name": "Antony B.",
@@ -67,7 +68,12 @@ def _empty_user_context() -> dict:
             "formal": "", "informal": "", "consultative": "",
             "direct": "", "candidate_spec": "", "technical": "",
         },
-        "voice_samples_by_step": {1: [], 2: [], 3: [], 4: [], 5: []},
+        # Shape: {tone: {sequence_index: [samples...]}}.
+        # Strict per-tone-per-sequence windowing (5 per slot).
+        "voice_samples_by_tone": {
+            tone: dict(_empty_tone_samples) for tone in
+            ("formal", "informal", "consultative", "direct", "candidate_spec", "technical")
+        },
     }
 
 
@@ -139,48 +145,96 @@ class TestAuthoredTonePrompts:
             assert f"**{tone}**:" in user
 
 
-# ── Voice samples ──────────────────────────────────────────────────
+# ── Voice samples (strict per-tone grouping) ───────────────────────
 
 
 class TestVoiceSamples:
 
-    def test_voice_samples_render_as_few_shot_blocks(self) -> None:
+    def test_voice_samples_render_grouped_per_tone(self) -> None:
         ctx = _empty_user_context()
-        ctx["voice_samples_by_step"][1] = [
+        # Two informal samples for seq 1, one formal sample for seq 3.
+        ctx["voice_samples_by_tone"]["informal"][1] = [
             {"subject": "A quick thought on the risk role", "body": "Hi. I work for Barclay Simpson. Cheers.", "tone": "informal"},
             {"subject": "Second one", "body": "Short and friendly.", "tone": "informal"},
         ]
+        ctx["voice_samples_by_tone"]["formal"][3] = [
+            {"subject": "Formal follow-up", "body": "A measured note.", "tone": "formal"},
+        ]
         messages = resolve_campaign_prompt("risk", _job(), _dossier(), user_context=ctx)
         user = messages[1]["content"]
-        assert "How Antony B. actually writes" in user
-        assert "### Sequence 1 samples" in user
+        # Per-tone sections, not per-sequence
+        assert "### informal — 2 samples on file" in user
+        assert "### formal — 1 sample on file" in user
+        # Strict-tone-matching preamble appears
+        assert "STRICT TONE MATCHING" in user
+        # Samples tagged with their sequence
+        assert "[seq 1]" in user
+        assert "[seq 3]" in user
+        # Actual content
         assert "A quick thought on the risk role" in user
-        assert "Short and friendly." in user
-        assert "[tone: informal]" in user
+        assert "Formal follow-up" in user
 
-    def test_sequences_with_zero_samples_are_omitted(self) -> None:
-        """Empty sequences must not render an empty header block."""
+    def test_strict_tone_matching_message_present(self) -> None:
+        """The prompt must tell the model to imitate ONLY the right-tone
+        samples. Without this instruction, the samples from one tone
+        can leak into other tones' variants, defeating the purpose of
+        per-tone windowing."""
         ctx = _empty_user_context()
-        ctx["voice_samples_by_step"][3] = [
+        ctx["voice_samples_by_tone"]["informal"][1] = [
+            {"subject": "hi", "body": "body", "tone": "informal"},
+        ]
+        messages = resolve_campaign_prompt("risk", _job(), _dossier(), user_context=ctx)
+        user = messages[1]["content"]
+        assert "STRICT TONE MATCHING" in user
+        assert "Do NOT cross-pollinate patterns between tones" in user
+
+    def test_tones_with_zero_samples_are_omitted(self) -> None:
+        """Empty tone buckets must not render empty headers."""
+        ctx = _empty_user_context()
+        ctx["voice_samples_by_tone"]["direct"][3] = [
             {"subject": "Mid one", "body": "Body mid.", "tone": "direct"},
         ]
         messages = resolve_campaign_prompt("risk", _job(), _dossier(), user_context=ctx)
         user = messages[1]["content"]
-        assert "### Sequence 3 samples" in user
-        # No empty Sequence 1 / 2 / 4 / 5 headers
-        for seq in (1, 2, 4, 5):
-            assert f"### Sequence {seq} samples" not in user
+        assert "### direct — 1 sample on file" in user
+        # No empty tone headings for the other five tones
+        for tone in ("formal", "informal", "consultative", "candidate_spec", "technical"):
+            assert f"### {tone} —" not in user
 
     def test_sample_bodies_with_braces_survive(self) -> None:
         """A scraped subject line containing `{}` must not crash format()."""
         ctx = _empty_user_context()
-        ctx["voice_samples_by_step"][1] = [
+        ctx["voice_samples_by_tone"]["direct"][1] = [
             {"subject": "Re: {placeholder} test", "body": "Body with {code}.", "tone": "direct"},
         ]
         messages = resolve_campaign_prompt("risk", _job(), _dossier(), user_context=ctx)
         user = messages[1]["content"]
         assert "{placeholder}" in user
         assert "{code}" in user
+
+    def test_multiple_sequences_within_one_tone_grouped_under_same_header(
+        self,
+    ) -> None:
+        """When the same tone has samples in several sequences, they
+        all appear under that tone's header, tagged with [seq N]."""
+        ctx = _empty_user_context()
+        ctx["voice_samples_by_tone"]["informal"][1] = [
+            {"subject": "intro", "body": "intro body", "tone": "informal"}
+        ]
+        ctx["voice_samples_by_tone"]["informal"][3] = [
+            {"subject": "middle", "body": "middle body", "tone": "informal"}
+        ]
+        ctx["voice_samples_by_tone"]["informal"][5] = [
+            {"subject": "signoff", "body": "signoff body", "tone": "informal"}
+        ]
+        messages = resolve_campaign_prompt("risk", _job(), _dossier(), user_context=ctx)
+        user = messages[1]["content"]
+        assert "### informal — 3 samples on file" in user
+        # One tone heading, three [seq N] tags
+        assert user.count("### informal") == 1
+        assert "[seq 1]" in user
+        assert "[seq 3]" in user
+        assert "[seq 5]" in user
 
 
 # ── Combined authored + samples ────────────────────────────────────
@@ -191,13 +245,13 @@ class TestCombined:
     def test_both_render_when_both_present(self) -> None:
         ctx = _empty_user_context()
         ctx["tone_prompts"]["formal"] = "Always start with the company context."
-        ctx["voice_samples_by_step"][2] = [
+        ctx["voice_samples_by_tone"]["informal"][2] = [
             {"subject": "Week 2 nudge", "body": "Short body.", "tone": "informal"},
         ]
         messages = resolve_campaign_prompt("risk", _job(), _dossier(), user_context=ctx)
         user = messages[1]["content"]
         assert "Authored voice guidance" in user
-        assert "How Antony B. actually writes" in user
+        assert "strict per-tone voice samples" in user
         # Voice layer sits between global rules and output schema
         assert user.index("# Voice layer") < user.index("# Output schema")
         # Global rules still come before the voice layer

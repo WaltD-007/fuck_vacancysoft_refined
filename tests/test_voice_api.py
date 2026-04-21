@@ -332,29 +332,33 @@ def _seed_sent_message(
 
 
 class TestGetVoiceSamples:
+    """Response shape: {tone: {sequence_index: [samples]}}. Strict
+    per-(tone, sequence) windowing capped at 5. Cold-start returns
+    every tone + every sequence as empty lists so callers never
+    have to check for missing keys."""
 
-    def test_cold_start_empty_per_sequence(self, client, session_factory) -> None:
-        """Fresh user with no sent_messages — all five sequences are empty lists."""
+    def test_cold_start_empty_for_every_tone_and_sequence(self, client, session_factory) -> None:
         _add_user(session_factory, "ab@firm.com")
         r = client.get(
             "/api/users/me/voice-samples",
             headers={"X-Prospero-User-Email": "ab@firm.com"},
         )
         assert r.status_code == 200
-        # JSON keys stringified; values lists.
         body = r.json()
-        for seq in ("1", "2", "3", "4", "5"):
-            assert body[seq] == []
+        for tone in ("formal", "informal", "consultative", "direct", "candidate_spec", "technical"):
+            assert tone in body
+            for seq in ("1", "2", "3", "4", "5"):
+                assert body[tone][seq] == []
 
-    def test_returns_sent_messages_grouped_by_sequence(self, client, session_factory) -> None:
+    def test_returns_sent_messages_under_matching_tone_and_sequence(self, client, session_factory) -> None:
         _add_user(session_factory, "ab@firm.com")
         _seed_sent_message(
             session_factory, sender_email="ab@firm.com",
-            sequence=1, subject="First", body="Hi there.",
+            sequence=1, subject="First", body="Hi there.", tone="informal",
         )
         _seed_sent_message(
             session_factory, sender_email="ab@firm.com",
-            sequence=3, subject="Mid", body="Middle body.",
+            sequence=3, subject="Mid", body="Middle body.", tone="formal",
         )
         r = client.get(
             "/api/users/me/voice-samples",
@@ -362,19 +366,25 @@ class TestGetVoiceSamples:
         )
         assert r.status_code == 200
         body = r.json()
-        assert len(body["1"]) == 1
-        assert body["1"][0]["subject"] == "First"
-        assert len(body["3"]) == 1
-        assert body["3"][0]["body"] == "Middle body."
-        # Untouched sequences still empty
-        assert body["2"] == []
+        # Informal sequence 1 has the first row; formal sequence 3 has the mid row.
+        assert len(body["informal"]["1"]) == 1
+        assert body["informal"]["1"][0]["subject"] == "First"
+        assert len(body["formal"]["3"]) == 1
+        assert body["formal"]["3"][0]["body"] == "Middle body."
+        # Strict per-tone isolation: a sample for informal seq 1 does
+        # NOT leak into formal seq 1 or informal seq 3.
+        assert body["formal"]["1"] == []
+        assert body["informal"]["3"] == []
 
-    def test_window_caps_at_five_per_sequence(self, client, session_factory) -> None:
+    def test_window_caps_at_five_per_tone_and_sequence(self, client, session_factory) -> None:
+        """Saving 7 rows for one (tone, sequence) slot → only the 5
+        newest appear in the response."""
         _add_user(session_factory, "ab@firm.com")
         for i in range(7):
             _seed_sent_message(
                 session_factory, sender_email="ab@firm.com",
                 sequence=1, subject=f"Subj {i}", body=f"Body {i}",
+                tone="informal",
                 sent_at=datetime.utcnow() - timedelta(minutes=7 - i),
             )
         r = client.get(
@@ -382,7 +392,29 @@ class TestGetVoiceSamples:
             headers={"X-Prospero-User-Email": "ab@firm.com"},
         )
         assert r.status_code == 200
-        assert len(r.json()["1"]) == 5
+        assert len(r.json()["informal"]["1"]) == 5
+
+    def test_per_tone_isolation(self, client, session_factory) -> None:
+        """Samples saved for the informal tone MUST NOT show up in the
+        formal tone's window, even at the same sequence. Guards the
+        strict-tone-matching contract."""
+        _add_user(session_factory, "ab@firm.com")
+        for i in range(3):
+            _seed_sent_message(
+                session_factory, sender_email="ab@firm.com",
+                sequence=1, subject=f"Informal {i}", body=f"body {i}",
+                tone="informal",
+            )
+        r = client.get(
+            "/api/users/me/voice-samples",
+            headers={"X-Prospero-User-Email": "ab@firm.com"},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert len(body["informal"]["1"]) == 3
+        # Other five tones' sequence 1 must be empty
+        for tone in ("formal", "consultative", "direct", "candidate_spec", "technical"):
+            assert body[tone]["1"] == []
 
     def test_failed_and_pending_excluded(self, client, session_factory) -> None:
         """status != 'sent' rows should NOT appear in the sample pool."""
@@ -390,24 +422,24 @@ class TestGetVoiceSamples:
         _seed_sent_message(
             session_factory, sender_email="ab@firm.com",
             sequence=1, subject="OK", body="Good.",
-            status="sent",
+            tone="informal", status="sent",
         )
         _seed_sent_message(
             session_factory, sender_email="ab@firm.com",
             sequence=1, subject="FAIL", body="Bad.",
-            status="failed",
+            tone="informal", status="failed",
         )
         _seed_sent_message(
             session_factory, sender_email="ab@firm.com",
             sequence=1, subject="PENDING", body="Not yet.",
-            status="pending",
+            tone="informal", status="pending",
         )
         r = client.get(
             "/api/users/me/voice-samples",
             headers={"X-Prospero-User-Email": "ab@firm.com"},
         )
         assert r.status_code == 200
-        samples = r.json()["1"]
+        samples = r.json()["informal"]["1"]
         assert len(samples) == 1
         assert samples[0]["subject"] == "OK"
 
@@ -417,14 +449,16 @@ class TestGetVoiceSamples:
         _seed_sent_message(
             session_factory, sender_email="a@firm.com",
             sequence=1, subject="A's mail", body="A's body.",
+            tone="informal",
         )
         r = client.get(
             "/api/users/me/voice-samples",
             headers={"X-Prospero-User-Email": "b@firm.com"},
         )
         assert r.status_code == 200
-        # B sees none of A's sends
-        assert r.json()["1"] == []
+        # B sees none of A's sends — all tones empty at every sequence
+        body = r.json()
+        assert body["informal"]["1"] == []
 
 
 # ── POST /api/users/me/voice-training-samples ──────────────────────
@@ -542,12 +576,13 @@ class TestPostVoiceTrainingSample:
 
 
 class TestVoiceSamplesUnion:
-    """Training samples and real sends show up together in the
-    voice-samples endpoint, newest first, capped at the window size."""
+    """Training samples and real sends show up together under the
+    matching (tone, sequence) slot, newest first, capped at 5."""
 
     def test_training_only_when_no_sends(self, client, session_factory) -> None:
         """Pre-send-flow world: operator has authored 2 training
-        samples, no SentMessage rows. Both come back."""
+        samples for (informal, seq 1). Both come back under that
+        slot; other slots stay empty."""
         uid = _add_user(session_factory, "ab@firm.com")
         with session_factory() as s:
             s.add(VoiceTrainingSample(
@@ -564,34 +599,39 @@ class TestVoiceSamplesUnion:
             headers={"X-Prospero-User-Email": "ab@firm.com"},
         )
         assert r.status_code == 200
-        subjects = [s["subject"] for s in r.json()["1"]]
+        body = r.json()
+        subjects = [x["subject"] for x in body["informal"]["1"]]
         assert set(subjects) == {"first", "second"}
+        # Strict isolation — formal seq 1 untouched
+        assert body["formal"]["1"] == []
 
     def test_real_sends_and_training_merged_newest_first(
         self, client, session_factory
     ) -> None:
-        """Real SentMessage + VoiceTrainingSample in the same sequence
-        merge by timestamp, newest first, capped at 5."""
+        """Real SentMessage + VoiceTrainingSample share a (tone,
+        sequence) slot: merge by timestamp, newest first, capped at 5."""
         _add_user(session_factory, "ab@firm.com")
-        # Seed 2 real sends (dated)
+        # Two real sends, both informal seq 2
         _seed_sent_message(
             session_factory, sender_email="ab@firm.com",
             sequence=2, subject="sent-old", body="old body",
+            tone="informal",
             sent_at=datetime.utcnow() - timedelta(days=5),
         )
         _seed_sent_message(
             session_factory, sender_email="ab@firm.com",
             sequence=2, subject="sent-new", body="new body",
+            tone="informal",
             sent_at=datetime.utcnow() - timedelta(hours=1),
         )
-        # Plus a training sample created "now" (most recent)
+        # Training sample for same slot, created just now
         with session_factory() as s:
             u = s.execute(
                 __import__("sqlalchemy").select(User)
                 .where(User.email == "ab@firm.com")
             ).scalar_one()
             s.add(VoiceTrainingSample(
-                user_id=u.id, sequence_index=2, tone="direct",
+                user_id=u.id, sequence_index=2, tone="informal",
                 subject="training-newest", body="training body",
             ))
             s.commit()
@@ -601,22 +641,56 @@ class TestVoiceSamplesUnion:
             headers={"X-Prospero-User-Email": "ab@firm.com"},
         )
         assert r.status_code == 200
-        samples = r.json()["2"]
+        samples = r.json()["informal"]["2"]
         assert len(samples) == 3
         # Newest first: training-newest, sent-new, sent-old
         assert samples[0]["subject"] == "training-newest"
         assert samples[1]["subject"] == "sent-new"
         assert samples[2]["subject"] == "sent-old"
 
-    def test_window_caps_merged_pool_at_five(self, client, session_factory) -> None:
-        """If training + sends together exceed 5, only the newest 5
-        are returned."""
+    def test_training_and_sends_on_different_tones_stay_separated(
+        self, client, session_factory
+    ) -> None:
+        """Critical strict-tone-matching test: an informal training
+        sample and a formal real send in the SAME sequence must
+        appear in DIFFERENT slots — no cross-contamination."""
+        _add_user(session_factory, "ab@firm.com")
+        _seed_sent_message(
+            session_factory, sender_email="ab@firm.com",
+            sequence=3, subject="formal-real", body="formal body",
+            tone="formal",
+        )
+        with session_factory() as s:
+            u = s.execute(
+                __import__("sqlalchemy").select(User)
+                .where(User.email == "ab@firm.com")
+            ).scalar_one()
+            s.add(VoiceTrainingSample(
+                user_id=u.id, sequence_index=3, tone="informal",
+                subject="informal-training", body="informal body",
+            ))
+            s.commit()
+        r = client.get(
+            "/api/users/me/voice-samples",
+            headers={"X-Prospero-User-Email": "ab@firm.com"},
+        )
+        body = r.json()
+        # Each slot holds exactly its own tone
+        assert len(body["formal"]["3"]) == 1
+        assert body["formal"]["3"][0]["subject"] == "formal-real"
+        assert len(body["informal"]["3"]) == 1
+        assert body["informal"]["3"][0]["subject"] == "informal-training"
+
+    def test_window_caps_merged_pool_at_five_per_slot(self, client, session_factory) -> None:
+        """If training + sends together exceed 5 in one (tone, seq)
+        slot, only the newest 5 are returned."""
         uid = _add_user(session_factory, "ab@firm.com")
-        # 3 real sends, 4 training samples = 7 total
+        # 3 real sends + 4 training samples = 7 all for (informal, 1)
         for i in range(3):
             _seed_sent_message(
                 session_factory, sender_email="ab@firm.com",
                 sequence=1, subject=f"sent-{i}", body=f"body-{i}",
+                tone="informal",
                 sent_at=datetime.utcnow() - timedelta(hours=10 + i),
             )
         with session_factory() as s:
@@ -631,7 +705,7 @@ class TestVoiceSamplesUnion:
             headers={"X-Prospero-User-Email": "ab@firm.com"},
         )
         assert r.status_code == 200
-        assert len(r.json()["1"]) == 5
+        assert len(r.json()["informal"]["1"]) == 5
 
     def test_training_samples_isolated_per_user(self, client, session_factory) -> None:
         a_id = _add_user(session_factory, "a@firm.com", display_name="A")
@@ -647,4 +721,7 @@ class TestVoiceSamplesUnion:
             headers={"X-Prospero-User-Email": "b@firm.com"},
         )
         assert r.status_code == 200
-        assert r.json()["1"] == []
+        # B sees none of A's training — all tones × sequences empty
+        body = r.json()
+        assert body["informal"]["1"] == []
+        assert body["formal"]["1"] == []
