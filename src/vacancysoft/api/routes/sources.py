@@ -202,6 +202,7 @@ def get_source_jobs(
         if sub_allowed is not None and sub_spec not in sub_allowed:
             continue
         result.append(ScoredJobOut(
+            id=r[0],
             title=title,
             company=target["employer_display"],
             location=r[2],

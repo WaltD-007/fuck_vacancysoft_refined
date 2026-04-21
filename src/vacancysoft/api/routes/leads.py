@@ -1106,3 +1106,175 @@ async def _enqueue_process_lead(
     asyncio.ensure_future(
         _scrape_and_generate_dossier(item_id, url, company, title)
     )
+
+
+# ── Sources page admin actions ──────────────────────────────────────
+#
+# Operator actions on the Sources page's expanded card "Jobs" drawer.
+# Each job row carries three buttons:
+#
+#   * Agy job         → POST /api/agency (in routes/campaigns.py) — the
+#                       existing handler already blocklists the employer
+#                       and cascades all their EnrichedJobs / dossiers /
+#                       campaigns / queue items / scores / classifications.
+#                       No new endpoint needed for this button.
+#   * Dead job        → DELETE /api/leads/{enriched_job_id} (below).
+#                       Hard-deletes the single job and marks the underlying
+#                       RawJob.is_deleted_at_source=True so the enrichment
+#                       pipeline's NOT EXISTS scan (pipelines/enrichment_
+#                       persistence.py) skips it on the next run and the
+#                       job doesn't come back on the next scrape.
+#   * Wrong location  → POST /api/leads/{enriched_job_id}/flag-location
+#                       (below). Non-destructive — inserts a row into
+#                       location_review_queue (migration 0010) for a
+#                       future /review UI to pick up.
+
+
+@router.delete("/api/leads/{enriched_job_id}")
+def delete_lead(enriched_job_id: str):
+    """Hard-delete a single enriched job and suppress re-enrichment.
+
+    Cascade delete order mirrors ``/api/agency`` (routes/campaigns.py)
+    for consistency: dossiers → campaign_outputs → review_queue →
+    scores → classifications → enriched_job. The RawJob is preserved
+    (it's the scraper's record of what was on the ATS) but its
+    ``is_deleted_at_source`` column is flipped to True so the
+    enrichment pass in ``pipelines/enrichment_persistence.py`` skips
+    it on the next run — otherwise the lead would re-appear on the
+    next scrape tick.
+
+    Deliberately does NOT auto-resolve any LocationReviewFlag rows
+    pointing at this enriched_job — those are audit rows, not live
+    state. See migration 0010's docstring for the rationale.
+
+    Returns a small dict with the rowcounts for each stage so the
+    frontend can optimistically confirm the job is gone.
+    """
+    from sqlalchemy import delete as sa_delete
+    from vacancysoft.db.models import (
+        CampaignOutput,
+        ClassificationResult,
+        IntelligenceDossier,
+        ReviewQueueItem,
+    )
+
+    with SessionLocal() as s:
+        ej = s.execute(
+            select(EnrichedJob).where(EnrichedJob.id == enriched_job_id)
+        ).scalar_one_or_none()
+        if ej is None:
+            raise HTTPException(status_code=404, detail="enriched job not found")
+
+        raw_job_id = ej.raw_job_id
+
+        dossier_ids = [
+            d.id for d in s.execute(
+                select(IntelligenceDossier).where(
+                    IntelligenceDossier.enriched_job_id == enriched_job_id
+                )
+            ).scalars()
+        ]
+        deleted_campaigns = 0
+        if dossier_ids:
+            deleted_campaigns = s.execute(
+                sa_delete(CampaignOutput).where(CampaignOutput.dossier_id.in_(dossier_ids))
+            ).rowcount or 0
+        deleted_dossiers = s.execute(
+            sa_delete(IntelligenceDossier).where(
+                IntelligenceDossier.enriched_job_id == enriched_job_id
+            )
+        ).rowcount or 0
+        deleted_queue = s.execute(
+            sa_delete(ReviewQueueItem).where(
+                ReviewQueueItem.enriched_job_id == enriched_job_id
+            )
+        ).rowcount or 0
+        deleted_scores = s.execute(
+            sa_delete(ScoreResult).where(
+                ScoreResult.enriched_job_id == enriched_job_id
+            )
+        ).rowcount or 0
+        deleted_classifications = s.execute(
+            sa_delete(ClassificationResult).where(
+                ClassificationResult.enriched_job_id == enriched_job_id
+            )
+        ).rowcount or 0
+        s.execute(
+            sa_delete(EnrichedJob).where(EnrichedJob.id == enriched_job_id)
+        )
+
+        # Mark the RawJob so enrichment doesn't re-create the EnrichedJob
+        # on the next pipeline pass. The column existed historically for
+        # "the ATS removed this posting" but nothing was reading it —
+        # this is the first live use (paired with the skip filter added
+        # to pipelines/enrichment_persistence.py).
+        raw = s.execute(
+            select(RawJob).where(RawJob.id == raw_job_id)
+        ).scalar_one_or_none()
+        if raw is not None:
+            raw.is_deleted_at_source = True
+
+        s.commit()
+
+    # Dead jobs vanish from every dashboard total and the per-card
+    # count, so both caches need to drop.
+    from vacancysoft.api.ledger import clear_ledger_caches
+    clear_ledger_caches()
+    clear_dashboard_cache()
+
+    return {
+        "message": "deleted",
+        "enriched_job_id": enriched_job_id,
+        "deleted_dossiers": deleted_dossiers,
+        "deleted_campaigns": deleted_campaigns,
+        "deleted_queue_items": deleted_queue,
+        "deleted_scores": deleted_scores,
+        "deleted_classifications": deleted_classifications,
+    }
+
+
+@router.post("/api/leads/{enriched_job_id}/flag-location")
+def flag_location(enriched_job_id: str, payload: dict | None = None):
+    """Flag an enriched job's location for manual review.
+
+    Non-destructive. Inserts a row into ``location_review_queue``
+    (migration 0010) and returns the flag id. A future ``/review`` UI
+    reads these rows; this endpoint just captures the flag event.
+
+    Body is optional. If supplied, ``{"note": "..."}`` is stored
+    verbatim in the ``note`` column; ``{"flagged_by_user_id": "..."}``
+    attributes the flag to the given user (no validation of the
+    user id is done — the FK handles that). Once the identity
+    resolver is widely adopted we'll switch to resolving this from
+    the request headers instead of an explicit body field.
+    """
+    from vacancysoft.db.models import LocationReviewFlag
+
+    payload = payload or {}
+    note = str(payload.get("note") or "").strip()
+    flagged_by = payload.get("flagged_by_user_id")
+    if flagged_by is not None:
+        flagged_by = str(flagged_by).strip() or None
+
+    with SessionLocal() as s:
+        ej = s.execute(
+            select(EnrichedJob.id).where(EnrichedJob.id == enriched_job_id)
+        ).scalar_one_or_none()
+        if ej is None:
+            raise HTTPException(status_code=404, detail="enriched job not found")
+
+        flag = LocationReviewFlag(
+            enriched_job_id=enriched_job_id,
+            flagged_by_user_id=flagged_by,
+            note=note,
+        )
+        s.add(flag)
+        s.commit()
+        s.refresh(flag)
+        flag_id = flag.id
+
+    return {
+        "message": "flagged",
+        "flag_id": flag_id,
+        "enriched_job_id": enriched_job_id,
+    }

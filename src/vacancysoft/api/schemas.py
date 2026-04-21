@@ -106,6 +106,10 @@ class StatsOut(BaseModel):
 
 
 class ScoredJobOut(BaseModel):
+    # `id` is the enriched_job_id — passed through so the Sources page
+    # drawer's admin buttons (Dead job / Wrong location) can reference
+    # the row server-side. It's safe to expose; it's an opaque UUID.
+    id: str
     title: str
     company: str
     location: str | None

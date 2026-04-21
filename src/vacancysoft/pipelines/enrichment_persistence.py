@@ -569,7 +569,14 @@ def enrich_raw_jobs(
     stmt = (
         select(RawJob)
         .where(
-            ~exists().where(EnrichedJob.raw_job_id == RawJob.id)
+            ~exists().where(EnrichedJob.raw_job_id == RawJob.id),
+            # Operator-marked "dead" rows (via the Sources page "Dead job"
+            # admin button — see api/routes/leads.py::delete_lead) set
+            # is_deleted_at_source=true so they're skipped here and don't
+            # re-enrich on the next pipeline pass. The column existed
+            # historically for "the ATS removed this posting" but nothing
+            # was reading it; operator-dead-flag is the first live use.
+            RawJob.is_deleted_at_source.is_(False),
         )
     )
     if adapter_name is not None:

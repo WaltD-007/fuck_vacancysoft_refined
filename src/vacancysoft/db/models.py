@@ -424,3 +424,34 @@ class User(Base):
     # resolver. Nullable because we only write it after the user has
     # actually made a request.
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+# ── Location review queue ───────────────────────────────────────────
+# Operator-flagged EnrichedJobs where the location looks wrong (e.g.
+# "London" on a role the JD body clearly marks as New York). These
+# don't get auto-corrected; they collect here for manual review via
+# a future /review UI (not in this PR). Set from the Sources page
+# "Wrong location" button on each job row.
+#
+# One row per flag event; a job can accumulate multiple flags if
+# multiple operators hit the button or the same operator flags then
+# a re-scrape surfaces a new enriched_job for the same URL. The
+# review UI dedupes by enriched_job_id when displaying.
+
+
+class LocationReviewFlag(Base):
+    __tablename__ = "location_review_queue"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    enriched_job_id: Mapped[str] = mapped_column(
+        ForeignKey("enriched_jobs.id"), index=True
+    )
+    flagged_by_user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    # Free-text note the operator can optionally add when flagging.
+    # Default empty; frontend can prompt in future.
+    note: Mapped[str] = mapped_column(Text, default="")
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)

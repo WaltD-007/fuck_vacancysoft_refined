@@ -27,6 +27,10 @@ type Props = {
 
   // Shared caches
   sourceJobs: Record<string, ScoredJob[]>;
+  // Pass-through to the drawer so per-row admin actions (Dead job /
+  // Wrong location) can optimistically evict the row without waiting
+  // for the next /api/sources/{id}/jobs refetch.
+  setSourceJobs: Dispatch<SetStateAction<Record<string, ScoredJob[]>>>;
   hotlist: Set<string>;
 
   // Colour map
@@ -45,6 +49,10 @@ type Props = {
   onRequestDelete: (sourceId: number) => void;
   onCancelDelete: () => void;
   setHotlist: Dispatch<SetStateAction<Set<string>>>;
+  // Fired after any drawer admin action (Agy / Dead / Wrong location)
+  // completes. Parent uses this to revalidate the source list + stats
+  // so counts reflect the mutation. Optional.
+  onAdminAction?: () => void;
 
   // API base (for the hotlist POST inside the drawer)
   apiBase: string;
@@ -75,6 +83,7 @@ export default function SourceCard({
   subFilters,
   countryFilter,
   sourceJobs,
+  setSourceJobs,
   hotlist,
   categoryColors,
   getCats,
@@ -87,10 +96,20 @@ export default function SourceCard({
   onRequestDelete,
   onCancelDelete,
   setHotlist,
+  onAdminAction,
   apiBase,
 }: Props) {
+  const isExpanded = expandedSource === src.id;
   return (
-    <div className="rounded-xl" style={{ background: "var(--bg-card)", border: expandedSource === src.id ? "1px solid var(--accent)" : src.id === addedSourceId ? "1px solid var(--green)" : (src.last_run_status === "FAIL" || src.last_run_status === "error") ? "1px solid var(--red)" : "1px solid var(--border-subtle)" }}>
+    <div
+      // `col-span-2` on expansion — the card stretches to double width
+      // so the drawer's admin buttons (Hotlist / Agy / Dead / Wrong loc)
+      // fit on one row without wrapping. The parent's grid is
+      // `grid-cols-3` so an expanded card leaves one cell free on its
+      // row; adjacent cards on subsequent rows re-flow automatically.
+      className={`rounded-xl ${isExpanded ? "col-span-2" : ""}`}
+      style={{ background: "var(--bg-card)", border: isExpanded ? "1px solid var(--accent)" : src.id === addedSourceId ? "1px solid var(--green)" : (src.last_run_status === "FAIL" || src.last_run_status === "error") ? "1px solid var(--red)" : "1px solid var(--border-subtle)" }}
+    >
       <div className="p-4">
         <div className="flex justify-between items-start mb-3">
           <div className="font-semibold text-sm">{src.employer_name}</div>
@@ -251,7 +270,7 @@ export default function SourceCard({
           )}
         </div>
       </div>
-      {expandedSource === src.id && (() => {
+      {isExpanded && (() => {
         // Must match handleToggleJobs()'s key-builder exactly so the
         // drawer reads the rows the parent just wrote.
         const subKey = subFilters.length > 0 ? [...subFilters].sort().join("|") : "";
@@ -261,10 +280,12 @@ export default function SourceCard({
             expandedCategory={expandedCategory}
             jobKey={jobKey}
             sourceJobs={sourceJobs}
+            setSourceJobs={setSourceJobs}
             categoryColors={categoryColors}
             hotlist={hotlist}
             setHotlist={setHotlist}
             apiBase={apiBase}
+            onAdminAction={onAdminAction}
           />
         );
       })()}

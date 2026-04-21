@@ -37,6 +37,11 @@ export type Stats = {
 };
 
 export type ScoredJob = {
+  // Enriched-job id — needed by the per-row admin buttons (Dead job,
+  // Wrong location) in the card drawer to target the correct row
+  // server-side. Backend populates this on the /api/sources/{id}/jobs
+  // response since 2026-04-21.
+  id: string;
   title: string;
   company: string;
   location: string | null;

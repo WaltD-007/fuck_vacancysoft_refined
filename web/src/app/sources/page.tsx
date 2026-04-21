@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import Sidebar from "../components/Sidebar";
 import AddCompanyModal from "./components/AddCompanyModal";
 import SourceCard from "./components/SourceCard";
@@ -27,6 +27,16 @@ export default function SourcesPage() {
     useSWR<Stats>("/stats", fetcher, { keepPreviousData: true });
   const { data: countriesSWR } =
     useSWR<{ country: string; count: number }[]>("/countries", fetcher, { keepPreviousData: true });
+  const { mutate: swrMutate } = useSWRConfig();
+
+  // Revalidate /sources + /stats (+ /dashboard) after a drawer admin
+  // action. The backend clears its own caches in the handler, so
+  // the next fetch is authoritative.
+  const refreshAfterAdminAction = () => {
+    void swrMutate("/sources");
+    void swrMutate("/stats");
+    void swrMutate("/dashboard");
+  };
 
   const [sources, setSources] = useState<Source[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -725,6 +735,7 @@ export default function SourcesPage() {
                   subFilters={subFilters}
                   countryFilter={countryFilter}
                   sourceJobs={sourceJobs}
+                  setSourceJobs={setSourceJobs}
                   hotlist={hotlist}
                   categoryColors={categoryColors}
                   getCats={getCats}
@@ -737,6 +748,7 @@ export default function SourcesPage() {
                   onRequestDelete={setConfirmDeleteId}
                   onCancelDelete={() => setConfirmDeleteId(null)}
                   setHotlist={setHotlist}
+                  onAdminAction={refreshAfterAdminAction}
                   apiBase={API}
                 />
               ))}
