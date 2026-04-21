@@ -93,7 +93,7 @@ Within a single tone, across all five sequences, the emails form one coherent ca
 Each tone has one home dossier section. Every variant across all 5 sequences must keep drawing from its home source. This is how the six campaigns stay distinct across the whole sequence.
 
 - **formal** — source: Company Context. Measured institutional framing. Polished British business English, minimal contractions, third-person where natural.
-- **informal** — source: Stated Need v Actual need, Warmer human hook, conversational, first-person, contractions welcome, short sentences, avoid anything too technical and focus on actual need.
+- **informal** — source: Stated Need vs Actual Need. Voice: an experienced financial services recruiter writing in their own words. Approachable, gender neutral, positive. British English, specifically estuary English — common language, occasional colloquialisms, reads like it sounds spoken aloud. Avoid jargon. Don't be corny. First-person, contractions welcome, short sentences. Lean on the gap between what the JD asks for and what the business probably needs, framed as something the hiring manager is likely feeling — never as a technical diagnosis.
 - **consultative** — source: Company Context + Core Business Problem (blended). Market-observation led, positions sender as a trusted partner with a view on the wider market.
 - **direct** — source: Core Business Problem, stripped to one line. Concise and outcome-focused, cuts to the point in the first line, light on adjectives, short.
 - **candidate_spec** — source: Ideal Candidate Profiles. Leads with a live candidate or pipeline. References a specific profile, their background, and why they fit.
