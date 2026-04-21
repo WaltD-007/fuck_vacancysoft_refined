@@ -24,11 +24,15 @@ from vacancysoft.intelligence.prompts.resolver import resolve_campaign_prompt
 
 # ── Fixtures ───────────────────────────────────────────────────────
 
-def _job() -> dict[str, str]:
+def _job(description: str | None = None) -> dict[str, str]:
     return {
         "title": "Head of Credit Risk",
         "company": "Barclays",
         "location": "London",
+        # Default to a short canned body so the reference appendix has
+        # something to render in happy-path tests. Tests exercising the
+        # truncation / empty / brace-escape paths pass their own.
+        "description": "Owns the wholesale credit book across EMEA. Works closely with the CRO. Requires 15 yrs IB experience." if description is None else description,
     }
 
 
@@ -169,3 +173,61 @@ class TestPlaceholderCompleteness:
         messages = resolve_campaign_prompt("risk", _job(), _dossier(), template_version="v2")
         system = next(m["content"] for m in messages if m["role"] == "system")
         assert system == CAMPAIGN_SYSTEM
+
+
+# ── JD-passthrough appendix (v2 only) ─────────────────────────────
+
+class TestDescriptionPassthrough:
+    """v2's `{description}` appendix lets any tone ground in advert text.
+    Guards truncation (6,000 chars), brace escaping (JDs that contain `{`
+    or `}` must not break .format()), the "Not available" fallback, and
+    that v1 doesn't accidentally sprout the appendix on a rollback."""
+
+    def test_description_renders_into_v2(self) -> None:
+        job = _job("Owns the wholesale credit book across EMEA.")
+        messages = resolve_campaign_prompt("risk", job, _dossier(), template_version="v2")
+        user = next(m["content"] for m in messages if m["role"] == "user")
+        assert "Owns the wholesale credit book across EMEA." in user
+        # Heading should be present so the model knows where the appendix begins.
+        assert "Source Job Description" in user
+
+    def test_description_long_body_is_truncated(self) -> None:
+        long_body = "X" * 8000
+        messages = resolve_campaign_prompt("risk", _job(long_body), _dossier(), template_version="v2")
+        user = next(m["content"] for m in messages if m["role"] == "user")
+        # The marker goes in at the resolver's cap; verify it landed.
+        assert "truncated" in user
+        # And that we actually clipped — a full 8k-char run of Xs would
+        # otherwise appear literally. Check a substring longer than the
+        # cap doesn't appear.
+        assert "X" * 6100 not in user
+
+    def test_description_escapes_curly_braces(self) -> None:
+        """JDs with `{foo}` must not crash .format()."""
+        body = "Tech stack: Python, {REST APIs}, kdb+. Team uses {agile} rituals."
+        # If the resolver didn't escape, the format() call would raise
+        # IndexError or KeyError on the unknown placeholder.
+        messages = resolve_campaign_prompt("risk", _job(body), _dossier(), template_version="v2")
+        user = next(m["content"] for m in messages if m["role"] == "user")
+        # Braces round-trip back to single in the rendered output.
+        assert "{REST APIs}" in user
+        assert "{agile}" in user
+
+    def test_description_empty_falls_back_to_not_available(self) -> None:
+        messages = resolve_campaign_prompt("risk", _job(""), _dossier(), template_version="v2")
+        user = next(m["content"] for m in messages if m["role"] == "user")
+        # Heading still renders (it's static template text) but the slot
+        # reads as "Not available" rather than a blank section.
+        assert "Source Job Description" in user
+        assert "Not available" in user
+
+    def test_v1_does_not_include_description_appendix(self) -> None:
+        """v1 is frozen — rollback must not pick up the new section."""
+        assert "Source Job Description" not in CAMPAIGN_TEMPLATE_V1
+        assert "{description}" not in CAMPAIGN_TEMPLATE_V1
+
+    def test_v2_advertises_description_in_template(self) -> None:
+        """Template must actually reference {description} for passthrough
+        to work; guards against an accidental revert of the appendix."""
+        assert "{description}" in CAMPAIGN_TEMPLATE_V2
+        assert "Source Job Description" in CAMPAIGN_TEMPLATE_V2

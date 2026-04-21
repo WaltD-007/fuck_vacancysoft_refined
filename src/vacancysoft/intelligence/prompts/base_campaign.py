@@ -40,6 +40,12 @@ Placeholders common to both versions:
   {lead_score_context}          — dossier §6 justification
   {hiring_manager_line}         — name + title of highest-confidence HM
 
+Placeholder only used by v2 (silently ignored by v1's ``.format()``):
+  {description}                 — raw JD body, capped at 6,000 chars by
+                                  the resolver and passed as a reference
+                                  section so any tone can ground phrases
+                                  in the advert's actual language
+
 Placeholder only used by v1 (silently ignored by v2's ``.format()``):
   {outreach_angle}              — domain-specific recruiter positioning
 """
@@ -79,6 +85,12 @@ Likely hiring manager: {hiring_manager_line}
 
 ## Why this lead is worth engaging
 {lead_score_context}
+
+## Source Job Description (reference — for grounding in the advert's actual language)
+
+The advert text below is the primary source every dossier section above was derived from. Use it to ground any variant in specific phrases, product names, system names, or regulatory references that appear in the advert — this is what keeps the emails from sounding generic. Do not paraphrase the advert as a whole; the dossier already does that. Do not copy whole sentences verbatim. Do not invent details beyond what appears here or in the dossier.
+
+{description}
 
 # Task
 
