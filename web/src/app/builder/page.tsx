@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import Sidebar from "../components/Sidebar";
@@ -63,7 +63,25 @@ const defaultSteps = (): EmailStep[] => [
 
 const waitOptions = [1, 2, 3, 4, 5, 7, 10, 14, 16, 21, 30, 45, 60];
 
+// Next.js 16+ requires any client component that calls useSearchParams()
+// to sit inside a <Suspense> boundary so the prerender step can bail out
+// to client-side rendering cleanly. The page's default export is the
+// wrapper; BuilderPageInner holds all the real state + side-effects.
 export default function BuilderPage() {
+  return (
+    <Suspense
+      fallback={
+        <div style={{ minHeight: "100vh", background: "#0a0a0f", color: "#8888a0", padding: 40 }}>
+          Loading Campaign Builder…
+        </div>
+      }
+    >
+      <BuilderPageInner />
+    </Suspense>
+  );
+}
+
+function BuilderPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const leadId = searchParams.get("lead") || "";
