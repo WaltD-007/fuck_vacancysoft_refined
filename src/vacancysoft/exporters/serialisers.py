@@ -72,7 +72,14 @@ def row_to_legacy_lead(row: Any) -> dict[str, str]:
     apply_url = _safe_str(mapping.get("apply_url"))
     source_key = _safe_str(mapping.get("source_key"))
     date_posted = _safe_str(mapping.get("posted_at"))
-    date_scraped = datetime.now().date().isoformat()
+    # Previously `datetime.now().date().isoformat()`, which made every
+    # row show the export run time — not useful if the operator wants
+    # to know when a lead actually entered the pipeline. Now sourced
+    # from RawJob.first_seen_at (added to the base query's SELECT).
+    # _safe_str formats datetimes to ISO-date strings; falls back to
+    # empty string if the value is missing (shouldn't happen for
+    # export-eligible rows but defensive).
+    date_scraped = _safe_str(mapping.get("first_seen_at"))
     platform = source_key
     job_board_url = apply_url or job_url
     salary = ""

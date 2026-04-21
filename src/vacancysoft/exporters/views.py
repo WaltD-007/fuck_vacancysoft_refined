@@ -39,6 +39,14 @@ def _base_export_query():
             Source.source_key,
             RawJob.discovered_url,
             RawJob.apply_url,
+            # Authoritative "when did the scraper first see this job"
+            # timestamp — set once on RawJob upsert in
+            # pipelines/persistence.py::upsert_raw_job and never
+            # changes. Surfaces as the "Date Scraped" column in the
+            # legacy export. (Previous behaviour used datetime.now()
+            # at export time, which made the column an export-run
+            # timestamp rather than a lead discovery timestamp.)
+            RawJob.first_seen_at,
         )
         .join(ClassificationResult, ClassificationResult.enriched_job_id == EnrichedJob.id)
         .join(ScoreResult, ScoreResult.enriched_job_id == EnrichedJob.id)
