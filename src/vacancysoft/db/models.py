@@ -300,3 +300,84 @@ class ReviewQueueItem(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+# ── Outreach email (Microsoft Graph) ──────────────────────────────────
+# One row per scheduled or completed outbound email; one row per
+# Graph-observed reply. See docs/outreach_email.md §2.4 for the full
+# data model and §2.5 for the sequence lifecycle.
+
+# Allowed status transitions for SentMessage.status:
+#   pending → sent                     (worker succeeded)
+#   pending → failed                   (worker tried, Graph error)
+#   pending → cancelled_manual         (operator cancelled remaining sequence)
+#   pending → cancelled_replied        (reply observed, auto-cancelled)
+#   sent    → (terminal)               (no further state changes)
+_SENT_MESSAGE_STATUSES = (
+    "pending", "sent", "cancelled_manual", "cancelled_replied", "failed",
+)
+
+
+class SentMessage(Base):
+    """One row per scheduled or sent outreach email.
+
+    Created in bulk when the operator clicks "Launch Campaign": the
+    scheduler inserts 5 rows (one per sequence-index, all status='pending')
+    and registers a deferred ARQ job per row. The worker picks up each
+    row at its scheduled time, calls GraphClient.send_mail, and
+    transitions status → 'sent' or 'failed'.
+
+    Reply polling uses conversation_id (populated post-send) to detect
+    replies and cancel any still-pending rows in the same conversation.
+
+    Subject + body are stored at-rest so a post-send audit can confirm
+    what went out. In dry-run mode they're still stored — but
+    graph_message_id will be the synthetic dryrun-msg-* value.
+    """
+    __tablename__ = "sent_messages"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    campaign_output_id: Mapped[str] = mapped_column(
+        ForeignKey("campaign_outputs.id"), index=True
+    )
+    sender_user_id: Mapped[str] = mapped_column(String(255), index=True)
+    recipient_email: Mapped[str] = mapped_column(String(320))
+    sequence_index: Mapped[int] = mapped_column(Integer)
+    tone: Mapped[str] = mapped_column(String(32))
+    scheduled_for: Mapped[datetime] = mapped_column(DateTime, index=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    graph_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    arq_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    subject: Mapped[str] = mapped_column(String(500))
+    body: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class ReceivedReply(Base):
+    """One row per Graph-observed inbound reply.
+
+    Many-to-one with SentMessage via conversation_id (not via direct
+    FK — the reply lands in a conversation that may have multiple
+    pending/sent messages in it, and we want to track which sent-message
+    it was "replying to" as best-effort via matched_sent_message_id).
+
+    No body or attachment content is stored — Mail.ReadBasic doesn't
+    expose them and we don't need them for the cancel-on-reply logic.
+    """
+    __tablename__ = "received_replies"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    conversation_id: Mapped[str] = mapped_column(String(255), index=True)
+    sender_user_id: Mapped[str] = mapped_column(String(255), index=True)
+    graph_message_id: Mapped[str] = mapped_column(String(255), unique=True)
+    from_email: Mapped[str] = mapped_column(String(320))
+    received_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    matched_sent_message_id: Mapped[str | None] = mapped_column(
+        ForeignKey("sent_messages.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
