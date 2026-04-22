@@ -366,6 +366,48 @@ _NON_JOB_EXACT_TITLES = {
 # Titles that look like category links: "IT ENGINEERING (13)", "NEW JOBS (558)"
 _CATEGORY_LINK_RE = __import__("re").compile(r"^.{2,30}\s*\(\d+\)$")
 
+# Pagination / numeric-ID-only titles. McDonald's careers page exposes
+# pagination buttons as <a> tags whose innerText is the page number
+# ("698", "699"), which the adapter's wildcard link selectors harvest
+# as if they were job cards. Audit 2026-04-22 surfaced 1,009 such
+# rows from src#888. Added as Slice A1.
+_BARE_INTEGER_RE = __import__("re").compile(r"^\d{1,6}$")
+
+# Language-switcher dropdown options rendered as anchor text —
+# UniCredit's careers page (src#791, 2,756 rows) uses a <select>-style
+# language chooser whose <option>s get picked up by the
+# `[class*='opportunit'] a` / `li a` wildcards. These are language
+# names in their native form, not ATS locales, so the existing short-
+# code set ("de", "fr", "en"…) in _NON_JOB_EXACT_TITLES doesn't catch
+# them. Curated against the 2026-04-22 audit output (artifacts/
+# generic_site-failing-2026-04-22.xlsx) — only entries that (a)
+# appeared as title_raw in the DB and (b) aren't plausible one-word
+# job titles (e.g. "Russian", "Turkish" could also be legitimate
+# linguist-role titles, so we rely on the fact that a real listing
+# would pair them with "Translator" / "Interpreter" / etc. — bare
+# single-word posts of these on recruiter boards are near-zero).
+# Case-insensitive match.
+_LANGUAGE_NAMES: frozenset[str] = frozenset({
+    # UniCredit's observed language set (mix of Latin + native script)
+    "english", "deutsch", "italiano",
+    "français", "francais",
+    "español", "espanol",
+    "português", "portugues",
+    "polski",
+    "română", "romana", "romanian",
+    "српски", "srpski", "serbian",
+    "slovenčina", "slovencina", "slovenian", "slovene",
+    "slovenščina", "slovenscina",
+    "hrvatski", "croatian",
+    "magyar", "hungarian",
+    "čeština", "cestina", "czech",
+    "български", "bulgarski", "bulgarian",
+    "türkçe", "turkce", "turkish",
+    "русский", "russky", "russian",
+    "українська", "ukrainska", "ukrainian",
+    "ελληνικά", "ellinika", "greek",
+})
+
 
 def _looks_like_non_job_title(title: str) -> bool:
     lowered = title.lower().strip()
@@ -376,6 +418,13 @@ def _looks_like_non_job_title(title: str) -> bool:
     if len(lowered) < 3:
         return True
     if _CATEGORY_LINK_RE.match(title.strip()):
+        return True
+    # Slice A1 additions (2026-04-22 audit):
+    #   – McDonald's-style pagination number buttons
+    #   – UniCredit-style language-switcher dropdown options
+    if _BARE_INTEGER_RE.match(title.strip()):
+        return True
+    if lowered in _LANGUAGE_NAMES:
         return True
     return any(lowered.startswith(prefix) for prefix in NON_JOB_TITLE_PREFIXES)
 
