@@ -203,3 +203,167 @@ class TestIsAllowedCountry:
     def test_none(self) -> None:
         result = is_allowed_country(None)
         assert isinstance(result, bool)
+
+
+# ---------------------------------------------------------------------------
+# 2026-04-22 audit-driven fixes (fixes 1, 2, 4, 5)
+# ---------------------------------------------------------------------------
+
+
+class TestGermanKreisPattern:
+    """Adzuna German listings frequently use '(Kreis)' as a county marker
+    ('Heidenheim (Kreis), Baden-Württemberg'). Resolve to Germany."""
+
+    @pytest.mark.parametrize("raw,expected_city", [
+        ("Heidenheim (Kreis), Baden-Württemberg", "Heidenheim"),
+        ("Walsrode, Soltau-Fallingbostel (Kreis)", "Walsrode"),
+        ("Ravensburg (Kreis)", "Ravensburg"),
+        ("Biberach (Kreis), Baden-Württemberg", "Biberach"),
+    ])
+    def test_kreis_resolves_to_germany(self, raw: str, expected_city: str) -> None:
+        result = normalise_location(raw)
+        assert result.get("country") == "Germany", (
+            f"normalise_location({raw!r}) -> country={result.get('country')!r}, expected 'Germany'"
+        )
+        assert result.get("city") == expected_city, (
+            f"normalise_location({raw!r}) -> city={result.get('city')!r}, expected {expected_city!r}"
+        )
+
+    def test_kreis_has_medium_high_confidence(self) -> None:
+        result = normalise_location("Heidenheim (Kreis)")
+        assert result.get("confidence", 0) >= 0.8
+
+
+class TestUKKnownTownFallback:
+    """Reed / Adzuna / direct-ATS feeds often give a bare UK town name
+    with no country marker. These must resolve to UK via the curated
+    known-town set rather than falling through to country=None."""
+
+    @pytest.mark.parametrize("raw", [
+        "Heywood",
+        "Egham",
+        "Lisvane",
+        "Hampstead",
+        "Stepney",
+        "Hillingdon",
+        "Merton",
+        "Dagenham",
+    ])
+    def test_bare_uk_town_resolves_to_uk(self, raw: str) -> None:
+        result = normalise_location(raw)
+        assert result.get("country") == "UK", (
+            f"normalise_location({raw!r}) -> country={result.get('country')!r}, expected 'UK'"
+        )
+        # City should be the town itself, not mangled.
+        assert result.get("city") is not None
+
+    def test_case_insensitive(self) -> None:
+        assert normalise_location("egham").get("country") == "UK"
+        assert normalise_location("EGHAM").get("country") == "UK"
+        assert normalise_location("Egham").get("country") == "UK"
+
+    def test_leading_comma_variant_still_resolves(self) -> None:
+        """'Heywood, Lancashire' should already resolve via _UK_COUNTIES;
+        verify the known-town fallback doesn't break this path."""
+        result = normalise_location("Heywood, Lancashire")
+        assert result.get("country") == "UK"
+        assert result.get("city") == "Heywood"
+
+
+class TestMultiSiteSentinel:
+    """Postings that span multiple locations ('Multiple', 'All Locations',
+    '+9More Locations') should resolve to city='Multiple', country=None,
+    so the lead is visibly multi-site in reports rather than
+    indistinguishable from a parse failure — and is_allowed_country(None)
+    keeps the row from being geo_filtered."""
+
+    @pytest.mark.parametrize("raw", [
+        "Multiple",
+        "Multiple Locations",
+        "All Locations",
+        "Various",
+        "Flexible",
+        "Nationwide",
+        "UK Wide",
+        "@one Sites",
+        "+9 More Locations",
+        "+1 more",
+        "and 2 more",
+        "Multi-site",
+        "Cross Site",
+    ])
+    def test_multi_site_resolves_to_multiple(self, raw: str) -> None:
+        result = normalise_location(raw)
+        assert result.get("city") == "Multiple", (
+            f"normalise_location({raw!r}) -> city={result.get('city')!r}, expected 'Multiple'"
+        )
+        assert result.get("country") is None, (
+            f"normalise_location({raw!r}) -> country={result.get('country')!r}, expected None"
+        )
+
+    def test_multi_site_is_not_geo_filtered(self) -> None:
+        """country=None means is_allowed_country returns True —
+        these leads must survive the geo-filter."""
+        result = normalise_location("Multiple")
+        assert is_allowed_country(result.get("country")) is True
+
+    def test_regular_location_not_mistaken_for_multi_site(self) -> None:
+        """'Multiple, UK' has a country context; resolve as UK, not as a
+        bare multi-site sentinel."""
+        result = normalise_location("Multiple, UK")
+        assert result.get("country") == "UK"
+
+
+class TestTriPartWithISOCountryCode:
+    """SmartRecruiters / Workday tri-part format ('Pasay City, PHILIPPINES, ph')
+    should resolve to the correct country via the ISO-2 trailing token."""
+
+    @pytest.mark.parametrize("raw,expected_country,expected_city", [
+        ("Pasay City, PHILIPPINES, ph", "Philippines", "Pasay City"),
+        ("Jakarta, INDONESIA, id", "Indonesia", "Jakarta"),
+        ("Abidjan, CÔTE D'IVOIRE, ci", "Côte d'Ivoire", "Abidjan"),
+        ("Dakar, SENEGAL, sn", "Senegal", "Dakar"),
+        ("Lagos, NIGERIA, ng", "Nigeria", "Lagos"),
+        ("Cairo, EGYPT, eg", "Egypt", "Cairo"),
+        ("Karachi, PAKISTAN, pk", "Pakistan", "Karachi"),
+        ("Ho Chi Minh City, VIETNAM, vn", "Vietnam", "Ho Chi Minh City"),
+    ])
+    def test_tri_part_iso_code_resolves(
+        self, raw: str, expected_country: str, expected_city: str
+    ) -> None:
+        result = normalise_location(raw)
+        assert result.get("country") == expected_country, (
+            f"normalise_location({raw!r}) -> country={result.get('country')!r}, expected {expected_country!r}"
+        )
+        assert result.get("city") == expected_city, (
+            f"normalise_location({raw!r}) -> city={result.get('city')!r}, expected {expected_city!r}"
+        )
+
+    def test_out_of_region_still_geo_filtered(self) -> None:
+        """Philippines is resolved (not None) but still falls outside the
+        allowed-country set so the lead is geo_filtered correctly."""
+        result = normalise_location("Pasay City, PHILIPPINES, ph")
+        assert result.get("country") == "Philippines"
+        assert is_allowed_country(result.get("country")) is False
+
+
+class TestNativeLanguageCountryNames:
+    """Native-language country names ('Deutschland', 'Italia', 'Polska')
+    should resolve to their English canonical form."""
+
+    @pytest.mark.parametrize("raw,expected_country", [
+        ("Deutschland", "Germany"),
+        ("Italia", "Italy"),
+        ("Polska", "Poland"),
+        ("España", "Spain"),
+        ("Sverige", "Sweden"),
+        ("Norge", "Norway"),
+        ("Danmark", "Denmark"),
+        ("Brasil", "Brazil"),
+        ("México", "Mexico"),
+    ])
+    def test_native_country_names_resolve(self, raw: str, expected_country: str) -> None:
+        result = normalise_location(raw)
+        assert result.get("country") == expected_country, (
+            f"normalise_location({raw!r}) -> country={result.get('country')!r}, expected {expected_country!r}"
+        )
