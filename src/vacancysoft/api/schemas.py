@@ -124,12 +124,14 @@ class ScoredJobOut(BaseModel):
 
 
 class PasteLeadRequest(BaseModel):
-    """Single-field request for POST /api/leads/paste.
+    """Request for POST /api/leads/paste — text-paste flow.
 
-    Title / company / location come from the Playwright runner's structured
-    metadata extraction; the operator only supplies the URL.
+    The operator pastes the advert body; an LLM extracts
+    title / company / location / posted_date from it. No URL is
+    accepted — every paste produces a fresh RawJob with
+    ``discovered_url = NULL``.
     """
-    url: str
+    advert_text: str
 
 
 class QueueRequest(BaseModel):

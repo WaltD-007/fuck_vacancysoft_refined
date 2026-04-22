@@ -206,6 +206,19 @@ dossier_model_deepseek = "deepseek-reasoner"
 campaign_model_deepseek = "deepseek-reasoner"
 campaign_fallback_model_deepseek = "deepseek-chat"
 
+# ── Advert-text extraction ──
+# The Lead List's text-paste flow uses this model to pull {title,
+# company, location, posted_date} out of a pasted advert body. JSON
+# mode, temperature 0, four-key output — a small, cheap workload where
+# gpt-4o-mini is the right default (sub-second, <$0.001/call).
+#
+# Flip use_deepseek_for_advert_extract to route to DeepSeek's chat
+# model instead — useful if you want to avoid an OpenAI dependency for
+# this hot path specifically.
+advert_extract_model = "gpt-4o-mini"
+use_deepseek_for_advert_extract = false
+advert_extract_model_deepseek = "deepseek-chat"
+
 # ─── Outreach email (Microsoft Graph) ──────────────────────────────
 # See docs/outreach_email.md for the full design + launch checklist.
 #

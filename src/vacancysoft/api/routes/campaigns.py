@@ -154,33 +154,15 @@ async def generate_lead_dossier(item_id: str):
         if not item:
             raise HTTPException(status_code=404, detail="Queue item not found")
 
-        evidence = item.evidence_blob or {}
-        url = evidence.get("url", "")
-        title = evidence.get("title", "")
-        company = evidence.get("company", "")
-
-        # Find the enriched job by URL or title+company
-        enriched = None
-        if url:
-            enriched = s.execute(
-                select(EnrichedJob)
-                .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                .where(RawJob.discovered_url == url)
-                .limit(1)
-            ).scalar_one_or_none()
-
-        if not enriched and title:
-            enriched = s.execute(
-                select(EnrichedJob)
-                .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                .join(Source, RawJob.source_id == Source.id)
-                .where(EnrichedJob.title.ilike(f"%{title}%"))
-                .where(Source.employer_name.ilike(f"%{company}%"))
-                .limit(1)
-            ).scalar_one_or_none()
-
+        # Enriched job is named directly on the queue item.
+        enriched = s.execute(
+            select(EnrichedJob).where(EnrichedJob.id == item.enriched_job_id)
+        ).scalar_one_or_none()
         if not enriched:
-            raise HTTPException(status_code=404, detail=f"No enriched job found for '{title}' at '{company}'. Run the pipeline first.")
+            raise HTTPException(
+                status_code=404,
+                detail="No enriched job found for this queue item. Run the pipeline first.",
+            )
 
         # Check for existing dossier
         existing = s.execute(
@@ -209,30 +191,10 @@ def get_lead_dossier(item_id: str):
         if not item:
             raise HTTPException(status_code=404, detail="Queue item not found")
 
-        evidence = item.evidence_blob or {}
-        url = evidence.get("url", "")
-        title = evidence.get("title", "")
-        company = evidence.get("company", "")
-
-        enriched = None
-        if url:
-            enriched = s.execute(
-                select(EnrichedJob)
-                .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                .where(RawJob.discovered_url == url)
-                .limit(1)
-            ).scalar_one_or_none()
-
-        if not enriched and title:
-            enriched = s.execute(
-                select(EnrichedJob)
-                .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                .join(Source, RawJob.source_id == Source.id)
-                .where(EnrichedJob.title.ilike(f"%{title}%"))
-                .where(Source.employer_name.ilike(f"%{company}%"))
-                .limit(1)
-            ).scalar_one_or_none()
-
+        # Enriched job is named directly on the queue item.
+        enriched = s.execute(
+            select(EnrichedJob).where(EnrichedJob.id == item.enriched_job_id)
+        ).scalar_one_or_none()
         if not enriched:
             return JSONResponse(status_code=404, content={"detail": "No enriched job found"})
 
@@ -279,29 +241,14 @@ async def generate_lead_campaign(
         if not item:
             raise HTTPException(status_code=404, detail="Queue item not found")
 
-        evidence = item.evidence_blob or {}
-        url = evidence.get("url", "")
-        title = evidence.get("title", "")
-        company = evidence.get("company", "")
-
-        enriched = None
-        if url:
-            enriched = s.execute(
-                select(EnrichedJob)
-                .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                .where(RawJob.discovered_url == url)
-                .limit(1)
-            ).scalar_one_or_none()
-
-        if not enriched and title:
-            enriched = s.execute(
-                select(EnrichedJob)
-                .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                .join(Source, RawJob.source_id == Source.id)
-                .where(EnrichedJob.title.ilike(f"%{title}%"))
-                .where(Source.employer_name.ilike(f"%{company}%"))
-                .limit(1)
-            ).scalar_one_or_none()
+        # Enriched job is named directly on the queue item (every
+        # ReviewQueueItem creator populates enriched_job_id). No URL /
+        # title fuzzy match — that path broke for text-pastes where
+        # url=NULL and Source.employer_name is the "(Manual paste)"
+        # placeholder.
+        enriched = s.execute(
+            select(EnrichedJob).where(EnrichedJob.id == item.enriched_job_id)
+        ).scalar_one_or_none()
 
         if not enriched:
             raise HTTPException(status_code=404, detail="No enriched job found")
