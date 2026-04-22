@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import re
 import time
 import warnings
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -375,6 +378,85 @@ def _looks_like_non_job_title(title: str) -> bool:
     if _CATEGORY_LINK_RE.match(title.strip()):
         return True
     return any(lowered.startswith(prefix) for prefix in NON_JOB_TITLE_PREFIXES)
+
+
+def _capture_dir() -> Path | None:
+    """Return the configured capture directory, or None when disabled.
+
+    Diagnostic helper for PR 3B-ii — when the operator sets
+    ``PROSPERO_GENERIC_CAPTURE_DIR=/some/path``, the generic_site
+    adapter writes each rendered listing page to that directory as
+    ``<hostname>-<YYYYMMDD-HHMMSS>.html`` before scraping. The output
+    feeds the selector-extension workstream: inspect the captured
+    HTML, spot what the card-container class/attribute looks like on
+    the sources we can't currently extract location from (Bank of
+    America, Macquarie, Equifax, Point72 — ~10K of the 15,837 failing
+    rows surfaced by the 2026-04-22 audit), extend
+    ``LOCATION_HINT_SELECTORS`` accordingly.
+
+    Returns None when the env var is unset OR points at a path the
+    process can't write to — captures are best-effort diagnostics, not
+    load-bearing.
+    """
+    raw = os.environ.get("PROSPERO_GENERIC_CAPTURE_DIR")
+    if not raw:
+        return None
+    try:
+        path = Path(raw).expanduser().resolve()
+        path.mkdir(parents=True, exist_ok=True)
+        # Quick writability smoke — touch a throwaway file.
+        probe = path / ".prospero_capture_probe"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return path
+    except OSError:
+        return None
+
+
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _capture_filename(board_url: str) -> str:
+    """Derive a filesystem-safe capture filename from a board URL.
+
+    Shape: ``<hostname>-<UTC-timestamp>.html``. The hostname is
+    slugified (non-alphanumerics → '_') so odd URL edge-cases can't
+    produce paths that escape the target directory.
+    """
+    try:
+        host = urlparse(board_url).hostname or "unknown"
+    except ValueError:
+        host = "unknown"
+    safe_host = _SAFE_FILENAME_RE.sub("_", host)[:80] or "unknown"
+    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    return f"{safe_host}-{ts}.html"
+
+
+async def _maybe_capture_page(page: Any, board_url: str, diagnostics: AdapterDiagnostics) -> None:
+    """When capture mode is enabled, dump the rendered HTML to disk.
+
+    Best-effort — any filesystem or Playwright error is swallowed
+    (recorded as a diagnostic warning) so a capture failure never
+    breaks a real scrape run.
+    """
+    capture_dir = _capture_dir()
+    if capture_dir is None:
+        return
+    try:
+        html = await page.content()
+    except Exception as exc:  # noqa: BLE001
+        diagnostics.warnings.append(f"capture: page.content() failed: {exc}")
+        return
+    target = capture_dir / _capture_filename(board_url)
+    try:
+        target.write_text(html, encoding="utf-8")
+    except OSError as exc:
+        diagnostics.warnings.append(f"capture: write failed: {exc}")
+        return
+    diagnostics.metadata["capture_path"] = str(target)
+    diagnostics.counters["pages_captured"] = (
+        diagnostics.counters.get("pages_captured", 0) + 1
+    )
 
 
 def _location_from_title(title: str | None) -> str | None:
@@ -772,6 +854,11 @@ class GenericBrowserAdapter(SourceAdapter):
                 await page.wait_for_timeout(600)
             await page.evaluate("window.scrollTo(0, 0)")
             await page.wait_for_timeout(500)
+
+            # Diagnostic capture (PR 3B-ii) — no-op unless
+            # PROSPERO_GENERIC_CAPTURE_DIR is set. Placed AFTER scroll
+            # so the captured HTML includes lazy-loaded content.
+            await _maybe_capture_page(page, board_url, diagnostics)
 
             pages_scraped = 0
             import sys
