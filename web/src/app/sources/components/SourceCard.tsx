@@ -2,7 +2,7 @@
 
 import type { Dispatch, SetStateAction } from "react";
 
-import type { ScoredJob, Source } from "../types";
+import { isBroken, type ScoredJob, type Source } from "../types";
 import SourceJobsDrawer from "./SourceJobsDrawer";
 import { FEATURES } from "../../lib/features";
 
@@ -108,7 +108,7 @@ export default function SourceCard({
       // `grid-cols-3` so an expanded card leaves one cell free on its
       // row; adjacent cards on subsequent rows re-flow automatically.
       className={`rounded-xl ${isExpanded ? "col-span-2" : ""}`}
-      style={{ background: "var(--bg-card)", border: isExpanded ? "1px solid var(--accent)" : src.id === addedSourceId ? "1px solid var(--green)" : (src.last_run_status === "FAIL" || src.last_run_status === "error") ? "1px solid var(--red)" : "1px solid var(--border-subtle)" }}
+      style={{ background: "var(--bg-card)", border: isExpanded ? "1px solid var(--accent)" : src.id === addedSourceId ? "1px solid var(--green)" : isBroken(src) ? "1px solid var(--red)" : "1px solid var(--border-subtle)" }}
     >
       <div className="p-4">
         <div className="flex justify-between items-start mb-3">
@@ -226,7 +226,7 @@ export default function SourceCard({
               <div className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>{cat}</div>
             </div>
           ))}
-          {(src.last_run_status === "FAIL" || src.last_run_status === "error") && getScored(src) === 0 && (
+          {isBroken(src) && getScored(src) === 0 && (
             <div className="flex-1">
               <div className="text-xs font-semibold mb-1" style={{ color: "var(--red)" }}>Failed</div>
               <div className="text-[10px] truncate" style={{ color: "var(--text-muted)" }} title={src.last_run_error || ""}>{src.last_run_error?.slice(0, 60) || "Unknown error"}</div>
@@ -238,7 +238,7 @@ export default function SourceCard({
               <div className="text-[9px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Leads</div>
             </div>
           )}
-          {(!getCats(src) || Object.keys(getCats(src)).length === 0) && getScored(src) === 0 && !(src.last_run_status === "FAIL" || src.last_run_status === "error") && (
+          {(!getCats(src) || Object.keys(getCats(src)).length === 0) && getScored(src) === 0 && !isBroken(src) && (
             <div className="flex items-center gap-2">
               {scrapingSourceId === src.id ? (
                 <div className="flex items-center gap-2 text-xs" style={{ color: "var(--accent-light)" }}>

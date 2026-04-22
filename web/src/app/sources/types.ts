@@ -26,6 +26,33 @@ export type Source = {
   last_run_error: string | null;
 };
 
+
+// ── Broken-card helper ─────────────────────────────────────────────────
+// A card counts as "Broken" for the user-facing UI only when BOTH:
+//   1. The direct source's latest SourceRun errored, AND
+//   2. No aggregator is currently finding jobs for this employer.
+//
+// Pre-2026-04-23 the rule was just (1) — which surfaced ~89 cards as
+// Broken even when Adzuna / Google Jobs / eFC / Coresignal were happily
+// covering them. Operator preference: direct-source failures where
+// aggregators compensate belong on the backend health report (hidden
+// from typical users), not the user-facing "Broken" bucket. A card is
+// Broken TO THE USER only when the lead flow is truly dark.
+//
+// Callers: sources/page.tsx (brokenCount filter, noJobsCount exclusion,
+// notRelevantCount exclusion) + sources/components/SourceCard.tsx (red
+// card border + status-row messaging).
+export function isBroken(src: Source): boolean {
+  const directFailed =
+    src.last_run_status === "FAIL" || src.last_run_status === "error";
+  if (!directFailed) return false;
+  const aggregatorLeads = Object.values(src.aggregator_hits || {}).reduce(
+    (sum, n) => sum + (n || 0),
+    0,
+  );
+  return aggregatorLeads === 0;
+}
+
 export type Stats = {
   total_sources: number;
   active_sources: number;

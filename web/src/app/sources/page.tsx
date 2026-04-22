@@ -10,6 +10,7 @@ import StatsSection from "./components/StatsSection";
 import {
   CATEGORY_COLORS,
   type DetectResult,
+  isBroken,
   type ScoredJob,
   type Source,
   type Stats,
@@ -363,7 +364,10 @@ export default function SourcesPage() {
   const recentlyAdded = addedSourceId ? sources.find((s) => s.id === addedSourceId) : null;
   const searchLower = companySearch.toLowerCase().trim();
 
-  const isBroken = (s: Source) => s.last_run_status === "FAIL" || s.last_run_status === "error";
+  // `isBroken` lives in types.ts — a card is Broken only when direct source
+  // errored AND no aggregator is finding jobs. Cards with aggregator
+  // coverage stay in the normal flow; the direct-source failure is
+  // captured by the separate backend health report, not surfaced here.
 
   // Get effective categories for a source based on country filter
   const getCats = (s: Source): Record<string, number> => {
