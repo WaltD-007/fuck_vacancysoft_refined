@@ -247,32 +247,52 @@ export default function LeadsPage() {
   const [loadingDossier, setLoadingDossier] = useState<Set<string>>(new Set());
   const [iframeUrl, setIframeUrl] = useState<string | null>(null);
 
-  // Paste-a-URL flow state. The URL field is the only thing the operator
-  // supplies — title / company / location come from the Playwright runner.
-  // The input lives behind a + Add Lead button in the header to keep the
-  // default layout clean; clicking the button expands it inline.
+  // Paste-an-advert flow state. The operator pastes the full advert body
+  // into a textarea; the backend LLM-extracts title/company/location and
+  // runs the usual pipeline. Optional Source URL below the textarea is
+  // kept for provenance + the "View original" link on the lead card.
+  // LinkedIn URLs are rejected server-side AND client-side below.
+  const PASTE_MIN_CHARS = 80;
   const [pasteOpen, setPasteOpen] = useState(false);
-  const [pasteUrl, setPasteUrl] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  const [pasteSourceUrl, setPasteSourceUrl] = useState("");
   const [pasteBusy, setPasteBusy] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
-  const pasteInputRef = useRef<HTMLInputElement | null>(null);
+  const pasteTextRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Auto-focus the URL input the moment the bar opens so the operator can
+  // Auto-focus the textarea the moment the panel opens so the operator can
   // paste immediately without a second click.
   useEffect(() => {
-    if (pasteOpen) pasteInputRef.current?.focus();
+    if (pasteOpen) pasteTextRef.current?.focus();
   }, [pasteOpen]);
+
+  // Client-side LinkedIn guard — the URL field rejects linkedin.com and
+  // lnkd.in so the operator gets instant feedback. Server enforces the
+  // same rule.
+  const isLinkedInUrl = (u: string) => /(^|\/\/|\.)linkedin\.com|lnkd\.in/i.test(u);
+  const sourceUrlLinkedInError =
+    pasteSourceUrl.trim() && isLinkedInUrl(pasteSourceUrl.trim())
+      ? "LinkedIn URLs aren't accepted — paste the advert text only, or use the 'Apply on company website' link."
+      : null;
+
+  const canSubmitPaste =
+    pasteText.trim().length >= PASTE_MIN_CHARS &&
+    !sourceUrlLinkedInError &&
+    !pasteBusy;
 
   const closePaste = () => {
     setPasteOpen(false);
-    setPasteUrl("");
+    setPasteText("");
+    setPasteSourceUrl("");
     setPasteError(null);
   };
 
   const submitPaste = async () => {
-    const url = pasteUrl.trim();
-    if (!url || pasteBusy) return;
+    const text = pasteText.trim();
+    const sourceUrl = pasteSourceUrl.trim();
+    if (text.length < PASTE_MIN_CHARS || pasteBusy) return;
+    if (sourceUrl && isLinkedInUrl(sourceUrl)) return;
     setPasteBusy(true);
     setPasteError(null);
     setPasteStatus(null);
@@ -280,7 +300,10 @@ export default function LeadsPage() {
       const res = await fetch(`${API}/leads/paste`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({
+          advert_text: text,
+          url: sourceUrl || null,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -292,7 +315,8 @@ export default function LeadsPage() {
         return;
       }
       const data = await res.json();
-      setPasteUrl("");
+      setPasteText("");
+      setPasteSourceUrl("");
       setPasteStatus(
         data.status === "queued"
           ? "Lead queued — dossier generating"
@@ -300,8 +324,8 @@ export default function LeadsPage() {
           ? "Already in the queue — generation in progress"
           : "Existing lead re-queued — dossier will update",
       );
-      // Collapse the bar on success so the operator sees the freshly
-      // queued row without the input hovering above the table. The status
+      // Collapse the panel on success so the operator sees the freshly
+      // queued row without the panel hovering above the table. The status
       // pill below Lead List shows the confirmation for a few seconds.
       setPasteOpen(false);
       // Surface the new row immediately instead of waiting for the 5s poll.
@@ -376,87 +400,25 @@ export default function LeadsPage() {
         <div className="flex items-center justify-between px-8 h-14" style={{ background: "rgba(10,10,15,0.8)", borderBottom: "1px solid #1f1f2f" }}>
           <div className="font-bold text-base">Lead List</div>
           <div className="flex items-center gap-3">
-            {/* Paste-a-URL — collapsed by default, expands inline on click.
-                Operator pastes a job advert URL; the Playwright runner
-                extracts title / company / location / description; backend
-                runs enrichment → classification → scoring → queue. */}
-            {pasteOpen ? (
-              <div className="flex items-center gap-2">
-                <input
-                  ref={pasteInputRef}
-                  type="url"
-                  value={pasteUrl}
-                  onChange={(e) => {
-                    setPasteUrl(e.target.value);
-                    if (pasteError) setPasteError(null);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      submitPaste();
-                    } else if (e.key === "Escape") {
-                      e.preventDefault();
-                      if (!pasteBusy) closePaste();
-                    }
-                  }}
-                  placeholder="Paste job URL…"
-                  disabled={pasteBusy}
-                  className="px-3 py-1.5 rounded-lg text-sm outline-none"
-                  style={{
-                    background: "#16161f",
-                    border: "1px solid #2a2a3a",
-                    color: "#e8e8f0",
-                    width: 320,
-                    opacity: pasteBusy ? 0.6 : 1,
-                  }}
-                />
-                <button
-                  onClick={submitPaste}
-                  disabled={pasteBusy || !pasteUrl.trim()}
-                  className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white flex items-center gap-2"
-                  style={{
-                    background: pasteBusy || !pasteUrl.trim()
-                      ? "#2a2a3a"
-                      : "linear-gradient(135deg, #6c5ce7, #8b7cf7)",
-                    cursor: pasteBusy || !pasteUrl.trim() ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {pasteBusy && (
-                    <span
-                      className="inline-block w-3 h-3 rounded-full"
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.3)",
-                        borderTopColor: "#fff",
-                        animation: "spin 0.8s linear infinite",
-                      }}
-                    />
-                  )}
-                  {pasteBusy ? "Scraping…" : "Add"}
-                </button>
-                <button
-                  onClick={closePaste}
-                  disabled={pasteBusy}
-                  title="Cancel (Esc)"
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-sm"
-                  style={{
-                    background: "#16161f",
-                    border: "1px solid #2a2a3a",
-                    color: "#8888a0",
-                    cursor: pasteBusy ? "not-allowed" : "pointer",
-                  }}
-                >
-                  &times;
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setPasteOpen(true)}
-                className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white cursor-pointer"
-                style={{ background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)" }}
-              >
-                + Add Lead
-              </button>
-            )}
+            {/* Paste-an-advert — the button stays in the topbar; when
+                active it expands a full-width panel below (see after the
+                topbar close-tag). The panel holds the textarea + optional
+                URL field. Backend LLM-extracts title / company /
+                location / posted date from the pasted text, runs
+                enrichment → classification → scoring → queue. */}
+            <button
+              onClick={() => (pasteOpen ? closePaste() : setPasteOpen(true))}
+              disabled={pasteBusy}
+              className="px-3 py-1.5 rounded-lg text-sm font-semibold text-white cursor-pointer"
+              style={{
+                background: pasteOpen
+                  ? "#2a2a3a"
+                  : "linear-gradient(135deg, #6c5ce7, #8b7cf7)",
+                cursor: pasteBusy ? "not-allowed" : "pointer",
+              }}
+            >
+              {pasteOpen ? "Close" : "+ Add Lead"}
+            </button>
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm" style={{ background: "#16161f", border: "1px solid #2a2a3a", color: "#555570", minWidth: 240 }}>
               <span style={{ fontSize: 14 }}>&#128269;</span>Search leads, sources, campaigns...
               <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#1e1e2a", border: "1px solid #2a2a3a" }}>&#8984;K</span>
@@ -465,6 +427,129 @@ export default function LeadsPage() {
             <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#16161f", border: "1px solid #2a2a3a", color: "#8888a0" }}>&#9881;</div>
           </div>
         </div>
+
+        {/* Paste-an-advert panel. Full-width below the topbar when open
+            so the textarea has real estate; the optional URL field sits
+            underneath it. Submits to /api/leads/paste with the text
+            body; backend LLM-extracts structured fields. */}
+        {pasteOpen && (
+          <div
+            className="px-8 pt-5 pb-6"
+            style={{ background: "#0f0f17", borderBottom: "1px solid #1f1f2f" }}
+          >
+            <div className="mb-2 flex items-baseline justify-between">
+              <div className="text-sm font-semibold">Paste job advert</div>
+              <div className="text-[11px]" style={{ color: "#555570" }}>
+                Works for LinkedIn, aggregators, and sites behind login walls.
+              </div>
+            </div>
+            <textarea
+              ref={pasteTextRef}
+              value={pasteText}
+              onChange={(e) => {
+                setPasteText(e.target.value);
+                if (pasteError) setPasteError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  if (!pasteBusy) closePaste();
+                } else if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  if (canSubmitPaste) submitPaste();
+                }
+              }}
+              placeholder="Paste the full job advert here — title, company, location, and description will be extracted automatically. Cmd/Ctrl+Enter to submit."
+              disabled={pasteBusy}
+              rows={10}
+              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none resize-y"
+              style={{
+                background: "#16161f",
+                border: "1px solid #2a2a3a",
+                color: "#e8e8f0",
+                fontFamily: "'Inter', sans-serif",
+                lineHeight: 1.5,
+                minHeight: 200,
+                opacity: pasteBusy ? 0.6 : 1,
+              }}
+            />
+            <div className="mt-1 flex items-center justify-between text-[11px]">
+              <span style={{ color: pasteText.trim().length >= PASTE_MIN_CHARS ? "#555570" : "#8888a0" }}>
+                {pasteText.length} chars — minimum {PASTE_MIN_CHARS}
+              </span>
+            </div>
+
+            <div className="mt-4">
+              <label
+                className="text-[11px] font-medium uppercase tracking-wider mb-1.5 block"
+                style={{ color: "#555570", letterSpacing: "0.8px" }}
+              >
+                Source URL (optional)
+              </label>
+              <input
+                type="url"
+                value={pasteSourceUrl}
+                onChange={(e) => {
+                  setPasteSourceUrl(e.target.value);
+                  if (pasteError) setPasteError(null);
+                }}
+                placeholder="https://… — stored for reference; leave blank for LinkedIn pastes"
+                disabled={pasteBusy}
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                style={{
+                  background: "#16161f",
+                  border: `1px solid ${sourceUrlLinkedInError ? "#ff6b6b" : "#2a2a3a"}`,
+                  color: "#e8e8f0",
+                  opacity: pasteBusy ? 0.6 : 1,
+                }}
+              />
+              {sourceUrlLinkedInError && (
+                <div className="mt-1 text-[11px]" style={{ color: "#ff6b6b" }}>
+                  {sourceUrlLinkedInError}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex items-center gap-2">
+              <button
+                onClick={submitPaste}
+                disabled={!canSubmitPaste}
+                className="px-4 py-2 rounded-lg text-sm font-semibold text-white flex items-center gap-2"
+                style={{
+                  background: canSubmitPaste
+                    ? "linear-gradient(135deg, #6c5ce7, #8b7cf7)"
+                    : "#2a2a3a",
+                  cursor: canSubmitPaste ? "pointer" : "not-allowed",
+                }}
+              >
+                {pasteBusy && (
+                  <span
+                    className="inline-block w-3 h-3 rounded-full"
+                    style={{
+                      border: "2px solid rgba(255,255,255,0.3)",
+                      borderTopColor: "#fff",
+                      animation: "spin 0.8s linear infinite",
+                    }}
+                  />
+                )}
+                {pasteBusy ? "Extracting…" : "Add Lead"}
+              </button>
+              <button
+                onClick={closePaste}
+                disabled={pasteBusy}
+                className="px-3 py-2 rounded-lg text-sm"
+                style={{
+                  background: "#16161f",
+                  border: "1px solid #2a2a3a",
+                  color: "#8888a0",
+                  cursor: pasteBusy ? "not-allowed" : "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="p-7">
           {/* Paste status / error — shown briefly beneath the header so the

@@ -454,8 +454,21 @@ def _enhanced_location_resolve(
     return None
 
 
-def persist_enrichment_for_raw_job(session: Session, raw_job: RawJob) -> EnrichedJob | None:
-    """Enrich a raw job. Returns None if filtered out (wrong country or recruiter)."""
+def persist_enrichment_for_raw_job(
+    session: Session,
+    raw_job: RawJob,
+    *,
+    skip_filters: bool = False,
+) -> EnrichedJob | None:
+    """Enrich a raw job. Returns None if filtered out (wrong country or recruiter).
+
+    ``skip_filters=True`` bypasses the three allow/reject gates
+    (allowed-country, recruiter-detection, title-relevance). Used by the
+    text-paste endpoint where the operator has explicitly chosen the
+    advert and the filters would only cause surprising 422s. Location
+    normalisation still runs — we just don't reject based on its
+    result.
+    """
     location_raw = raw_job.location_raw
     # For "N Locations" entries, try to extract from Workday URL path
     if location_raw and _MULTI_LOC_RE.match(location_raw.strip()):
@@ -479,27 +492,34 @@ def persist_enrichment_for_raw_job(session: Session, raw_job: RawJob) -> Enriche
             location["country"] = enhanced["country"]
             location["confidence"] = enhanced.get("confidence", 0.5)
 
-    if not is_allowed_country(location.get("country")):
-        _mark_filtered(session, raw_job, "geo_filtered", location.get("country"))
-        return None
+    if not skip_filters:
+        if not is_allowed_country(location.get("country")):
+            _mark_filtered(session, raw_job, "geo_filtered", location.get("country"))
+            return None
 
-    # Check employer from aggregator payload / provenance + source table
-    extracted_employer = _extract_employer_from_payload(raw_job.listing_payload, raw_job.provenance_blob)
-    if not extracted_employer:
-        source = session.execute(
-            select(Source).where(Source.id == raw_job.source_id)
-        ).scalar_one_or_none()
-        employer_to_check = source.employer_name if source else None
+        # Check employer from aggregator payload / provenance + source table
+        extracted_employer = _extract_employer_from_payload(raw_job.listing_payload, raw_job.provenance_blob)
+        if not extracted_employer:
+            source = session.execute(
+                select(Source).where(Source.id == raw_job.source_id)
+            ).scalar_one_or_none()
+            employer_to_check = source.employer_name if source else None
+        else:
+            employer_to_check = extracted_employer
+        if is_recruiter(employer_to_check):
+            _mark_filtered(session, raw_job, "agency_filtered", location.get("country"))
+            return None
+
+        # Title must match at least one taxonomy keyword
+        if not is_relevant_title(raw_job.title_raw):
+            _mark_filtered(session, raw_job, "title_filtered", location.get("country"))
+            return None
     else:
-        employer_to_check = extracted_employer
-    if is_recruiter(employer_to_check):
-        _mark_filtered(session, raw_job, "agency_filtered", location.get("country"))
-        return None
-
-    # Title must match at least one taxonomy keyword
-    if not is_relevant_title(raw_job.title_raw):
-        _mark_filtered(session, raw_job, "title_filtered", location.get("country"))
-        return None
+        # skip_filters path: still resolve the employer once so the
+        # values dict below gets the real team name (not "(Manual paste)").
+        extracted_employer = _extract_employer_from_payload(
+            raw_job.listing_payload, raw_job.provenance_blob
+        )
 
     posted_at = parse_posted_date(raw_job.posted_at_raw)
     title = raw_job.title_raw

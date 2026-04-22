@@ -124,12 +124,16 @@ class ScoredJobOut(BaseModel):
 
 
 class PasteLeadRequest(BaseModel):
-    """Single-field request for POST /api/leads/paste.
+    """Request for POST /api/leads/paste — text-paste flow.
 
-    Title / company / location come from the Playwright runner's structured
-    metadata extraction; the operator only supplies the URL.
+    The operator pastes the advert body itself; an LLM extracts
+    title / company / location / posted_date from it. The optional URL
+    is stored for provenance + dedupe (and shown as "open original" in
+    the lead card) but is never fetched — LinkedIn URLs are rejected
+    server-side so we don't imply we scraped one.
     """
-    url: str
+    advert_text: str
+    url: str | None = None
 
 
 class QueueRequest(BaseModel):

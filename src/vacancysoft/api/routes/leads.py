@@ -680,82 +680,6 @@ def _is_linkedin_job_url(url: str) -> bool:
     return path.startswith("/jobs/") or "/comm/jobs/" in path
 
 
-# Recognises LinkedIn's public page-title wrapper, e.g.
-#   "Abound hiring Head of Credit Risk in London, England, United Kingdom | LinkedIn"
-# and captures the three substrings so we can back-fill company and location
-# when the runner's structured extractor didn't manage to.
-_LINKEDIN_TITLE_RE = re.compile(
-    r"^(?P<company>.+?)\s+hiring\s+(?P<title>.+?)\s+in\s+(?P<location>.+?)\s*\|\s*LinkedIn\s*$",
-    re.IGNORECASE,
-)
-
-# Fallback suffix stripper for pages that have the " | LinkedIn" trailer
-# but don't match the full "X hiring Y in Z" pattern.
-_LINKEDIN_SUFFIX_RE = re.compile(r"\s*\|\s*LinkedIn\s*$", re.IGNORECASE)
-
-# "<Role> at <Company>" — common ATS page-title pattern (Barclays, Greenhouse
-# listings, etc.). Used as a fallback when the runner didn't extract company
-# via JSON-LD / og:site_name.
-_TITLE_AT_COMPANY_RE = re.compile(
-    r"^(?P<title>.+?)\s+at\s+(?P<company>[^|\-–—]+?)\s*$",
-    re.IGNORECASE,
-)
-
-# "<Role> - <Company>" / "<Role> — <Company>" — seen on generic careers pages.
-# Conservative: the company side must have no digits (so "VP - 10+ years
-# experience" doesn't parse as company="10+ years experience"), at most 5
-# words, and at least 3 chars.
-_TITLE_DASH_COMPANY_RE = re.compile(
-    r"^(?P<title>.+?)\s+[-–—]\s+(?P<company>[A-Za-z][A-Za-z& ,.']{2,60})\s*$",
-)
-
-
-def _clean_scraped_title(raw_title: str) -> tuple[str, str, str]:
-    """Strip platform wrappers from a scraped page title.
-
-    Returns (clean_title, inferred_company, inferred_location). Each component
-    is "" if it couldn't be parsed from the wrapper.
-
-    Patterns, in order:
-      1. LinkedIn's "<Company> hiring <Title> in <Location> | LinkedIn".
-      2. Bare "| LinkedIn" suffix stripper (then continue to (3)/(4)).
-      3. "<Role> at <Company>"   — Barclays careers, Greenhouse jobs, etc.
-      4. "<Role> - <Company>"    — conservative dash split.
-    """
-    if not raw_title:
-        return "", "", ""
-    s = raw_title.strip()
-
-    # LinkedIn full wrapper
-    m = _LINKEDIN_TITLE_RE.match(s)
-    if m:
-        return (
-            m.group("title").strip(),
-            m.group("company").strip(),
-            m.group("location").strip(),
-        )
-
-    # Drop any lingering " | LinkedIn" so downstream patterns match cleanly
-    s = _LINKEDIN_SUFFIX_RE.sub("", s).strip()
-
-    # "Role at Company"
-    m = _TITLE_AT_COMPANY_RE.match(s)
-    if m:
-        return m.group("title").strip(), m.group("company").strip(), ""
-
-    # "Role - Company"
-    m = _TITLE_DASH_COMPANY_RE.match(s)
-    if m:
-        company_candidate = m.group("company").strip()
-        # Guard: drop single-word candidates like "Permanent" or "Remote"
-        # that are contract/location descriptors, not employers.
-        word_count = len(company_candidate.split())
-        if word_count <= 5 and word_count >= 1:
-            return m.group("title").strip(), company_candidate, ""
-
-    return s, "", ""
-
-
 def _ensure_manual_paste_source(session) -> Source:
     """Find (or create) the shared 'Manual Paste' Source row that every
     paste-originated RawJob is filed under. One row, shared across all
@@ -791,121 +715,127 @@ def _ensure_manual_paste_source(session) -> Source:
 
 @router.post("/api/leads/paste")
 async def paste_lead(req: PasteLeadRequest, request: Request):
-    """Paste a single advert URL and run the full pipeline.
+    """Paste a job advert body as text; LLM-extract fields, run the pipeline.
 
-    Flow (see the plan for the full architecture diagram):
-      1. Dedupe on discovered_url — if an EnrichedJob exists, queue a
-         campaign for it and return.
-      2. Call the Playwright runner for {title, company, location,
-         description, postedDate}.
-      3. Ensure a shared "Manual Paste" Source row exists.
-      4. Write SourceRun + ExtractionAttempt + RawJob rows.
-      5. Run persist_enrichment_for_raw_job → persist_classification →
-         persist_score (existing helpers).
-      6. Create a ReviewQueueItem and enqueue process_lead on Redis
-         (fall back to in-process task if Redis is unavailable).
+    The operator pastes the full advert body into a textarea on the Lead
+    List. An LLM pulls out {title, company, location, posted_date}; the
+    pasted text itself is kept lossless as the description. The rest of
+    the pipeline (EnrichedJob → ClassificationResult → ScoreResult →
+    ReviewQueueItem) is identical to the URL-paste flow this replaces,
+    with one twist: the three enrichment filters (country / recruiter /
+    title-relevance) are bypassed, because the operator has explicitly
+    chosen this advert.
+
+    A URL is accepted but optional — it's stored as provenance + for
+    dedupe + as the "View original" link on the lead card. LinkedIn URLs
+    are rejected so we don't imply we scraped a login-walled page; the
+    operator is expected to paste the advert *text* for LinkedIn roles,
+    and leave the URL field blank (or paste the candidate-facing apply
+    URL if the post has one).
 
     Returns:
       { "status": "queued" | "reused" | "already_queued",
         "item_id": "...", "enriched_id": "..." }
 
     Errors:
-      400 — empty URL
-      422 — scraper couldn't reach the URL, returned non-advert content,
-            or the lead was filtered (wrong country / recruiter / title
-            doesn't match any taxonomy keyword)
+      400 — advert_text is missing or shorter than 80 chars
+      422 — URL is a LinkedIn job URL, LLM couldn't parse the advert,
+            or the classifier found no taxonomy match for the title
     """
     from vacancysoft.db.models import (
         ExtractionAttempt,
         ReviewQueueItem,
         SourceRun,
     )
-    from vacancysoft.intelligence.url_scrape import scrape_advert
+    from vacancysoft.intelligence.advert_extraction import extract_advert_fields
     from vacancysoft.pipelines.classification_persistence import (
         persist_classification_for_enriched_job,
     )
     from vacancysoft.pipelines.enrichment_persistence import persist_enrichment_for_raw_job
     from vacancysoft.pipelines.scoring_persistence import persist_score_for_enriched_job
 
-    url = (req.url or "").strip()
-    if not url:
-        raise HTTPException(status_code=400, detail="url is required")
+    advert_text = (req.advert_text or "").strip()
+    if len(advert_text) < 80:
+        raise HTTPException(
+            status_code=400,
+            detail="advert_text is too short — paste the full advert body",
+        )
 
-    # Hard-reject LinkedIn job URLs. The advert body is consistently gated
-    # behind a login wall so the scraper either grabs the related-jobs
-    # sidebar (→ hallucinated dossier) or misses content entirely. Better
-    # to fail loudly and nudge the operator toward the authoritative ATS
-    # URL than silently produce a weak dossier.
-    if _is_linkedin_job_url(url):
+    # URL is optional. When present we strip and run the LinkedIn guard
+    # so we never store a link that implies the backend fetched it.
+    url = (req.url or "").strip() or None
+    if url and _is_linkedin_job_url(url):
         raise HTTPException(
             status_code=422,
             detail=(
-                "LinkedIn job URLs aren't supported — the advert body is "
-                "gated behind a login wall and the scraper can't read it "
-                "reliably. On the LinkedIn posting, click 'Apply on "
-                "company website' (or similar) and paste that URL "
-                "instead — Greenhouse, Workable, Workday, or the "
-                "employer's own careers site will all scrape cleanly."
+                "LinkedIn URLs aren't accepted in the Source URL field — "
+                "paste the advert text itself and leave the URL blank, or "
+                "use the 'Apply on company website' link from the "
+                "LinkedIn posting."
             ),
         )
 
     # ── 1. Dedupe ────────────────────────────────────────────────────────
-    with SessionLocal() as s:
-        existing_enriched_id = s.execute(
-            select(EnrichedJob.id)
-            .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-            .where(RawJob.discovered_url == url)
-            .limit(1)
-        ).scalar_one_or_none()
-
-        if existing_enriched_id:
-            # Already in the DB. If there's already a campaign queue item,
-            # short-circuit — nothing more to do. Otherwise queue a fresh
-            # one so the operator sees the lead on /leads.
-            existing_item = s.execute(
-                select(ReviewQueueItem)
-                .where(ReviewQueueItem.enriched_job_id == existing_enriched_id)
-                .where(ReviewQueueItem.queue_type == "campaign")
+    # Dedupe only when a URL was supplied. Text-only pastes always land as
+    # a fresh RawJob — duplicates are the operator's prerogative and easy
+    # to delete via the Dead-job control.
+    existing_enriched_id: str | None = None
+    item_id: str | None = None
+    if url:
+        with SessionLocal() as s:
+            existing_enriched_id = s.execute(
+                select(EnrichedJob.id)
+                .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
+                .where(RawJob.discovered_url == url)
                 .limit(1)
             ).scalar_one_or_none()
-            if existing_item is not None:
-                return {
-                    "status": "already_queued",
-                    "item_id": existing_item.id,
-                    "enriched_id": existing_enriched_id,
-                }
 
-            item = ReviewQueueItem(
-                enriched_job_id=existing_enriched_id,
-                queue_type="campaign",
-                priority=50,
-                reason_code="user_pasted_url",
-                reason_summary=f"Paste: {url}",
-                evidence_blob={"url": url, "source": "paste"},
-                status="pending",
-            )
-            s.add(item)
-            s.commit()
-            s.refresh(item)
-            item_id = item.id
+            if existing_enriched_id:
+                # Already in the DB. If there's already a campaign queue item,
+                # short-circuit — nothing more to do. Otherwise queue a fresh
+                # one so the operator sees the lead on /leads.
+                existing_item = s.execute(
+                    select(ReviewQueueItem)
+                    .where(ReviewQueueItem.enriched_job_id == existing_enriched_id)
+                    .where(ReviewQueueItem.queue_type == "campaign")
+                    .limit(1)
+                ).scalar_one_or_none()
+                if existing_item is not None:
+                    return {
+                        "status": "already_queued",
+                        "item_id": existing_item.id,
+                        "enriched_id": existing_enriched_id,
+                    }
 
-        else:
-            item_id = None
+                item = ReviewQueueItem(
+                    enriched_job_id=existing_enriched_id,
+                    queue_type="campaign",
+                    priority=50,
+                    reason_code="user_pasted_url",
+                    reason_summary=f"Paste: {url}",
+                    evidence_blob={"url": url, "source": "paste"},
+                    status="pending",
+                )
+                s.add(item)
+                s.commit()
+                s.refresh(item)
+                item_id = item.id
 
     if existing_enriched_id and item_id:
-        # Enqueue + cache invalidate happens after the with-block committed.
-        await _enqueue_process_lead(request, item_id, url, company="", title="")
+        await _enqueue_process_lead(request, item_id, url or "", company="", title="")
         clear_dashboard_cache()
         return {"status": "reused", "item_id": item_id, "enriched_id": existing_enriched_id}
 
-    # ── 2. Scrape via Playwright runner ──────────────────────────────────
-    meta = await scrape_advert(url)
-    status = meta.get("status")
-    if status in ("error", "content_blocked"):
+    # ── 2. LLM extraction ────────────────────────────────────────────────
+    # Replaces the old Playwright scrape_advert step. Returns the same
+    # dict shape so the destructuring below is unchanged.
+    try:
+        meta = await extract_advert_fields(advert_text)
+    except (ValueError, RuntimeError) as exc:
         raise HTTPException(
             status_code=422,
-            detail=meta.get("error") or "Playwright runner could not read that URL",
-        )
+            detail=f"Could not extract structured fields from the pasted advert: {exc}",
+        ) from exc
 
     raw_title = (meta.get("title") or "").strip()
     raw_company = (meta.get("company") or "").strip()
@@ -913,22 +843,22 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
     description = (meta.get("description") or "").strip()
     posted_at_raw = (meta.get("postedDate") or "").strip()
 
-    # LinkedIn's document.title is "X hiring Y in Z | LinkedIn" — when the
-    # runner's JSON-LD path missed, the scraped title + empty company/location
-    # come through here. Parse the wrapper so we get a clean job title and
-    # infer company + location when they're missing.
-    cleaned_title, inferred_company, inferred_location = _clean_scraped_title(raw_title)
-    title = cleaned_title or raw_title
-    company = raw_company or inferred_company
-    location = raw_location or inferred_location
+    title = raw_title
+    company = raw_company
+    location = raw_location
 
     if not title:
-        # No title = dossier prompt has nothing to select a category from
-        # and downstream will almost certainly mis-classify. Surface to the
-        # operator rather than silently create a useless lead.
+        # No title = dossier prompt has nothing to select a category from.
+        # The advert body was probably a press release / blog post / junk
+        # paste. Surface to the operator rather than silently create a
+        # useless lead.
         raise HTTPException(
             status_code=422,
-            detail="Scrape succeeded but no job title was found on the page",
+            detail=(
+                "No job title could be extracted from the pasted text — "
+                "check that you pasted the advert itself (title, company, "
+                "description) and not a search-results page or email."
+            ),
         )
 
     # ── 3-5. Persist + pipeline ──────────────────────────────────────────
@@ -951,17 +881,24 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
             source_run_id=source_run.id,
             source_id=paste_source.id,
             stage="detail",
-            method="browser",
+            method="paste_text",
             endpoint_url=url,
             status_code=200,
             success=True,
-            completeness_score=0.8 if description else 0.4,
-            confidence_score=0.8 if description else 0.4,
+            completeness_score=0.8,
+            confidence_score=0.8,
         )
         s.add(extraction_attempt)
         s.flush()
 
-        fingerprint = hashlib.md5(url.encode("utf-8")).hexdigest()
+        # Fingerprint: URL when supplied (keeps the existing dedupe key
+        # shape); SHA1 of the pasted text otherwise, so URL-less pastes
+        # each get a stable unique id.
+        if url:
+            fingerprint = hashlib.md5(url.encode("utf-8")).hexdigest()
+        else:
+            fingerprint = hashlib.sha1(description.encode("utf-8")).hexdigest()
+
         raw_job = RawJob(
             source_id=paste_source.id,
             source_run_id=source_run.id,
@@ -975,7 +912,7 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
             posted_at_raw=posted_at_raw or None,
             description_raw=description,
             listing_payload={
-                "source": "manual_paste",
+                "source": "manual_paste_text",
                 "company": company,
                 # _extract_employer_from_payload (enrichment_persistence.py)
                 # looks for `company_name` / `employer_name` when deciding
@@ -983,28 +920,37 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
                 # company ends up on the card even though manual_paste
                 # isn't on the aggregator list.
                 "company_name": company,
-                "playwright_meta": meta,
+                "extraction_meta": {
+                    "mode": "llm_extract",
+                    "model": meta.get("model"),
+                    "tokens_total": meta.get("tokens_total"),
+                    "latency_ms": meta.get("latency_ms"),
+                },
             },
             detail_payload=None,
             raw_text_blob=description,
             job_fingerprint=fingerprint,
-            content_hash=hashlib.sha1(description.encode("utf-8")).hexdigest() if description else None,
-            completeness_score=0.8 if description else 0.4,
-            extraction_confidence=0.8 if description else 0.4,
-            provenance_blob={"mode": "manual_paste", "url": url},
+            content_hash=hashlib.sha1(description.encode("utf-8")).hexdigest(),
+            completeness_score=0.8,
+            extraction_confidence=0.8,
+            provenance_blob={"mode": "manual_paste_text", "url": url},
         )
         s.add(raw_job)
         s.flush()
 
-        # Enrich, classify, score — existing helpers. Any of these returning
-        # None means a filter rejected the lead; surface the reason to the
-        # operator.
-        enriched = persist_enrichment_for_raw_job(s, raw_job)
+        # Enrichment with filter bypass — pasted leads skip the
+        # country / recruiter / title-relevance gates. Classification +
+        # scoring run as normal.
+        enriched = persist_enrichment_for_raw_job(s, raw_job, skip_filters=True)
         if enriched is None:
-            # Look up what filter tripped so the error message is useful.
+            # With skip_filters=True the helper never returns None on a
+            # fresh insert; this branch is a safety net for future
+            # edge cases in the enrichment code itself.
             s.rollback()
-            reason = _paste_filter_reason(url, title, location, company)
-            raise HTTPException(status_code=422, detail=reason)
+            raise HTTPException(
+                status_code=422,
+                detail="Enrichment failed for the pasted advert",
+            )
 
         classification = persist_classification_for_enriched_job(s, enriched)
         if classification is None:
@@ -1071,35 +1017,11 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
         enriched_id = enriched.id
 
     # ── 6. Enqueue ───────────────────────────────────────────────────────
-    await _enqueue_process_lead(request, item_id, url, company=company, title=title)
+    await _enqueue_process_lead(
+        request, item_id, url or "", company=company, title=title
+    )
     clear_dashboard_cache()
     return {"status": "queued", "item_id": item_id, "enriched_id": enriched_id}
-
-
-def _paste_filter_reason(url: str, title: str, location: str, company: str) -> str:
-    """Best-guess explanation of why persist_enrichment_for_raw_job rejected
-    a paste. The helper marks the RawJob with detail_fetch_status of
-    geo_filtered / agency_filtered / title_filtered, but we've rolled back
-    the transaction by the time we get here, so replay the checks."""
-    from vacancysoft.enrichers.location_normaliser import is_allowed_country, normalise_location
-    from vacancysoft.enrichers.recruiter_filter import is_recruiter
-    from vacancysoft.classifiers.title_rules import is_relevant_title
-
-    loc = normalise_location(location) if location else {}
-    if location and not is_allowed_country(loc.get("country")):
-        return (
-            f"Location '{location}' is outside the supported country list"
-            " (UK, USA, Canada, France, Germany, Switzerland, Netherlands,"
-            " Luxembourg, UAE, Saudi Arabia, Hong Kong, Singapore)"
-        )
-    if company and is_recruiter(company):
-        return f"'{company}' is on the recruitment-agency exclusion list"
-    if title and not is_relevant_title(title):
-        return (
-            f"Title '{title}' doesn't match any core-market taxonomy keyword"
-            " (risk, quant, compliance, audit, cyber, legal, front office)"
-        )
-    return f"Lead was filtered during enrichment (url={url})"
 
 
 async def _enqueue_process_lead(

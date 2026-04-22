@@ -1,25 +1,37 @@
-"""Tests for the POST /api/leads/paste endpoint.
+"""Tests for the POST /api/leads/paste endpoint (text-paste flow).
 
-Exercises the three meaningful branches end-to-end without a real FastAPI
-test client or Redis:
+Exercises the meaningful branches end-to-end without a real FastAPI test
+client or Redis:
 
-1. Happy path — paste a fresh URL → full pipeline runs, one row in each of
+1. Happy path with URL — full pipeline runs, one row in each of
    RawJob / EnrichedJob / ClassificationResult / ScoreResult /
    ReviewQueueItem, endpoint returns status=queued.
 
-2. Dedupe — a URL that already has an EnrichedJob → no new
-   RawJob/EnrichedJob rows, exactly one new ReviewQueueItem,
-   endpoint returns status=reused.
+2. Happy path without URL — same, but RawJob.discovered_url IS NULL and
+   the fingerprint is SHA1 of the pasted text.
 
-3. Scraper error — scrape_advert returns status=error → HTTPException(422),
+3. Dedupe — a URL that already has an EnrichedJob → no new
+   RawJob/EnrichedJob rows, exactly one new ReviewQueueItem, endpoint
+   returns status=reused.
+
+4. LLM error — extract_advert_fields raises → HTTPException(422),
    zero new DB rows.
 
-The test patches:
-  * `scrape_advert` (in api.routes.leads) with a canned dict
-  * `SessionLocal` (in api.routes.leads) with a per-test in-memory SQLite
-  * `clear_dashboard_cache` and `_enqueue_process_lead` with no-ops
+5. LinkedIn URL in the optional URL field → HTTPException(422).
 
-so the route function can be invoked directly as `await paste_lead(req, req_mock)`.
+6. Advert text too short → HTTPException(400).
+
+7. Filter bypass — a US-based role that today's pipeline would 422 on
+   (is_allowed_country rejects outside the core market) still creates
+   the EnrichedJob when called from the paste route (skip_filters=True).
+
+The tests patch:
+  * ``extract_advert_fields`` (in api.routes.leads) with a canned dict
+  * ``SessionLocal`` (in api.routes.leads) with a per-test in-memory SQLite
+  * ``clear_dashboard_cache`` and ``_enqueue_process_lead`` with no-ops
+
+so the route function can be invoked directly as
+``await paste_lead(req, req_mock)``.
 """
 
 from __future__ import annotations
@@ -47,6 +59,17 @@ from vacancysoft.db.models import (
 )
 
 
+# A realistic advert body used across tests. Long enough to clear the
+# 80-char minimum and to exercise the SHA1-based fingerprint path.
+_DEFAULT_ADVERT_TEXT = (
+    "Senior Credit Risk Analyst — Example Bank, London, UK.\n\n"
+    "We are hiring a senior credit risk analyst to cover our wholesale "
+    "book. Must have 5+ years of counterparty credit risk experience. "
+    "Responsibilities include rating counterparties, setting exposure "
+    "limits, and presenting to the credit committee."
+)
+
+
 # ── Fixtures ─────────────────────────────────────────────────────────────
 
 
@@ -61,19 +84,23 @@ def session_factory():
 @pytest.fixture()
 def patched_route(monkeypatch, session_factory):
     """Wire the route module to use the in-memory session + no-op enqueue
-    + canned scraper. Returns a SimpleNamespace the test configures.
+    + canned extractor. Returns a SimpleNamespace the test configures.
 
-    The test mutates `namespace.scrape_result` before calling the route
-    so each case can return its own canned scraper payload.
+    The test mutates ``namespace.extract_result`` (or
+    ``namespace.extract_raises``) before calling the route so each case
+    can control the LLM's canned payload.
     """
     state = SimpleNamespace(
-        scrape_result=None,
+        extract_result=None,
+        extract_raises=None,
         enqueue_calls=[],
         cache_cleared=False,
     )
 
-    async def fake_scrape_advert(url, *, workday=None, timeout_s=120):
-        return state.scrape_result
+    async def fake_extract_advert_fields(advert_text):
+        if state.extract_raises is not None:
+            raise state.extract_raises
+        return state.extract_result
 
     async def fake_enqueue(request, item_id, url, *, company, title):
         state.enqueue_calls.append(
@@ -85,11 +112,12 @@ def patched_route(monkeypatch, session_factory):
 
     # Patch SessionLocal (used inside the route with `with SessionLocal() as s:`)
     monkeypatch.setattr(leads_module, "SessionLocal", session_factory)
-    # The route imports scrape_advert at call time (`from vacancysoft.intelligence.url_scrape import scrape_advert`)
+    # The route imports extract_advert_fields at call time
+    # (`from vacancysoft.intelligence.advert_extraction import extract_advert_fields`)
     # so patch the source module.
     monkeypatch.setattr(
-        "vacancysoft.intelligence.url_scrape.scrape_advert",
-        fake_scrape_advert,
+        "vacancysoft.intelligence.advert_extraction.extract_advert_fields",
+        fake_extract_advert_fields,
     )
     monkeypatch.setattr(leads_module, "_enqueue_process_lead", fake_enqueue)
     monkeypatch.setattr(leads_module, "clear_dashboard_cache", fake_clear_cache)
@@ -102,29 +130,38 @@ def _mock_request():
     return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(redis=None)))
 
 
-# ── Test 1: Happy path ───────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_paste_creates_full_pipeline_rows(patched_route, session_factory):
-    """Fresh URL → one row in each pipeline table, status=queued."""
-    patched_route.scrape_result = {
+def _success_meta(**overrides):
+    """Canned extract_advert_fields() result mirroring scrape_advert()'s shape."""
+    base = {
         "status": "success",
-        "url": "https://boards.greenhouse.io/examplebank/jobs/12345",
-        "finalUrl": "https://boards.greenhouse.io/examplebank/jobs/12345",
         "title": "Senior Credit Risk Analyst",
         "company": "Example Bank",
         "location": "London, UK",
-        "description": "We are hiring a senior credit risk analyst to cover our wholesale book. Must have 5+ years of counterparty credit risk experience.",
-        "descriptionLength": 128,
-        "wasTruncated": False,
+        "description": _DEFAULT_ADVERT_TEXT,
         "postedDate": "2026-04-10",
-        "selectorUsed": "jobposting-json-ld",
-        "error": None,
+        "model": "gpt-4o-mini",
+        "tokens_total": 180,
+        "latency_ms": 820,
     }
+    base.update(overrides)
+    return base
+
+
+# ── Test 1: Happy path with URL ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_paste_with_url_creates_full_pipeline_rows(
+    patched_route, session_factory
+):
+    """Fresh text + URL → one row in each pipeline table, status=queued."""
+    patched_route.extract_result = _success_meta()
 
     result = await leads_module.paste_lead(
-        PasteLeadRequest(url="https://boards.greenhouse.io/examplebank/jobs/12345"),
+        PasteLeadRequest(
+            advert_text=_DEFAULT_ADVERT_TEXT,
+            url="https://boards.greenhouse.io/examplebank/jobs/12345",
+        ),
         _mock_request(),
     )
 
@@ -133,16 +170,27 @@ async def test_paste_creates_full_pipeline_rows(patched_route, session_factory):
     assert result["enriched_id"]
 
     with session_factory() as s:
-        assert s.execute(select(Source).where(Source.source_key == "manual_paste")).scalar_one()
+        assert s.execute(
+            select(Source).where(Source.source_key == "manual_paste")
+        ).scalar_one()
         raw_jobs = list(s.execute(select(RawJob)).scalars())
         assert len(raw_jobs) == 1
-        assert raw_jobs[0].discovered_url == "https://boards.greenhouse.io/examplebank/jobs/12345"
+        assert (
+            raw_jobs[0].discovered_url
+            == "https://boards.greenhouse.io/examplebank/jobs/12345"
+        )
         assert raw_jobs[0].title_raw == "Senior Credit Risk Analyst"
+        # Full pasted text preserved losslessly in description_raw
+        assert raw_jobs[0].description_raw == _DEFAULT_ADVERT_TEXT
+        # Provenance reflects the LLM-extract mode (not the old
+        # "manual_paste" value).
+        assert raw_jobs[0].provenance_blob["mode"] == "manual_paste_text"
 
         enriched_rows = list(s.execute(select(EnrichedJob)).scalars())
         assert len(enriched_rows) == 1
         assert enriched_rows[0].title == "Senior Credit Risk Analyst"
         assert enriched_rows[0].location_country == "UK"
+        assert enriched_rows[0].team == "Example Bank"
 
         assert len(list(s.execute(select(ClassificationResult)).scalars())) == 1
         assert len(list(s.execute(select(ScoreResult)).scalars())) == 1
@@ -157,12 +205,44 @@ async def test_paste_creates_full_pipeline_rows(patched_route, session_factory):
     assert patched_route.enqueue_calls[0]["title"] == "Senior Credit Risk Analyst"
 
 
-# ── Test 2: Dedupe ───────────────────────────────────────────────────────
+# ── Test 2: Happy path without URL ───────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_paste_reuses_existing_enriched(patched_route, session_factory):
-    """An existing EnrichedJob under the pasted URL → reused, no new persistence rows."""
+async def test_paste_without_url_creates_lead(patched_route, session_factory):
+    """No URL supplied → lead created with discovered_url IS NULL and a
+    text-hash fingerprint (so multiple URL-less pastes still get unique
+    external_job_ids).
+    """
+    patched_route.extract_result = _success_meta()
+
+    result = await leads_module.paste_lead(
+        PasteLeadRequest(advert_text=_DEFAULT_ADVERT_TEXT),
+        _mock_request(),
+    )
+
+    assert result["status"] == "queued"
+
+    with session_factory() as s:
+        raw = list(s.execute(select(RawJob)).scalars())[0]
+        assert raw.discovered_url is None
+        assert raw.canonical_url is None
+        assert raw.apply_url is None
+        # Fingerprint came from the text, not a URL — it's a 40-char hex
+        # SHA1 (MD5 would be 32 chars).
+        assert len(raw.job_fingerprint) == 40
+
+
+# ── Test 3: Dedupe on URL ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_paste_with_url_reuses_existing_enriched(
+    patched_route, session_factory
+):
+    """An existing EnrichedJob under the pasted URL → reused, no new
+    persistence rows, no LLM call.
+    """
     url = "https://boards.greenhouse.io/examplebank/jobs/99999"
 
     # Seed an existing lead (Source → SourceRun → ExtractionAttempt → RawJob → EnrichedJob).
@@ -223,10 +303,13 @@ async def test_paste_reuses_existing_enriched(patched_route, session_factory):
         s.commit()
         pre_enriched_id = enriched.id
 
-    # No scraper call should happen on dedupe path — but set a sentinel anyway.
-    patched_route.scrape_result = {"status": "error", "error": "should not be called"}
+    # Sentinel — extractor MUST NOT be called on the dedupe path.
+    patched_route.extract_raises = RuntimeError("should not be called")
 
-    result = await leads_module.paste_lead(PasteLeadRequest(url=url), _mock_request())
+    result = await leads_module.paste_lead(
+        PasteLeadRequest(advert_text=_DEFAULT_ADVERT_TEXT, url=url),
+        _mock_request(),
+    )
 
     assert result["status"] == "reused"
     assert result["enriched_id"] == pre_enriched_id
@@ -244,31 +327,22 @@ async def test_paste_reuses_existing_enriched(patched_route, session_factory):
     assert len(patched_route.enqueue_calls) == 1
 
 
-# ── Test 3: Scraper error ────────────────────────────────────────────────
+# ── Test 4: LLM error ────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_paste_scraper_error_raises_422(patched_route, session_factory):
-    """Scraper returns status=error → HTTPException(422), no rows created."""
-    patched_route.scrape_result = {
-        "status": "error",
-        "url": "https://example.com/not-a-job",
-        "error": "Playwright runner unreachable",
-        "title": "",
-        "company": "",
-        "location": "",
-        "description": "",
-        "postedDate": "",
-    }
+async def test_paste_llm_error_raises_422(patched_route, session_factory):
+    """extract_advert_fields raises → HTTPException(422), no rows created."""
+    patched_route.extract_raises = RuntimeError("LLM returned non-JSON content")
 
     with pytest.raises(HTTPException) as excinfo:
         await leads_module.paste_lead(
-            PasteLeadRequest(url="https://example.com/not-a-job"),
+            PasteLeadRequest(advert_text=_DEFAULT_ADVERT_TEXT),
             _mock_request(),
         )
 
     assert excinfo.value.status_code == 422
-    assert "Playwright runner unreachable" in excinfo.value.detail
+    assert "LLM returned non-JSON" in excinfo.value.detail
 
     with session_factory() as s:
         assert len(list(s.execute(select(RawJob)).scalars())) == 0
@@ -278,66 +352,97 @@ async def test_paste_scraper_error_raises_422(patched_route, session_factory):
     assert len(patched_route.enqueue_calls) == 0
 
 
-# ── Test 4: Company parsed from "Role at Company" title ──────────────────
+# ── Test 5: LinkedIn URL in the optional URL field ───────────────────────
 
 
 @pytest.mark.asyncio
-async def test_paste_extracts_company_from_title(patched_route, session_factory):
-    """When the runner doesn't return a structured company but the scraped
-    title has the 'X at Y' shape (common on ATS careers pages like Barclays),
-    the parsed company lands on enriched.team — NOT the '(Manual paste)'
-    Source.employer_name placeholder.
+async def test_paste_rejects_linkedin_url(patched_route, session_factory):
+    """A LinkedIn URL in the optional URL field → 422. No LLM call, no rows.
+
+    Text-only pastes for LinkedIn roles are expected — the rejection is
+    specifically about the URL field.
     """
-    patched_route.scrape_result = {
-        "status": "success",
-        "url": "https://search.jobs.barclays/job/glasgow/credit-risk-officer/13015/123",
-        "finalUrl": "https://search.jobs.barclays/job/glasgow/credit-risk-officer/13015/123",
-        # Runner's extractor didn't populate structured metadata — no JSON-LD
-        # on this page. Only the document.title came through.
-        "title": "Credit Risk Officer at Barclays",
-        "company": "",
-        "location": "",
-        "description": (
-            "Credit Risk Officer. Glasgow, United Kingdom. "
-            "Business Area: Risk. Area of Expertise: Risk and Quantitative Analytics. "
-            "Permanent. In Risk Barclays develops, recommends, and implements controls. "
-            "You will analyse counterparty credit risk and manage portfolio limits."
-        ),
-        "descriptionLength": 280,
-        "wasTruncated": False,
-        "postedDate": "",
-        "selectorUsed": "main",
-        "error": None,
-    }
+    linkedin_variants = [
+        "https://www.linkedin.com/jobs/view/head-of-credit-risk-at-abound-4383256061/",
+        "https://linkedin.com/jobs/view/4387495472/",
+        "https://uk.linkedin.com/jobs/view/123456",
+        "https://www.linkedin.com/comm/jobs/view/987654",
+    ]
+    patched_route.extract_raises = RuntimeError("extractor must not be invoked")
+
+    for url in linkedin_variants:
+        with pytest.raises(HTTPException) as excinfo:
+            await leads_module.paste_lead(
+                PasteLeadRequest(advert_text=_DEFAULT_ADVERT_TEXT, url=url),
+                _mock_request(),
+            )
+        assert excinfo.value.status_code == 422, url
+        assert "LinkedIn" in excinfo.value.detail
+
+    with session_factory() as s:
+        assert len(list(s.execute(select(RawJob)).scalars())) == 0
+        assert len(list(s.execute(select(EnrichedJob)).scalars())) == 0
+        assert len(list(s.execute(select(ReviewQueueItem)).scalars())) == 0
+    assert len(patched_route.enqueue_calls) == 0
+
+
+# ── Test 6: Too-short advert_text ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_paste_advert_text_too_short(patched_route, session_factory):
+    """advert_text shorter than 80 chars → HTTPException(400)."""
+    patched_route.extract_raises = RuntimeError("extractor must not be invoked")
+
+    with pytest.raises(HTTPException) as excinfo:
+        await leads_module.paste_lead(
+            PasteLeadRequest(advert_text="Senior Credit Risk Analyst — London"),
+            _mock_request(),
+        )
+    assert excinfo.value.status_code == 400
+    assert "too short" in excinfo.value.detail
+
+    with session_factory() as s:
+        assert len(list(s.execute(select(RawJob)).scalars())) == 0
+
+
+# ── Test 7: Filter bypass — a US role that today's filters would reject ──
+
+
+@pytest.mark.asyncio
+async def test_paste_filter_bypass_allows_us_role(patched_route, session_factory):
+    """A US-based role (outside the core-market allow-list) should still
+    create an EnrichedJob when pasted — the paste route calls
+    persist_enrichment_for_raw_job with skip_filters=True.
+    """
+    patched_route.extract_result = _success_meta(
+        title="Senior Credit Risk Analyst",
+        company="Example Bank",
+        location="Buffalo, NY, USA",
+    )
 
     result = await leads_module.paste_lead(
-        PasteLeadRequest(url="https://search.jobs.barclays/job/glasgow/credit-risk-officer/13015/123"),
+        PasteLeadRequest(advert_text=_DEFAULT_ADVERT_TEXT),
         _mock_request(),
     )
+
     assert result["status"] == "queued"
 
     with session_factory() as s:
-        enriched = list(s.execute(select(EnrichedJob)).scalars())[0]
-        # Title is the cleaned role; the "at Barclays" suffix is stripped
-        assert enriched.title == "Credit Risk Officer"
-        # enriched.team is the parsed employer — NOT the Source placeholder
-        assert enriched.team == "Barclays"
-
-    # Worker gets the real company in the enqueue args so its fuzzy
-    # EnrichedJob lookup actually has something to match on.
-    assert patched_route.enqueue_calls[0]["company"] == "Barclays"
-    assert patched_route.enqueue_calls[0]["title"] == "Credit Risk Officer"
+        enriched_rows = list(s.execute(select(EnrichedJob)).scalars())
+        assert len(enriched_rows) == 1
+        assert enriched_rows[0].location_country == "USA"
 
 
-# ── Test 5: _resolve_company guards against placeholder Source names ─────
+# ── _resolve_company still guards against placeholder Source names ──────
 
 
 def test_resolve_company_ignores_manual_paste_placeholder():
     """The dossier prompt + HM SerpApi path must never see
-    '(Manual paste)' as the company — that breaks Google queries and causes
-    gpt-4o-mini to hallucinate hiring managers. The resolver prefers
-    enriched.team, falls through to listing_payload, and skips placeholder
-    strings in Source.employer_name.
+    '(Manual paste)' as the company — that breaks Google queries and
+    causes gpt-4o-mini to hallucinate hiring managers. The resolver
+    prefers enriched.team, falls through to listing_payload, and skips
+    placeholder strings in Source.employer_name.
     """
     from vacancysoft.intelligence.dossier import _resolve_company
 
@@ -366,47 +471,7 @@ def test_resolve_company_ignores_manual_paste_placeholder():
     assert _resolve_company(enriched_empty, raw_empty, source) == ""
 
 
-# ── Test 6: LinkedIn URLs auto-rejected before scraping ──────────────────
-
-
-@pytest.mark.asyncio
-async def test_paste_rejects_linkedin_urls(patched_route, session_factory):
-    """LinkedIn job URLs are auto-rejected with 422. No scrape call, no DB
-    rows. The error message points the operator to the ATS alternative.
-    """
-    linkedin_variants = [
-        "https://www.linkedin.com/jobs/view/head-of-credit-risk-at-abound-4383256061/",
-        "https://linkedin.com/jobs/view/4387495472/",
-        "https://uk.linkedin.com/jobs/view/123456",
-        "https://www.linkedin.com/comm/jobs/view/987654",
-    ]
-    # Sentinel — scraper MUST NOT be invoked; if it is, this payload makes
-    # the pipeline run and the DB-count assertion below catches it.
-    patched_route.scrape_result = {
-        "status": "success",
-        "title": "Should not reach runner",
-        "company": "x",
-        "location": "London, UK",
-        "description": "x" * 500,
-        "postedDate": "",
-        "error": None,
-    }
-    for url in linkedin_variants:
-        with pytest.raises(HTTPException) as excinfo:
-            await leads_module.paste_lead(
-                PasteLeadRequest(url=url),
-                _mock_request(),
-            )
-        assert excinfo.value.status_code == 422, url
-        assert "LinkedIn" in excinfo.value.detail
-        assert "company website" in excinfo.value.detail.lower()
-
-    # No DB rows created across all 4 rejections
-    with session_factory() as s:
-        assert len(list(s.execute(select(RawJob)).scalars())) == 0
-        assert len(list(s.execute(select(EnrichedJob)).scalars())) == 0
-        assert len(list(s.execute(select(ReviewQueueItem)).scalars())) == 0
-    assert len(patched_route.enqueue_calls) == 0
+# ── LinkedIn URL detector unit test (unchanged) ──────────────────────────
 
 
 def test_is_linkedin_job_url_matches_expected_variants():
