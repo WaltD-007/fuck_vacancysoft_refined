@@ -249,13 +249,11 @@ export default function LeadsPage() {
 
   // Paste-an-advert flow state. The operator pastes the full advert body
   // into a textarea; the backend LLM-extracts title/company/location and
-  // runs the usual pipeline. Optional Source URL below the textarea is
-  // kept for provenance + the "View original" link on the lead card.
-  // LinkedIn URLs are rejected server-side AND client-side below.
+  // runs the usual pipeline. No URL is accepted — every paste creates a
+  // fresh lead row with discovered_url=NULL.
   const PASTE_MIN_CHARS = 80;
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
-  const [pasteSourceUrl, setPasteSourceUrl] = useState("");
   const [pasteBusy, setPasteBusy] = useState(false);
   const [pasteError, setPasteError] = useState<string | null>(null);
   const [pasteStatus, setPasteStatus] = useState<string | null>(null);
@@ -267,32 +265,18 @@ export default function LeadsPage() {
     if (pasteOpen) pasteTextRef.current?.focus();
   }, [pasteOpen]);
 
-  // Client-side LinkedIn guard — the URL field rejects linkedin.com and
-  // lnkd.in so the operator gets instant feedback. Server enforces the
-  // same rule.
-  const isLinkedInUrl = (u: string) => /(^|\/\/|\.)linkedin\.com|lnkd\.in/i.test(u);
-  const sourceUrlLinkedInError =
-    pasteSourceUrl.trim() && isLinkedInUrl(pasteSourceUrl.trim())
-      ? "LinkedIn URLs aren't accepted — paste the advert text only, or use the 'Apply on company website' link."
-      : null;
-
   const canSubmitPaste =
-    pasteText.trim().length >= PASTE_MIN_CHARS &&
-    !sourceUrlLinkedInError &&
-    !pasteBusy;
+    pasteText.trim().length >= PASTE_MIN_CHARS && !pasteBusy;
 
   const closePaste = () => {
     setPasteOpen(false);
     setPasteText("");
-    setPasteSourceUrl("");
     setPasteError(null);
   };
 
   const submitPaste = async () => {
     const text = pasteText.trim();
-    const sourceUrl = pasteSourceUrl.trim();
     if (text.length < PASTE_MIN_CHARS || pasteBusy) return;
-    if (sourceUrl && isLinkedInUrl(sourceUrl)) return;
     setPasteBusy(true);
     setPasteError(null);
     setPasteStatus(null);
@@ -300,10 +284,7 @@ export default function LeadsPage() {
       const res = await fetch(`${API}/leads/paste`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          advert_text: text,
-          url: sourceUrl || null,
-        }),
+        body: JSON.stringify({ advert_text: text }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
@@ -314,23 +295,14 @@ export default function LeadsPage() {
         );
         return;
       }
-      const data = await res.json();
       setPasteText("");
-      setPasteSourceUrl("");
-      setPasteStatus(
-        data.status === "queued"
-          ? "Lead queued — dossier generating"
-          : data.status === "already_queued"
-          ? "Already in the queue — generation in progress"
-          : "Existing lead re-queued — dossier will update",
-      );
+      setPasteStatus("Lead queued — dossier generating");
       // Collapse the panel on success so the operator sees the freshly
       // queued row without the panel hovering above the table. The status
       // pill below Lead List shows the confirmation for a few seconds.
       setPasteOpen(false);
       // Surface the new row immediately instead of waiting for the 5s poll.
       mutateLeads();
-      // Auto-clear the success banner after a few seconds.
       setTimeout(() => setPasteStatus(null), 4000);
     } catch (err) {
       setPasteError(
@@ -429,9 +401,9 @@ export default function LeadsPage() {
         </div>
 
         {/* Paste-an-advert panel. Full-width below the topbar when open
-            so the textarea has real estate; the optional URL field sits
-            underneath it. Submits to /api/leads/paste with the text
-            body; backend LLM-extracts structured fields. */}
+            so the textarea has real estate. Submits to /api/leads/paste
+            with just the text body; backend LLM-extracts structured
+            fields. */}
         {pasteOpen && (
           <div
             className="px-8 pt-5 pb-6"
@@ -477,37 +449,6 @@ export default function LeadsPage() {
               <span style={{ color: pasteText.trim().length >= PASTE_MIN_CHARS ? "#555570" : "#8888a0" }}>
                 {pasteText.length} chars — minimum {PASTE_MIN_CHARS}
               </span>
-            </div>
-
-            <div className="mt-4">
-              <label
-                className="text-[11px] font-medium uppercase tracking-wider mb-1.5 block"
-                style={{ color: "#555570", letterSpacing: "0.8px" }}
-              >
-                Source URL (optional)
-              </label>
-              <input
-                type="url"
-                value={pasteSourceUrl}
-                onChange={(e) => {
-                  setPasteSourceUrl(e.target.value);
-                  if (pasteError) setPasteError(null);
-                }}
-                placeholder="https://… — stored for reference; leave blank for LinkedIn pastes"
-                disabled={pasteBusy}
-                className="w-full px-3 py-2 rounded-lg text-sm outline-none"
-                style={{
-                  background: "#16161f",
-                  border: `1px solid ${sourceUrlLinkedInError ? "#ff6b6b" : "#2a2a3a"}`,
-                  color: "#e8e8f0",
-                  opacity: pasteBusy ? 0.6 : 1,
-                }}
-              />
-              {sourceUrlLinkedInError && (
-                <div className="mt-1 text-[11px]" style={{ color: "#ff6b6b" }}>
-                  {sourceUrlLinkedInError}
-                </div>
-              )}
             </div>
 
             <div className="mt-4 flex items-center gap-2">

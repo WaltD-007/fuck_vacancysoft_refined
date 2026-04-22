@@ -22,7 +22,6 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import datetime
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
@@ -451,25 +450,12 @@ async def _scrape_and_generate_dossier(item_id: str, url: str | None, company: s
             item.status = "generating"
             s.commit()
 
-            # Find the enriched job
-            enriched = None
-            if url:
-                enriched = s.execute(
-                    select(EnrichedJob)
-                    .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                    .where(RawJob.discovered_url == url)
-                    .limit(1)
-                ).scalar_one_or_none()
-
-            if not enriched and title:
-                enriched = s.execute(
-                    select(EnrichedJob)
-                    .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                    .join(Source, RawJob.source_id == Source.id)
-                    .where(EnrichedJob.title.ilike(f"%{title}%"))
-                    .where(Source.employer_name.ilike(f"%{company}%"))
-                    .limit(1)
-                ).scalar_one_or_none()
+            # Enriched job is named directly on the queue item (every
+            # ReviewQueueItem creator populates enriched_job_id). No URL
+            # / title fuzzy match needed.
+            enriched = s.execute(
+                select(EnrichedJob).where(EnrichedJob.id == item.enriched_job_id)
+            ).scalar_one_or_none()
 
             if not enriched:
                 item.status = "pending"
@@ -557,41 +543,35 @@ def list_queue():
             .order_by(ReviewQueueItem.created_at.desc())
         ).scalars().all()
 
-        # Pull the latest IntelligenceDossier for every queued URL in one
-        # shot. We match on URL rather than enriched_job_id because there
-        # can be multiple EnrichedJob rows per URL and the queue item's
-        # enriched_job_id may point at a different one than the dossier's.
-        # Matching on URL is what the dossier / campaign endpoints
-        # effectively do.
-        urls = [u for u in ((i.evidence_blob or {}).get("url") for i in items) if u]
-        dossiers_by_url: dict[str, IntelligenceDossier] = {}
-        if urls:
-            # Grab (url, dossier) pairs; newest-first so the first entry we
-            # see for a URL is the one we keep.
+        # Pull the latest IntelligenceDossier per queued enriched_job_id
+        # in one shot. Matching on enriched_job_id (the FK written by
+        # whichever handler queued the lead) keeps queue→dossier linkage
+        # stable even for paste leads with no URL.
+        enriched_ids = [i.enriched_job_id for i in items if i.enriched_job_id]
+        dossiers_by_enriched: dict[str, IntelligenceDossier] = {}
+        if enriched_ids:
+            # Newest-first so the first entry we see for a given
+            # enriched_job_id is the one we keep.
             rows = s.execute(
-                select(RawJob.discovered_url, IntelligenceDossier)
-                .join(EnrichedJob, EnrichedJob.raw_job_id == RawJob.id)
-                .join(IntelligenceDossier, IntelligenceDossier.enriched_job_id == EnrichedJob.id)
-                .where(RawJob.discovered_url.in_(urls))
+                select(IntelligenceDossier)
+                .where(IntelligenceDossier.enriched_job_id.in_(enriched_ids))
                 .order_by(IntelligenceDossier.created_at.desc())
-            ).all()
-            for url, dossier in rows:
-                if url not in dossiers_by_url:
-                    dossiers_by_url[url] = dossier
+            ).scalars().all()
+            for dossier in rows:
+                if dossier.enriched_job_id not in dossiers_by_enriched:
+                    dossiers_by_enriched[dossier.enriched_job_id] = dossier
 
         def _reported_status(item: ReviewQueueItem) -> str:
             if item.status != "ready":
                 return item.status
-            url = (item.evidence_blob or {}).get("url")
-            if url and url in dossiers_by_url:
+            if item.enriched_job_id in dossiers_by_enriched:
                 return "ready"
             return "generating"
 
         out: list[dict] = []
         for item in items:
             evidence = item.evidence_blob or {}
-            url = evidence.get("url")
-            dossier = dossiers_by_url.get(url) if url else None
+            dossier = dossiers_by_enriched.get(item.enriched_job_id)
             out.append({
                 "id": item.id,
                 "status": _reported_status(item),
@@ -601,7 +581,7 @@ def list_queue():
                 "country": evidence.get("country"),
                 "category": evidence.get("category"),
                 "sub_specialism": evidence.get("sub_specialism"),
-                "url": url,
+                "url": evidence.get("url"),
                 "score": evidence.get("score"),
                 "board_url": evidence.get("board_url"),
                 "created_at": item.created_at.isoformat() if item.created_at else None,
@@ -657,29 +637,6 @@ def remove_from_queue(item_id: str):
 _MANUAL_PASTE_SOURCE_KEY = "manual_paste"
 
 
-def _is_linkedin_job_url(url: str) -> bool:
-    """True when the URL is a LinkedIn job advert.
-
-    LinkedIn job pages gate the advert body behind a login wall — the
-    scraper either grabs the related-jobs sidebar (→ hallucinated dossier)
-    or misses the body entirely. Rather than silently produce a poor
-    dossier we reject these URLs and nudge the operator toward the
-    'Apply on company website' ATS URL.
-
-    Matches both the public `/jobs/view/...` layout and the `/comm/jobs/`
-    email-share variant, on any LinkedIn subdomain (www, uk, de, etc.).
-    """
-    try:
-        parsed = urlparse(url)
-    except Exception:
-        return False
-    host = (parsed.hostname or "").lower()
-    if not (host == "linkedin.com" or host.endswith(".linkedin.com")):
-        return False
-    path = (parsed.path or "").lower()
-    return path.startswith("/jobs/") or "/comm/jobs/" in path
-
-
 def _ensure_manual_paste_source(session) -> Source:
     """Find (or create) the shared 'Manual Paste' Source row that every
     paste-originated RawJob is filed under. One row, shared across all
@@ -721,26 +678,23 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
     List. An LLM pulls out {title, company, location, posted_date}; the
     pasted text itself is kept lossless as the description. The rest of
     the pipeline (EnrichedJob → ClassificationResult → ScoreResult →
-    ReviewQueueItem) is identical to the URL-paste flow this replaces,
-    with one twist: the three enrichment filters (country / recruiter /
+    ReviewQueueItem) is identical to the background scrape flow, with
+    one twist: the three enrichment filters (country / recruiter /
     title-relevance) are bypassed, because the operator has explicitly
     chosen this advert.
 
-    A URL is accepted but optional — it's stored as provenance + for
-    dedupe + as the "View original" link on the lead card. LinkedIn URLs
-    are rejected so we don't imply we scraped a login-walled page; the
-    operator is expected to paste the advert *text* for LinkedIn roles,
-    and leave the URL field blank (or paste the candidate-facing apply
-    URL if the post has one).
+    No URL is accepted. Every paste produces a fresh RawJob with
+    ``discovered_url = NULL``. If the operator pastes the same advert
+    twice they get two rows — dedupe is the operator's responsibility
+    (and the Dead-job control cleans up).
 
     Returns:
-      { "status": "queued" | "reused" | "already_queued",
-        "item_id": "...", "enriched_id": "..." }
+      { "status": "queued", "item_id": "...", "enriched_id": "..." }
 
     Errors:
       400 — advert_text is missing or shorter than 80 chars
-      422 — URL is a LinkedIn job URL, LLM couldn't parse the advert,
-            or the classifier found no taxonomy match for the title
+      422 — LLM couldn't parse the advert, or the classifier found no
+            taxonomy match for the title
     """
     from vacancysoft.db.models import (
         ExtractionAttempt,
@@ -761,74 +715,7 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
             detail="advert_text is too short — paste the full advert body",
         )
 
-    # URL is optional. When present we strip and run the LinkedIn guard
-    # so we never store a link that implies the backend fetched it.
-    url = (req.url or "").strip() or None
-    if url and _is_linkedin_job_url(url):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "LinkedIn URLs aren't accepted in the Source URL field — "
-                "paste the advert text itself and leave the URL blank, or "
-                "use the 'Apply on company website' link from the "
-                "LinkedIn posting."
-            ),
-        )
-
-    # ── 1. Dedupe ────────────────────────────────────────────────────────
-    # Dedupe only when a URL was supplied. Text-only pastes always land as
-    # a fresh RawJob — duplicates are the operator's prerogative and easy
-    # to delete via the Dead-job control.
-    existing_enriched_id: str | None = None
-    item_id: str | None = None
-    if url:
-        with SessionLocal() as s:
-            existing_enriched_id = s.execute(
-                select(EnrichedJob.id)
-                .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                .where(RawJob.discovered_url == url)
-                .limit(1)
-            ).scalar_one_or_none()
-
-            if existing_enriched_id:
-                # Already in the DB. If there's already a campaign queue item,
-                # short-circuit — nothing more to do. Otherwise queue a fresh
-                # one so the operator sees the lead on /leads.
-                existing_item = s.execute(
-                    select(ReviewQueueItem)
-                    .where(ReviewQueueItem.enriched_job_id == existing_enriched_id)
-                    .where(ReviewQueueItem.queue_type == "campaign")
-                    .limit(1)
-                ).scalar_one_or_none()
-                if existing_item is not None:
-                    return {
-                        "status": "already_queued",
-                        "item_id": existing_item.id,
-                        "enriched_id": existing_enriched_id,
-                    }
-
-                item = ReviewQueueItem(
-                    enriched_job_id=existing_enriched_id,
-                    queue_type="campaign",
-                    priority=50,
-                    reason_code="user_pasted_url",
-                    reason_summary=f"Paste: {url}",
-                    evidence_blob={"url": url, "source": "paste"},
-                    status="pending",
-                )
-                s.add(item)
-                s.commit()
-                s.refresh(item)
-                item_id = item.id
-
-    if existing_enriched_id and item_id:
-        await _enqueue_process_lead(request, item_id, url or "", company="", title="")
-        clear_dashboard_cache()
-        return {"status": "reused", "item_id": item_id, "enriched_id": existing_enriched_id}
-
-    # ── 2. LLM extraction ────────────────────────────────────────────────
-    # Replaces the old Playwright scrape_advert step. Returns the same
-    # dict shape so the destructuring below is unchanged.
+    # ── 1. LLM extraction ────────────────────────────────────────────────
     try:
         meta = await extract_advert_fields(advert_text)
     except (ValueError, RuntimeError) as exc:
@@ -837,21 +724,13 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
             detail=f"Could not extract structured fields from the pasted advert: {exc}",
         ) from exc
 
-    raw_title = (meta.get("title") or "").strip()
-    raw_company = (meta.get("company") or "").strip()
-    raw_location = (meta.get("location") or "").strip()
+    title = (meta.get("title") or "").strip()
+    company = (meta.get("company") or "").strip()
+    location = (meta.get("location") or "").strip()
     description = (meta.get("description") or "").strip()
     posted_at_raw = (meta.get("postedDate") or "").strip()
 
-    title = raw_title
-    company = raw_company
-    location = raw_location
-
     if not title:
-        # No title = dossier prompt has nothing to select a category from.
-        # The advert body was probably a press release / blog post / junk
-        # paste. Surface to the operator rather than silently create a
-        # useless lead.
         raise HTTPException(
             status_code=422,
             detail=(
@@ -861,7 +740,7 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
             ),
         )
 
-    # ── 3-5. Persist + pipeline ──────────────────────────────────────────
+    # ── 2. Persist + pipeline ────────────────────────────────────────────
     with SessionLocal() as s:
         paste_source = _ensure_manual_paste_source(s)
 
@@ -882,7 +761,7 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
             source_id=paste_source.id,
             stage="detail",
             method="paste_text",
-            endpoint_url=url,
+            endpoint_url=None,
             status_code=200,
             success=True,
             completeness_score=0.8,
@@ -891,22 +770,17 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
         s.add(extraction_attempt)
         s.flush()
 
-        # Fingerprint: URL when supplied (keeps the existing dedupe key
-        # shape); SHA1 of the pasted text otherwise, so URL-less pastes
-        # each get a stable unique id.
-        if url:
-            fingerprint = hashlib.md5(url.encode("utf-8")).hexdigest()
-        else:
-            fingerprint = hashlib.sha1(description.encode("utf-8")).hexdigest()
+        # SHA1 of the pasted text — unique per distinct paste.
+        fingerprint = hashlib.sha1(description.encode("utf-8")).hexdigest()
 
         raw_job = RawJob(
             source_id=paste_source.id,
             source_run_id=source_run.id,
             extraction_attempt_id=extraction_attempt.id,
             external_job_id=fingerprint,
-            canonical_url=url,
-            discovered_url=url,
-            apply_url=url,
+            canonical_url=None,
+            discovered_url=None,
+            apply_url=None,
             title_raw=title,
             location_raw=location,
             posted_at_raw=posted_at_raw or None,
@@ -930,10 +804,10 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
             detail_payload=None,
             raw_text_blob=description,
             job_fingerprint=fingerprint,
-            content_hash=hashlib.sha1(description.encode("utf-8")).hexdigest(),
+            content_hash=fingerprint,
             completeness_score=0.8,
             extraction_confidence=0.8,
-            provenance_blob={"mode": "manual_paste_text", "url": url},
+            provenance_blob={"mode": "manual_paste_text"},
         )
         s.add(raw_job)
         s.flush()
@@ -972,16 +846,12 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
             enriched.team = company
             s.flush()
 
-
         from vacancysoft.exporters.legacy_mapping import (
             load_legacy_routing,
             map_category,
         )
         routing = load_legacy_routing()
         cat_label = map_category(classification.primary_taxonomy_key, routing)
-        # Sub-specialism comes from the ClassificationResult row we just
-        # persisted (DB column added 2026-04-20). Previously recomputed via
-        # map_sub_specialism() against the legacy YAML.
         sub_label = classification.sub_specialism or "Other"
         score_ui: float | None = None
         if score_row and score_row.export_eligibility_score is not None:
@@ -995,10 +865,9 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
             enriched_job_id=enriched.id,
             queue_type="campaign",
             priority=50,
-            reason_code="user_pasted_url",
+            reason_code="user_pasted_text",
             reason_summary=f"Paste: {title} — {display_company}",
             evidence_blob={
-                "url": url,
                 "title": enriched.title or title,
                 "company": display_company,
                 "location": display_location,
@@ -1016,10 +885,10 @@ async def paste_lead(req: PasteLeadRequest, request: Request):
         item_id = item.id
         enriched_id = enriched.id
 
-    # ── 6. Enqueue ───────────────────────────────────────────────────────
-    await _enqueue_process_lead(
-        request, item_id, url or "", company=company, title=title
-    )
+    # ── 3. Enqueue ───────────────────────────────────────────────────────
+    # Worker looks up the enriched job via item.enriched_job_id; no URL
+    # needed.
+    await _enqueue_process_lead(request, item_id, "", company=company, title=title)
     clear_dashboard_cache()
     return {"status": "queued", "item_id": item_id, "enriched_id": enriched_id}
 

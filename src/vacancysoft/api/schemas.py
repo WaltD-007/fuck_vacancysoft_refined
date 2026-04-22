@@ -126,14 +126,12 @@ class ScoredJobOut(BaseModel):
 class PasteLeadRequest(BaseModel):
     """Request for POST /api/leads/paste — text-paste flow.
 
-    The operator pastes the advert body itself; an LLM extracts
-    title / company / location / posted_date from it. The optional URL
-    is stored for provenance + dedupe (and shown as "open original" in
-    the lead card) but is never fetched — LinkedIn URLs are rejected
-    server-side so we don't imply we scraped one.
+    The operator pastes the advert body; an LLM extracts
+    title / company / location / posted_date from it. No URL is
+    accepted — every paste produces a fresh RawJob with
+    ``discovered_url = NULL``.
     """
     advert_text: str
-    url: str | None = None
 
 
 class QueueRequest(BaseModel):

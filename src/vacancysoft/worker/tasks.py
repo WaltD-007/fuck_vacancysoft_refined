@@ -34,28 +34,19 @@ async def process_lead(ctx: dict[str, Any], item_id: str, url: str | None, compa
             item.status = "generating"
             s.commit()
 
-            # Find the enriched job
-            enriched = None
-            if url:
-                enriched = s.execute(
-                    select(EnrichedJob)
-                    .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                    .where(RawJob.discovered_url == url)
-                    .limit(1)
-                ).scalar_one_or_none()
-
-            if not enriched and title:
-                enriched = s.execute(
-                    select(EnrichedJob)
-                    .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
-                    .join(Source, RawJob.source_id == Source.id)
-                    .where(EnrichedJob.title.ilike(f"%{title}%"))
-                    .where(Source.employer_name.ilike(f"%{company}%"))
-                    .limit(1)
-                ).scalar_one_or_none()
+            # The enriched job is named directly on the queue item — no
+            # fuzzy URL / title match needed. Every caller that creates a
+            # ReviewQueueItem populates enriched_job_id (see
+            # api/routes/leads.py + cli/app.py).
+            enriched = s.execute(
+                select(EnrichedJob).where(EnrichedJob.id == item.enriched_job_id)
+            ).scalar_one_or_none()
 
             if not enriched:
-                logger.warning("No enriched job found for '%s' at '%s', reverting to pending", title, company)
+                logger.warning(
+                    "Queue item %s references missing enriched_job_id %s — reverting to pending",
+                    item_id, item.enriched_job_id,
+                )
                 item.status = "pending"
                 s.commit()
                 return
