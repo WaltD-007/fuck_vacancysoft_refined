@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
+import traceback
 from datetime import datetime
 from typing import Any
 from urllib.parse import urljoin
@@ -48,6 +50,17 @@ LOCATION_SELECTORS = [
     "[class*='city']",
     "[data-testid*='location' i]",
 ]
+
+
+async def _maybe_await(value: Any) -> None:
+    """Await ``value`` only if it's awaitable — tolerates sync callbacks.
+
+    See hibob.py for the full rationale; 2026-04-22 audit surfaced
+    2 eightfold runs crashing with "object NoneType can't be used in
+    'await' expression" on a bare ``await on_page_scraped(...)`` call.
+    """
+    if inspect.isawaitable(value):
+        await value
 
 
 def _clean(value: Any) -> str | None:
@@ -278,6 +291,35 @@ class EightfoldAdapter(SourceAdapter):
         since: datetime | None = None,
         on_page_scraped: PageCallback = None,
     ) -> DiscoveryPage:
+        """Wrapper that captures any unhandled exception in `_discover_impl`
+        as a structured diagnostic, so the DB carries a usable error
+        message + traceback instead of a bare error without context.
+
+        Added 2026-04-22 after the audit showed 2 eightfold runs
+        crashing with "object NoneType can't be used in 'await'
+        expression" — no line number, no traceback. Next occurrence
+        will now surface the exact site.
+        """
+        board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip()
+        diagnostics = AdapterDiagnostics(metadata={"board_url": board_url})
+        try:
+            return await self._discover_impl(
+                source_config, diagnostics, cursor, since, on_page_scraped,
+            )
+        except Exception as exc:
+            diagnostics.errors.append(
+                f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+            )
+            raise
+
+    async def _discover_impl(
+        self,
+        source_config: dict[str, Any],
+        diagnostics: AdapterDiagnostics,
+        cursor: str | None = None,
+        since: datetime | None = None,
+        on_page_scraped: PageCallback = None,
+    ) -> DiscoveryPage:
         board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip()
         if not board_url:
             raise ValueError("Eightfold source_config requires job_board_url")
@@ -287,16 +329,16 @@ class EightfoldAdapter(SourceAdapter):
         search_terms = [str(term).strip() for term in raw_terms if str(term).strip()]
         timeout_ms = int(source_config.get("page_timeout_ms", DEFAULT_PAGE_TIMEOUT_MS))
         settle_ms = int(source_config.get("search_settle_ms", DEFAULT_SEARCH_SETTLE_MS))
-        diagnostics = AdapterDiagnostics(
-            metadata={
-                "board_url": board_url,
-                "search_terms": search_terms,
-                "page_timeout_ms": timeout_ms,
-                "search_settle_ms": settle_ms,
-                "since": since.isoformat() if since else None,
-                "cursor_ignored": cursor is not None,
-            }
-        )
+        # diagnostics was created by the wrapping discover() and passed in;
+        # enrich its metadata dict with this adapter's context rather than
+        # replacing it.
+        diagnostics.metadata.update({
+            "search_terms": search_terms,
+            "page_timeout_ms": timeout_ms,
+            "search_settle_ms": settle_ms,
+            "since": since.isoformat() if since else None,
+            "cursor_ignored": cursor is not None,
+        })
         if cursor is not None:
             diagnostics.warnings.append("EightfoldAdapter does not support pagination. cursor was ignored.")
         if since is not None:
@@ -317,7 +359,7 @@ class EightfoldAdapter(SourceAdapter):
             diagnostics.counters["unique_urls"] = len(seen_urls)
             diagnostics.timings_ms["discover"] = int((time.perf_counter() - started) * 1000)
             if on_page_scraped:
-                await on_page_scraped(1, all_records, all_records)
+                await _maybe_await(on_page_scraped(1, all_records, all_records))
             return DiscoveryPage(jobs=all_records, next_cursor=None, diagnostics=diagnostics)
 
         # ── Browser fallback ──

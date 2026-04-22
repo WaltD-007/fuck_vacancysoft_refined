@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import inspect
 import json
 import re
 import time
+import traceback
 from datetime import datetime
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -42,6 +44,19 @@ _REJECT_TITLES = {
     "search", "apply", "learn more", "skip to main content",
     "welcome", "log in", "sign in", "cookie", "privacy",
 }
+
+
+async def _maybe_await(value: Any) -> None:
+    """Await ``value`` only if it's awaitable — tolerates sync callbacks.
+
+    The ``on_page_scraped`` callback is typed ``PageCallback`` (any
+    callable). Some older code paths pass a sync function that returns
+    None; unconditional ``await`` on that raises ``TypeError: object
+    NoneType can't be used in 'await' expression``. The 2026-04-22
+    audit flagged 28 hibob + 2 eightfold runs with this exact error.
+    """
+    if inspect.isawaitable(value):
+        await value
 
 
 def _clean(value: Any) -> str | None:
@@ -238,6 +253,39 @@ class HiBobAdapter(SourceAdapter):
         since: datetime | None = None,
         on_page_scraped: PageCallback = None,
     ) -> DiscoveryPage:
+        """Wrapper that captures any unhandled exception in `_discover_impl`
+        as a structured diagnostic, so the DB carries a usable error
+        message + traceback instead of a bare "object NoneType can't be
+        used in 'await' expression" without context.
+
+        This wrapper was added 2026-04-22 after the audit surfaced 28
+        hibob runs crashing with that exact bare error — no line
+        number, no traceback, impossible to diagnose from the DB. Any
+        exception bubbling out of `_discover_impl` now lands in
+        ``diagnostics.errors`` with full traceback AND is re-raised so
+        the worker still marks the run failed. Next occurrence will
+        tell us the exact line.
+        """
+        board_url = str(source_config.get("job_board_url") or "").strip()
+        diagnostics = AdapterDiagnostics(metadata={"board_url": board_url})
+        try:
+            return await self._discover_impl(
+                source_config, diagnostics, cursor, since, on_page_scraped,
+            )
+        except Exception as exc:
+            diagnostics.errors.append(
+                f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+            )
+            raise
+
+    async def _discover_impl(
+        self,
+        source_config: dict[str, Any],
+        diagnostics: AdapterDiagnostics,
+        cursor: str | None = None,
+        since: datetime | None = None,
+        on_page_scraped: PageCallback = None,
+    ) -> DiscoveryPage:
         board_url = str(source_config.get("job_board_url") or "").strip()
         if not board_url:
             raise ValueError("HiBob source_config requires job_board_url")
@@ -248,7 +296,8 @@ class HiBobAdapter(SourceAdapter):
             slug=source_config.get("slug"),
             explicit_company=source_config.get("company"),
         )
-        diagnostics = AdapterDiagnostics(metadata={"board_url": board_url})
+        # diagnostics is created by the wrapping discover() and passed in,
+        # so we use it here directly rather than making a new one.
         t0 = time.monotonic()
 
         # ── HTTP fast path: hit /api/job-ad directly ──
@@ -257,7 +306,7 @@ class HiBobAdapter(SourceAdapter):
             diagnostics.counters["total_jobs"] = len(records)
             diagnostics.timings_ms["discover"] = round((time.monotonic() - t0) * 1000)
             if on_page_scraped:
-                await on_page_scraped(1, records, records)
+                await _maybe_await(on_page_scraped(1, records, records))
             return DiscoveryPage(jobs=records, next_cursor=None, diagnostics=diagnostics)
 
         # ── Browser fallback ──
@@ -346,6 +395,6 @@ class HiBobAdapter(SourceAdapter):
         diagnostics.timings_ms["discover"] = round((time.monotonic() - t0) * 1000)
 
         if on_page_scraped:
-            await on_page_scraped(1, records, records)
+            await _maybe_await(on_page_scraped(1, records, records))
 
         return DiscoveryPage(jobs=records, next_cursor=None, diagnostics=diagnostics)
