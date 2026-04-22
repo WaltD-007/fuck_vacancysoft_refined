@@ -401,11 +401,20 @@ async def diagnose_source(source_id: int, request: Request):
         if detected_adapter != current_adapter:
             diagnosis["issues"].append(f"Platform mismatch: configured as '{current_adapter}' but detected as '{detected_adapter}'")
 
-            # Auto-fix: update the source
+            # Auto-fix: update the source.
+            # Previously (pre-2026-04-22) this wrote `ats_family = detected_adapter`
+            # directly, which desynced the two columns for cases where the
+            # canonical ats_family label differs from the adapter key (e.g.
+            # adapter='oracle' vs ats_family='oracle_cloud', or
+            # adapter='generic_site' vs ats_family='generic_browser'). Look up
+            # the canonical pair via PLATFORM_REGISTRY like `add_source` does
+            # at line 272-273 so the two columns stay aligned.
             with SessionLocal() as s:
                 src = s.execute(select(Source).where(Source.id == source_id)).scalar_one()
-                src.adapter_name = detected_adapter
-                src.ats_family = detected_adapter
+                platform_key = ADAPTER_MAP.get(detected_adapter, "generic_browser")
+                meta = PLATFORM_REGISTRY.get(platform_key, PLATFORM_REGISTRY["generic_browser"])
+                src.adapter_name = meta["adapter"]
+                src.ats_family = meta["ats_family"]
                 config = dict(src.config_blob or {})
                 config["job_board_url"] = current_url
                 if detected_slug:
