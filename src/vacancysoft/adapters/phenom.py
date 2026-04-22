@@ -86,6 +86,31 @@ class PhenomAdapter(SourceAdapter):
     adapter_name = "phenom"
     capabilities = AdapterCapabilities(supports_discovery=True, supports_detail_fetch=False, supports_healthcheck=False, supports_pagination=False, supports_incremental_sync=False, supports_api=False, supports_html=False, supports_browser=True, supports_site_rescue=False)
 
+    # ── DISABLED 2026-04-22 ──────────────────────────────────────────
+    # The audit (see scripts/audit_adapter_locations.py output in
+    # artifacts/phenom-failing-2026-04-22.xlsx) showed 100% of the 68
+    # "jobs" this adapter has ever produced are not jobs at all —
+    # they're UI chrome (link/button dicts with
+    # `{link, text, title, target, ariaLabel}`) and their `title_raw`
+    # is the literal string "{'type': 'text', 'value': ''}".
+    #
+    # Root cause: `_walk()` above recurses into any dict containing a
+    # "title" / "jobTitle" / "applyUrl" / "jobUrl" / "externalPath"
+    # key (see line ~73), which matches Phenom's UI metadata structs.
+    # The real job listings either live in a different XHR the
+    # `NETWORK_HINTS` filter doesn't match, or require a DOM scrape
+    # pass after network-idle that the current adapter skips.
+    #
+    # Fix needs a structural rewrite + fixture-based tests against
+    # real Phenom career sites (Sei Investments, Cboe Clear Europe).
+    # Until that lands the adapter is unregistered via this flag —
+    # the registry walker in `adapters/__init__.py` skips it, and the
+    # worker's ADAPTER_REGISTRY.get() lookup already handles the
+    # missing-adapter case gracefully (logs a warning, skips the
+    # source). Existing phenom sources in the DB stay active but are
+    # never dispatched.
+    disabled = True
+
     async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
         board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip()
         if not board_url:

@@ -43,6 +43,31 @@ class TestAdapterRegistry:
         assert cls.adapter_name == name
 
 
+class TestDisabledAdapters:
+    """Adapters with a class-level `disabled = True` attribute should be
+    importable but NOT wired into the registry — so the worker and CLI
+    don't dispatch to them, but the code stays on disk for future fixes.
+
+    Phenom is the first (and currently only) disabled adapter — see
+    ``src/vacancysoft/adapters/phenom.py`` for the audit note."""
+
+    def test_phenom_is_not_registered(self) -> None:
+        # ADAPTER_REGISTRY should NOT contain "phenom" while it's disabled.
+        # Test lives here (not under TestAdapterRegistry's expected list)
+        # so a future re-enable requires consciously deleting this test.
+        assert "phenom" not in ADAPTER_REGISTRY, (
+            "phenom is disabled; registry should not include it. "
+            "If re-enabled, delete this test."
+        )
+
+    def test_phenom_class_is_still_importable(self) -> None:
+        # The code stays on disk; just not registered. Operators can
+        # still import it for diagnostic scripts / fixture development.
+        from vacancysoft.adapters.phenom import PhenomAdapter
+        assert PhenomAdapter.adapter_name == "phenom"
+        assert getattr(PhenomAdapter, "disabled", False) is True
+
+
 class TestNewAdapters:
     """The 4 new adapters should have correct capability flags."""
 
