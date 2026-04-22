@@ -42,6 +42,16 @@ for _finder, _module_name, _is_pkg in pkgutil.iter_modules([str(_PACKAGE_DIR)]):
             and _obj is not SourceAdapter
             and hasattr(_obj, "adapter_name")
         ):
+            # Class-level opt-out so a broken adapter can be kept on
+            # disk (so we don't lose the code) but not wired into the
+            # registry. Worker / CLI gracefully handle a missing
+            # adapter — they log and skip. Set `disabled = True` as a
+            # class attribute on the adapter (see phenom.py for the
+            # example — 2026-04-22 audit showed it was scraping UI
+            # chrome not real jobs).
+            if getattr(_obj, "disabled", False):
+                logger.info("Skipping disabled adapter %s", _obj.__name__)
+                continue
             key = _obj.adapter_name
             if key in ADAPTER_REGISTRY:
                 logger.debug(
