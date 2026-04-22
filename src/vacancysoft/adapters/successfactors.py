@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
+import traceback
 from datetime import datetime
 from typing import Any
 from urllib.parse import unquote, urljoin, urlparse
@@ -624,13 +625,44 @@ class SuccessFactorsAdapter(SourceAdapter):
     )
 
     async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
+        """Diagnostic wrapper — captures any unhandled exception into
+        ``diagnostics.errors`` with full traceback, then re-raises.
+
+        The 2026-04-22 audit showed 14 SuccessFactors runs failing
+        with status='error' but empty ``diagnostics_blob.error_message``
+        — the exception reached the worker but its context was lost.
+        This wrapper ensures the type/message/traceback are captured
+        before the worker receives the re-raised exception.
+        """
+        board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip()
+        diagnostics = AdapterDiagnostics(metadata={"board_url": board_url})
+        try:
+            return await self._discover_impl(
+                source_config, diagnostics, cursor, since, on_page_scraped,
+            )
+        except Exception as exc:
+            diagnostics.errors.append(
+                f"{type(exc).__name__}: {exc}\n{traceback.format_exc()}"
+            )
+            raise
+
+    async def _discover_impl(
+        self,
+        source_config: dict[str, Any],
+        diagnostics: AdapterDiagnostics,
+        cursor: str | None = None,
+        since: datetime | None = None,
+        on_page_scraped: PageCallback = None,
+    ) -> DiscoveryPage:
         board_url = str(source_config.get("job_board_url") or source_config.get("url") or "").strip()
         if not board_url:
             raise ValueError("SuccessFactorsAdapter requires job_board_url")
         # Always start with an empty-string pass to scrape all visible jobs, then optionally search by term
         extra_terms = [str(term).strip() for term in (source_config.get("search_terms") or DEFAULT_SEARCH_TERMS) if str(term).strip()]
         search_terms = [""] + extra_terms  # "" = no keyword filter
-        diagnostics = AdapterDiagnostics(metadata={"board_url": board_url, "search_terms": search_terms})
+        # diagnostics was constructed by the wrapping discover(); enrich it
+        # with adapter-specific metadata rather than replacing it.
+        diagnostics.metadata["search_terms"] = search_terms
         if cursor is not None:
             diagnostics.warnings.append("SuccessFactorsAdapter does not support pagination. cursor was ignored.")
         if since is not None:
