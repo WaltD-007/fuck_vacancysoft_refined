@@ -95,6 +95,21 @@ ADAPTER_MAP: dict[str, str] = {
     "taleo": "taleo", "teamtailor": "teamtailor", "generic_site": "generic_browser",
 }
 
+# Aggregator adapters — mirrors src/vacancysoft/api/ledger.py:36. When a
+# source is CURRENTLY on one of these adapters, don't let the redetect
+# script downgrade it to generic_site: the aggregator "source" is the
+# aggregator's API endpoint (e.g. https://api.adzuna.com, https://api.
+# coresignal.com), which doesn't look like a job-board to the platform
+# detector, but it still needs to route through its aggregator adapter
+# to decode the JSON payload + feed per-employer cards in the ledger.
+# Learned the hard way 2026-04-22 when the first redetect commit
+# silently moved src#731 (adzuna) and src#1559 (coresignal) to
+# generic_site — the UI then started showing "Adzuna" / "Coresignal"
+# as the company name on hundreds of leads.
+_AGGREGATOR_ADAPTERS: frozenset[str] = frozenset({
+    "adzuna", "reed", "efinancialcareers", "google_jobs", "coresignal",
+})
+
 
 def _find_latest_failing_sources(session: Session, current_adapter: str | None) -> list[tuple[Source, SourceRun]]:
     """Sources whose MOST RECENT SourceRun has status='error'.
@@ -170,6 +185,7 @@ async def _run(args: argparse.Namespace) -> int:
         unreachable: list[tuple[Source, str]] = []
         unchanged: int = 0
         no_change_high_conf: int = 0   # classification confirmed
+        aggregator_protected: int = 0  # would-downgrade aggregators kept safe
         samples_per_transition: dict[tuple[str, str], list[Source]] = defaultdict(list)
 
         for i, (src, _last_run) in enumerate(candidates, start=1):
@@ -184,6 +200,19 @@ async def _run(args: argparse.Namespace) -> int:
                 unchanged += 1
                 if detected_adapter == src.adapter_name:
                     no_change_high_conf += 1
+                continue
+
+            # GUARD: never downgrade an aggregator source to generic_site. The
+            # aggregator source's base_url is the API endpoint (adzuna.co.uk,
+            # api.coresignal.com, …) which the platform detector can't
+            # recognise. Moving it to generic_site breaks the per-employer
+            # card extraction in api/ledger.py — the UI would start showing
+            # "Adzuna" / "Coresignal" as the company on hundreds of leads.
+            if (
+                src.adapter_name in _AGGREGATOR_ADAPTERS
+                and detected_adapter == "generic_site"
+            ):
+                aggregator_protected += 1
                 continue
 
             key = (src.adapter_name, detected_adapter)
@@ -214,6 +243,8 @@ async def _run(args: argparse.Namespace) -> int:
         print(f"  transitions (would-reclassify): {sum(transitions.values())}")
         print(f"  unchanged (already correct):    {unchanged} "
               f"({no_change_high_conf} with high-confidence re-confirm)")
+        print(f"  aggregator protected:           {aggregator_protected} "
+              f"(aggregator→generic_site downgrade blocked)")
         print(f"  unreachable (DNS/HTTP fail):    {len(unreachable)} "
               f"— candidates for Phase 6 dead-board cleanup")
         print()
