@@ -369,20 +369,20 @@ class TestGetVoiceSamples:
         # Untouched sequences still empty
         assert body["2"] == []
 
-    def test_window_caps_at_five_per_sequence(self, client, session_factory) -> None:
+    def test_window_caps_at_ten_per_sequence(self, client, session_factory) -> None:
         _add_user(session_factory, "ab@firm.com")
-        for i in range(7):
+        for i in range(13):
             _seed_sent_message(
                 session_factory, sender_email="ab@firm.com",
                 sequence=1, subject=f"Subj {i}", body=f"Body {i}",
-                sent_at=datetime.utcnow() - timedelta(minutes=7 - i),
+                sent_at=datetime.utcnow() - timedelta(minutes=13 - i),
             )
         r = client.get(
             "/api/users/me/voice-samples",
             headers={"X-Prospero-User-Email": "ab@firm.com"},
         )
         assert r.status_code == 200
-        assert len(r.json()["1"]) == 5
+        assert len(r.json()["1"]) == 10
 
     def test_failed_and_pending_excluded(self, client, session_factory) -> None:
         """status != 'sent' rows should NOT appear in the sample pool."""
@@ -608,19 +608,19 @@ class TestVoiceSamplesUnion:
         assert samples[1]["subject"] == "sent-new"
         assert samples[2]["subject"] == "sent-old"
 
-    def test_window_caps_merged_pool_at_five(self, client, session_factory) -> None:
-        """If training + sends together exceed 5, only the newest 5
+    def test_window_caps_merged_pool_at_ten(self, client, session_factory) -> None:
+        """If training + sends together exceed 10, only the newest 10
         are returned."""
         uid = _add_user(session_factory, "ab@firm.com")
-        # 3 real sends, 4 training samples = 7 total
-        for i in range(3):
+        # 6 real sends, 7 training samples = 13 total
+        for i in range(6):
             _seed_sent_message(
                 session_factory, sender_email="ab@firm.com",
                 sequence=1, subject=f"sent-{i}", body=f"body-{i}",
                 sent_at=datetime.utcnow() - timedelta(hours=10 + i),
             )
         with session_factory() as s:
-            for i in range(4):
+            for i in range(7):
                 s.add(VoiceTrainingSample(
                     user_id=uid, sequence_index=1, tone="informal",
                     subject=f"training-{i}", body=f"body",
@@ -631,7 +631,7 @@ class TestVoiceSamplesUnion:
             headers={"X-Prospero-User-Email": "ab@firm.com"},
         )
         assert r.status_code == 200
-        assert len(r.json()["1"]) == 5
+        assert len(r.json()["1"]) == 10
 
     def test_training_samples_isolated_per_user(self, client, session_factory) -> None:
         a_id = _add_user(session_factory, "a@firm.com", display_name="A")
