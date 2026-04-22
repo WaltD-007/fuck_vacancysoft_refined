@@ -377,6 +377,81 @@ def _looks_like_non_job_title(title: str) -> bool:
     return any(lowered.startswith(prefix) for prefix in NON_JOB_TITLE_PREFIXES)
 
 
+def _location_from_title(title: str | None) -> str | None:
+    """Fallback: extract an embedded location from a multi-line title_raw.
+
+    When CSS-based ``_sniff_location()`` fails, many careers pages still
+    embed the location inside the clickable card's ``innerText`` — which
+    Playwright returns as a newline-joined string. This helper recognises
+    two patterns surfaced by the 2026-04-22 per-adapter location audit
+    (``scripts/audit_adapter_locations.py``):
+
+    **Pattern A — label-value pairs (Bupa-style, ~500 rows):**
+
+        Business Manager
+        Location
+        Staines
+        Position type
+        Full Time
+        …
+
+    When a standalone line reads "Location" (case-insensitive, exact),
+    the next non-empty line is the location.
+
+    **Pattern B — middle-dot 3-line (Goldman-style, ~1,400 rows):**
+
+        Risk - Analytics & Reporting - Vice President - Birmingham
+        Birmingham·United Kingdom
+        ·Vice President
+
+    Detected when a later line starts with a middle-dot ("·") — that's
+    Goldman's "level" marker. The line immediately before it is the
+    location. The middle-dot separating city from country is normalised
+    to a comma so the downstream enricher (``location_normaliser``)
+    resolves it via its structured-parse step (``Birmingham, United
+    Kingdom`` → city=Birmingham, country=UK).
+
+    Returns None when neither pattern matches (preserves existing
+    behaviour on clean single-line titles — the ~10K "clean title"
+    failures where location lives in a separate DOM node aren't
+    targeted by this fallback; those need new CSS selectors, which
+    PR 3B-ii captures the raw HTML for).
+    """
+    if not title:
+        return None
+    lines = [ln.strip() for ln in title.split("\n")]
+    lines = [ln for ln in lines if ln]
+    if len(lines) < 2:
+        return None
+
+    # Pattern A — "Location" label line followed by its value.
+    for idx, ln in enumerate(lines[:-1]):
+        if ln.lower() == "location":
+            candidate = lines[idx + 1].strip()
+            if candidate and candidate.lower() != "location":
+                return candidate
+
+    # Pattern B — line starting with a middle-dot signals Goldman's
+    # level marker; the preceding line is the location. Pick the
+    # middle-dot line with the lowest index > 0 (first one wins) so
+    # we don't grab content from a different section of a long blob.
+    for idx, ln in enumerate(lines):
+        if idx == 0:
+            continue
+        if ln.startswith("·"):
+            candidate = lines[idx - 1].strip()
+            if candidate and not candidate.startswith("·"):
+                # Normalise the `city·country` middle-dot to a comma so
+                # the enricher's structured-parse step resolves city +
+                # country independently.
+                candidate = candidate.replace("·", ", ")
+                # Collapse any doubled ", " from odd patterns.
+                while ", ," in candidate:
+                    candidate = candidate.replace(", ,", ",")
+                return candidate.strip(", ").strip() or None
+    return None
+
+
 async def _sniff_location(element: Any, title: str | None) -> str | None:
     """Look for a location-like sibling within a bounded ancestor of the link.
 
@@ -728,6 +803,21 @@ class GenericBrowserAdapter(SourceAdapter):
                         diagnostics.counters["locations_sniffed"] = (
                             diagnostics.counters.get("locations_sniffed", 0) + 1
                         )
+                    else:
+                        # Fallback: some careers pages (Goldman, Bupa,
+                        # ~2K failing rows surfaced by the 2026-04-22
+                        # audit) embed the location inside the card's
+                        # innerText so it arrives concatenated in the
+                        # title string. `_location_from_title` picks
+                        # out the two common shapes (label-value and
+                        # middle-dot tri-line) and is a no-op for
+                        # single-line titles.
+                        fallback = _location_from_title(candidate.get("title"))
+                        if fallback:
+                            location = _clean(fallback)
+                            diagnostics.counters["locations_from_title"] = (
+                                diagnostics.counters.get("locations_from_title", 0) + 1
+                            )
                     record = DiscoveredJobRecord(
                         external_job_id=url,
                         title_raw=_clean(candidate["title"]),
