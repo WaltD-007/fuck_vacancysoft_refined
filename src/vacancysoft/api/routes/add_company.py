@@ -57,6 +57,30 @@ def _addcompany_scoped_source_key(company: str, scope: str) -> str:
     return f"coresignal_{_addcompany_slugify(company)}_{scope}_{url_hash}"
 
 
+def _best_lead_url(record: dict | None, fallback: str | None = None) -> str | None:
+    """Find the best http(s) URL for a CoreSignal record.
+
+    CoreSignal preview responses label the advert URL differently across
+    sources — we widen the search across a handful of field names and also
+    dive into `job_sources[]`. Values are only returned when they start with
+    http:// or https:// so malformed strings don't become broken links.
+    """
+    if isinstance(record, dict):
+        for field in ("external_url", "apply_url", "url", "job_url", "source_url"):
+            val = record.get(field)
+            if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
+                return val.strip()
+        sources = record.get("job_sources")
+        if isinstance(sources, list):
+            for src in sources:
+                if isinstance(src, dict):
+                    for field in ("url", "apply_url", "external_url"):
+                        val = src.get(field)
+                        if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
+                            return val.strip()
+    return fallback
+
+
 async def _addcompany_count_jobs(
     *, company: str, countries: list[str], since, api_key: str,
 ) -> int:
@@ -101,7 +125,11 @@ async def _addcompany_list_candidates(
     """Run Coresignal /search/es_dsl/preview (same credit cost as /search, no /collect)
     and group matching jobs by employer name. Returns (total_rows_seen, [candidates]).
 
-    Each candidate: {'employer_name','jobs_count','sample_title','sample_location'}.
+    Each candidate: {'employer_name','jobs_count','sample_title','sample_location','sample_url'}.
+    The sample URL lets the user open one representative job advert before picking
+    which employer to add — preview responses already carry the URL, so we capture
+    it here rather than paying for /collect.
+
     Preview caps at 20 rows per call so we run per-country and per-category to harvest
     a wider company spread without burning collect credits.
     """
@@ -115,7 +143,7 @@ async def _addcompany_list_candidates(
         raise HTTPException(status_code=500, detail="Taxonomy is empty — check configs/legacy_routing.yaml")
 
     employer_counts: Counter[str] = Counter()
-    samples: dict[str, tuple[str, str]] = {}  # {employer_lower: (title, location)}
+    samples: dict[str, tuple[str, str, str | None]] = {}  # {employer_lower: (title, location, url)}
     total_rows = 0
     seen_ids: set[int] = set()
 
@@ -157,17 +185,19 @@ async def _addcompany_list_candidates(
                         samples[key] = (
                             (row.get("title") or "").strip(),
                             (row.get("location") or "").strip(),
+                            _best_lead_url(row),
                         )
                     total_rows += 1
 
     candidates: list[dict] = []
     for employer, n in employer_counts.most_common():
-        title, loc = samples.get(employer.lower(), ("", ""))
+        title, loc, url = samples.get(employer.lower(), ("", "", None))
         candidates.append({
             "employer_name": employer,
             "jobs_count": n,
             "sample_title": title or None,
             "sample_location": loc or None,
+            "sample_url": url,
         })
     # total unique jobs seen (capped by preview's 20/query but deduped across calls)
     return len(seen_ids), candidates
@@ -243,6 +273,7 @@ async def add_company_search(req: AddCompanyRequest):
             jobs_count=c["jobs_count"],
             sample_title=c.get("sample_title"),
             sample_location=c.get("sample_location"),
+            sample_url=c.get("sample_url"),
             already_in_db=c["employer_name"].lower() in existing_lower,
         )
         for c in raw_candidates
@@ -456,26 +487,6 @@ async def add_company_update_preview(req: AddCompanyUpdateRequest):
                 seen_external_ids = {r[0] for r in rows if r[0]}
     except Exception:
         pass
-
-    def _best_lead_url(record: dict | None, fallback: str | None) -> str | None:
-        """Widen the URL net — the adapter's _parse_job only checks `external_url`
-        and `job_sources[0].url`. CoreSignal sometimes labels the advert URL
-        differently in preview responses, so we fall through a few candidates
-        before giving up."""
-        if isinstance(record, dict):
-            for field in ("external_url", "apply_url", "url", "job_url", "source_url"):
-                val = record.get(field)
-                if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
-                    return val.strip()
-            sources = record.get("job_sources")
-            if isinstance(sources, list):
-                for src in sources:
-                    if isinstance(src, dict):
-                        for field in ("url", "apply_url", "external_url"):
-                            val = src.get(field)
-                            if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
-                                return val.strip()
-        return fallback
 
     leads: list[AddCompanyUpdateLead] = []
     for j in page.jobs:

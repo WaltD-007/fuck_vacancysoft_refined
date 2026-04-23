@@ -94,6 +94,10 @@ export type AddCompanyCandidate = {
   jobs_count: number;
   sample_title: string | null;
   sample_location: string | null;
+  // URL of the representative advert captured by the CoreSignal preview row —
+  // null when the preview carried no http(s) URL field. UI renders sample_title
+  // as a link when present so the user can peek at the actual advert.
+  sample_url: string | null;
   already_in_db: boolean;
 };
 

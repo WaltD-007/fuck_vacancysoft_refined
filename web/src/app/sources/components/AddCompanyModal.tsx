@@ -424,7 +424,21 @@ export default function AddCompanyModal({
                       </div>
                       {(cand.sample_title || cand.sample_location) && (
                         <div className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
-                          {cand.sample_title}
+                          {cand.sample_title && cand.sample_url ? (
+                            <a
+                              href={cand.sample_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="hover:underline"
+                              style={{ color: "var(--accent-light)" }}
+                              title={cand.sample_url}
+                            >
+                              {cand.sample_title}
+                              <span className="ml-1" aria-hidden>↗</span>
+                            </a>
+                          ) : (
+                            cand.sample_title
+                          )}
                           {cand.sample_title && cand.sample_location ? " — " : ""}
                           {cand.sample_location}
                         </div>

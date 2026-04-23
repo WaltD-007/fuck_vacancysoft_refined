@@ -75,6 +75,11 @@ class AddCompanyCandidate(BaseModel):
     jobs_count: int
     sample_title: str | None = None
     sample_location: str | None = None
+    # Sample job-advert URL for the representative posting captured by CoreSignal
+    # preview — lets the UI offer a "peek at the real advert" link before the user
+    # commits to adding this employer. May be None when the preview row carried no
+    # recognisable URL field.
+    sample_url: str | None = None
     already_in_db: bool = False  # True if this exact employer already has a direct Source row
 
 
