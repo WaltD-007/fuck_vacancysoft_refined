@@ -495,32 +495,76 @@ for _kw, _countries in _kw_countries.items():
 del _kw_countries  # cleanup
 
 # ── Country-only fallback (no city info, just country name in string) ────
+# 2026-04-22: extended with native-language aliases ("Deutschland",
+# "Italia") after the audit of 159K enriched rows surfaced these
+# falling through to country=None. Also added several out-of-region
+# country names we see in aggregator feeds so they resolve to the
+# right country and get geo_filtered cleanly rather than sitting in
+# the DB as "enriched with no location".
 _DEFAULT_COUNTRY_ONLY: dict[str, str] = {
+    # Allowed markets
     "united kingdom": "UK", "england": "UK", "scotland": "UK", "wales": "UK",
-    "northern ireland": "UK",
-    "united states": "USA", "america": "USA",
-    "ireland": "Ireland", "france": "France", "germany": "Germany",
-    "italy": "Italy", "spain": "Spain", "poland": "Poland",
-    "netherlands": "Netherlands", "belgium": "Belgium",
-    "switzerland": "Switzerland", "austria": "Austria",
-    "portugal": "Portugal", "hungary": "Hungary",
-    "czech republic": "Czech Republic", "romania": "Romania",
-    "greece": "Greece", "finland": "Finland",
-    "sweden": "Sweden", "norway": "Norway", "denmark": "Denmark",
+    "northern ireland": "UK", "britain": "UK", "great britain": "UK",
+    "united states": "USA", "america": "USA", "united states of america": "USA",
+    "canada": "Canada",
+    "france": "France",
+    "germany": "Germany", "deutschland": "Germany",
+    "switzerland": "Switzerland", "schweiz": "Switzerland", "suisse": "Switzerland",
+    "netherlands": "Netherlands", "nederland": "Netherlands", "holland": "Netherlands",
+    "luxembourg": "Luxembourg",
+    "uae": "UAE", "united arab emirates": "UAE",
+    "saudi arabia": "Saudi Arabia", "ksa": "Saudi Arabia",
+    "singapore": "Singapore",
+    "hong kong": "Hong Kong", "hong kong sar": "Hong Kong",
+    # Adjacent Europe (not allowed but shouldn't silently fall through)
+    "ireland": "Ireland",
+    "italy": "Italy", "italia": "Italy",
+    "spain": "Spain", "españa": "Spain", "espana": "Spain",
+    "poland": "Poland", "polska": "Poland",
+    "belgium": "Belgium", "belgië": "Belgium", "belgique": "Belgium",
+    "austria": "Austria", "österreich": "Austria",
+    "portugal": "Portugal",
+    "hungary": "Hungary",
+    "czech republic": "Czech Republic", "czechia": "Czech Republic",
+    "romania": "Romania",
+    "greece": "Greece",
+    "finland": "Finland",
+    "sweden": "Sweden", "sverige": "Sweden",
+    "norway": "Norway", "norge": "Norway",
+    "denmark": "Denmark", "danmark": "Denmark",
     "croatia": "Croatia", "bulgaria": "Bulgaria", "serbia": "Serbia",
     "latvia": "Latvia", "lithuania": "Lithuania", "estonia": "Estonia",
     "iceland": "Iceland", "cyprus": "Cyprus", "malta": "Malta",
-    "canada": "Canada", "australia": "Australia",
-    "singapore": "Singapore", "hong kong": "Hong Kong",
+    "russia": "Russia", "ukraine": "Ukraine",
+    # Asia-Pac
+    "australia": "Australia", "new zealand": "New Zealand",
     "india": "India", "china": "China", "japan": "Japan",
-    "south korea": "South Korea", "israel": "Israel",
-    "south africa": "South Africa", "brazil": "Brazil",
-    "mexico": "Mexico", "colombia": "Colombia",
-    "uae": "UAE", "united arab emirates": "UAE",
-    "saudi arabia": "Saudi Arabia", "qatar": "Qatar",
-    "bahrain": "Bahrain", "kuwait": "Kuwait",
+    "south korea": "South Korea", "korea": "South Korea",
+    "philippines": "Philippines", "indonesia": "Indonesia",
+    "vietnam": "Vietnam", "malaysia": "Malaysia", "thailand": "Thailand",
+    "pakistan": "Pakistan", "bangladesh": "Bangladesh",
+    "sri lanka": "Sri Lanka",
+    # Middle East / Africa
+    "israel": "Israel", "qatar": "Qatar", "bahrain": "Bahrain",
+    "kuwait": "Kuwait", "oman": "Oman", "turkey": "Turkey",
+    "lebanon": "Lebanon", "jordan": "Jordan", "egypt": "Egypt",
+    "south africa": "South Africa", "nigeria": "Nigeria",
+    "kenya": "Kenya", "ghana": "Ghana", "morocco": "Morocco",
+    # Latin America
+    "brazil": "Brazil", "brasil": "Brazil",
+    "mexico": "Mexico", "méxico": "Mexico",
+    "argentina": "Argentina", "colombia": "Colombia",
+    "chile": "Chile", "peru": "Peru", "perú": "Peru",
+    "venezuela": "Venezuela", "dominican republic": "Dominican Republic",
 }
-_COUNTRY_ONLY = _COUNTRY_ONLY_FROM_YAML if _COUNTRY_ONLY_FROM_YAML else _DEFAULT_COUNTRY_ONLY
+# Merge strategy: start with Python defaults (the broadest set including
+# native-language aliases like "deutschland"/"polska"/"italia"), then
+# overlay any entries from YAML. This lets the YAML config customise
+# keys without having to re-declare the whole native-language / multi-
+# lingual alias set every time the Python defaults grow.
+_COUNTRY_ONLY = dict(_DEFAULT_COUNTRY_ONLY)
+if _COUNTRY_ONLY_FROM_YAML:
+    _COUNTRY_ONLY.update(_COUNTRY_ONLY_FROM_YAML)
 
 # ── Remote / hybrid detection ────────────────────────────────────────────
 _REMOTE_RE = re.compile(
@@ -562,18 +606,50 @@ _CANADIAN_PROVINCES: dict[str, str] = {
 }
 
 # ── 2-letter country codes for structured parse ─────────────────────────
+# Enables the SmartRecruiters-style "City, COUNTRY, iso-2" format
+# (e.g. "Pasay City, PHILIPPINES, ph") to resolve via the existing
+# step-2 structured parse — the trailing ISO-2 is tried first as the
+# authoritative country marker. Adding the broader set (2026-04-22)
+# after an audit showed ~50+ tri-part rows silently failing because
+# their ISO codes weren't mapped. Out-of-region countries (Philippines,
+# Indonesia, etc.) still get geo_filtered correctly by the enrichment
+# pipeline — but at least the country is now resolved, not left as
+# None with "raw location present but enrichment failed" in the DB.
 _COUNTRY_CODES: dict[str, str] = {
-    "us": "USA", "uk": "UK", "gb": "UK", "ca": "Canada", "au": "Australia",
-    "sg": "Singapore", "hk": "Hong Kong", "ie": "Ireland",
+    # Allowed markets
+    "us": "USA", "uk": "UK", "gb": "UK", "ca": "Canada",
+    "sg": "Singapore", "hk": "Hong Kong",
     "de": "Germany", "fr": "France", "nl": "Netherlands",
-    "ch": "Switzerland", "it": "Italy", "es": "Spain",
+    "ch": "Switzerland", "lu": "Luxembourg",
+    "ae": "UAE", "sa": "Saudi Arabia",
+    # Adjacent Europe
+    "ie": "Ireland", "it": "Italy", "es": "Spain",
     "at": "Austria", "be": "Belgium", "pt": "Portugal",
     "pl": "Poland", "se": "Sweden", "no": "Norway", "dk": "Denmark",
-    "fi": "Finland", "lu": "Luxembourg", "cz": "Czech Republic",
+    "fi": "Finland", "cz": "Czech Republic",
     "hu": "Hungary", "ro": "Romania", "gr": "Greece",
+    # Gulf / Middle East
+    "il": "Israel", "qa": "Qatar", "bh": "Bahrain", "kw": "Kuwait",
+    "om": "Oman", "tr": "Turkey", "lb": "Lebanon", "jo": "Jordan",
+    "eg": "Egypt",
+    # Asia-Pac (tri-part audit targets)
     "in": "India", "cn": "China", "jp": "Japan", "kr": "South Korea",
-    "br": "Brazil", "mx": "Mexico", "za": "South Africa",
-    "ae": "UAE", "il": "Israel", "qa": "Qatar", "bh": "Bahrain",
+    "au": "Australia", "nz": "New Zealand",
+    "ph": "Philippines", "id": "Indonesia", "vn": "Vietnam",
+    "my": "Malaysia", "th": "Thailand", "pk": "Pakistan",
+    "lk": "Sri Lanka", "bd": "Bangladesh",
+    # Africa (SmartRecruiters tri-part targets)
+    "za": "South Africa", "ng": "Nigeria", "ke": "Kenya",
+    "ci": "Côte d'Ivoire", "sn": "Senegal", "cm": "Cameroon",
+    "gh": "Ghana", "tz": "Tanzania", "ma": "Morocco", "dz": "Algeria",
+    # Latin America
+    "br": "Brazil", "mx": "Mexico", "ar": "Argentina",
+    "co": "Colombia", "cl": "Chile", "pe": "Peru",
+    "ve": "Venezuela", "do": "Dominican Republic",
+    "uy": "Uruguay", "py": "Paraguay", "ec": "Ecuador",
+    "gt": "Guatemala", "pa": "Panama", "cr": "Costa Rica",
+    # Rest of Europe we occasionally see
+    "ru": "Russia", "ua": "Ukraine",
 }
 
 # ── UK counties/regions (for "Town, County" → UK detection) ─────────────
@@ -617,6 +693,115 @@ _CANADIAN_REGION_NAMES: set[str] = {
     "westmorland", "saint john region", "saint george", "conception bay",
     "yellowhead", "big lakes", "lennox and addington",
 }
+
+# ── UK known towns (for Reed-style bare-name fallback) ─────────────────
+# Reed, Adzuna and some direct-ATS adapters routinely give a bare UK
+# town/borough name with no country marker ("Heywood", "Egham",
+# "Lisvane"). Without this lookup those strings fall through to
+# country=None even though they're unambiguously UK. Curated from the
+# 1,500+ bare-name failures surfaced by the 2026-04-22 audit — biased
+# toward London boroughs, Home Counties commuter towns, and regional
+# UK cities (the things we actually see in practice). Case-insensitive
+# match against `.lower()`.
+#
+# Deliberately NOT a full UK gazetteer — only entries that (a) have
+# appeared as a raw_location in our DB and (b) aren't ambiguous with
+# non-UK places of the same name. The list is additive over time as
+# new failures surface in audit.
+_UK_KNOWN_TOWNS: set[str] = {
+    # London boroughs / inner & outer areas
+    "hampstead", "stepney", "hillingdon", "merton", "kensington", "chelsea",
+    "westminster", "camden", "islington", "hackney", "tower hamlets",
+    "newham", "greenwich", "lewisham", "southwark", "lambeth", "wandsworth",
+    "ealing", "brent", "barnet", "haringey", "enfield", "waltham forest",
+    "redbridge", "havering", "bexley", "bromley", "croydon", "sutton",
+    "hammersmith", "fulham", "paddington", "marylebone", "mayfair", "soho",
+    "shoreditch", "whitechapel", "canary wharf", "docklands", "stratford",
+    "wimbledon", "clapham", "brixton", "peckham", "dulwich",
+    "twickenham", "wembley", "harrow", "ruislip", "uxbridge",
+    "walthamstow", "leyton", "ilford", "romford", "dagenham", "barking",
+    # London commuter belt / Home Counties
+    "egham", "staines", "weybridge", "woking", "guildford", "epsom",
+    "reigate", "redhill", "dorking", "leatherhead", "cobham",
+    "kingston", "richmond", "surbiton", "tolworth",
+    "watford", "rickmansworth", "chorleywood", "amersham", "chesham",
+    "high wycombe", "maidenhead", "windsor", "slough", "ascot",
+    "ockendon", "grays", "basildon", "chelmsford",
+    "rainham", "gillingham", "chatham", "rochester", "gravesend",
+    "dartford", "orpington", "sevenoaks", "tunbridge wells", "tonbridge",
+    "waltham cross", "hoddesdon", "cheshunt", "hertford", "stevenage",
+    "welwyn garden city", "hatfield", "st albans", "hemel hempstead",
+    # Greater Manchester / North West
+    "heywood", "rochdale", "oldham", "bury", "bolton", "wigan", "salford",
+    "stockport", "trafford", "tameside", "warrington", "burnley",
+    "blackburn", "preston", "blackpool", "lytham", "st helens", "widnes",
+    # Yorkshire / North East
+    "wakefield", "doncaster", "barnsley", "rotherham", "huddersfield",
+    "halifax", "bradford", "dewsbury", "keighley", "pontefract",
+    "middlesbrough", "stockton-on-tees", "hartlepool", "darlington",
+    "sunderland", "gateshead", "washington", "durham",
+    # West Midlands / South West
+    "wolverhampton", "dudley", "walsall", "west bromwich", "smethwick",
+    "solihull", "redditch", "bromsgrove", "kidderminster",
+    "stoke-on-trent", "stafford", "telford", "shrewsbury", "hereford",
+    "cheltenham", "gloucester", "swindon", "bath", "bristol",
+    "weston-super-mare", "taunton", "yeovil", "exeter", "plymouth",
+    "torquay", "bournemouth", "poole", "southampton", "portsmouth",
+    "fareham", "gosport", "chichester", "worthing", "brighton", "hove",
+    "eastbourne", "hastings", "crawley", "horsham", "haywards heath",
+    # East of England
+    "norwich", "great yarmouth", "ipswich", "colchester", "bury st edmunds",
+    "cambridge", "peterborough", "huntingdon", "ely", "wisbech",
+    # East Midlands
+    "nottingham", "derby", "leicester", "lincoln", "boston", "skegness",
+    "mansfield", "chesterfield", "worksop",
+    # Wales
+    "cardiff", "swansea", "newport", "wrexham", "lisvane", "caerphilly",
+    "pontypridd", "merthyr tydfil", "bridgend", "port talbot",
+    # Scotland
+    "dundee", "aberdeen", "inverness", "stirling", "perth", "paisley",
+    "motherwell", "hamilton", "kilmarnock", "ayr", "dumfries",
+    "kirkcaldy", "dunfermline", "livingston", "east kilbride",
+    # Northern Ireland
+    "lisburn", "newtownabbey", "bangor", "craigavon", "ballymena",
+    "newry", "antrim", "coleraine", "omagh",
+}
+
+
+# ── Multi-site sentinel values ────────────────────────────────────────
+# Strings that mean "this posting can be any of several locations"
+# rather than a specific place. Surfaced 2026-04-22 as a common
+# cause of silent country=None rows for generic_site / Workday leads
+# ("Multiple", "All Locations", "+9More Locations", "Flexible",
+# "@one Sites" etc.). Returns city="Multiple" + country=None so:
+#   1. The string is recognisably multi-site in DB / export rather
+#      than indistinguishable from an unparseable failure.
+#   2. is_allowed_country(None) still returns True, so the row isn't
+#      geo_filtered — these postings are real leads, just
+#      location-ambiguous.
+_MULTI_SITE_SENTINELS: set[str] = {
+    "multiple", "multiple locations", "multiple location", "mulitple locations",
+    "all locations", "all location", "all sites",
+    "various", "various locations", "various sites",
+    "flexible", "flexible location", "flexible locations",
+    "cross site", "cross-site", "multi-site", "multi site",
+    "nationwide", "uk wide", "uk-wide", "nationally",
+    "@one sites", "various uk", "multiple uk", "multiple us",
+}
+# Matches "+9More Locations", "and 2 more", "+1 more", etc.
+_MULTI_SITE_REGEX = re.compile(r'^(?:and\s+|\+)?\d+\s*more\s*(?:locations?|sites?)?$', re.I)
+
+
+# ── German (Kreis) / county pattern ──────────────────────────────────
+# Adzuna produces this format prolifically for German listings —
+# "Walsrode, Soltau-Fallingbostel (Kreis)" or "Heidenheim (Kreis),
+# Baden-Württemberg". Germany is an allowed country; these rows
+# were falling through to country=None because (Kreis) isn't a
+# country token any rule recognised. A single regex catches all of
+# them and returns the first comma-part as the city, stripped of
+# "(Kreis)" if present. Recovers ~3,500 rows (audit 2026-04-22).
+_GERMAN_KREIS_RE = re.compile(r'\(\s*kreis\s*\)', re.I)
+
 
 # ── Target regions ───────────────────────────────────────────────────────
 _DEFAULT_ALLOWED_COUNTRIES: set[str] = {
@@ -696,11 +881,22 @@ def _resolve_country_token(token: str) -> str | None:
 
     if is_country and (is_state or is_province):
         # Ambiguous: could be state/province or country.
-        # DE=Germany (not Delaware), IN=India (not Indiana), CA=Canada (not California).
-        # IL is the exception: "Chicago, IL" = Illinois, not Israel.
-        # Prefer country code for all except IL which is overwhelmingly Illinois.
-        if upper == "IL":
-            return "USA"
+        # Default preference: country wins — "DE" = Germany, "IN" = India,
+        # "CA" = Canada — because in 2-part recruiter feeds these are
+        # overwhelmingly country codes, not state codes.
+        # Exceptions where state/province wins:
+        #   IL — Illinois >> Israel
+        #   MA — Massachusetts >> Morocco
+        #   ID — Idaho >> Indonesia (in 2-part; tri-part hits parts[-2] first)
+        #   CO — Colorado >> Colombia
+        #   AR — Arkansas >> Argentina
+        #   PA — Pennsylvania >> Panama
+        #   PE — Prince Edward Island >> Peru (province conflict)
+        # Tri-part "City, Country, iso-2" strings sidestep this because
+        # normalise_location() checks parts[-2] first for those.
+        _STATE_OR_PROVINCE_WINS = {"IL", "MA", "ID", "CO", "AR", "PA", "PE"}
+        if upper in _STATE_OR_PROVINCE_WINS:
+            return "Canada" if is_province else "USA"
         return _COUNTRY_CODES[lower]
 
     # US state name: "Alabama", "California", etc.
@@ -761,6 +957,17 @@ def normalise_location(location_raw: str | None) -> dict:
     cleaned = _scrub(location_raw)
     lower = cleaned.lower()
 
+    # ── 0a. Multi-site sentinel values ────────────────────────────────
+    # "Multiple", "All Locations", "+9More Locations" — postings that
+    # span multiple sites. Return city="Multiple", country=None so:
+    #   (a) the row is visibly multi-site in DB / exports rather than
+    #       indistinguishable from a parse failure, and
+    #   (b) is_allowed_country(None) → True, so the lead isn't
+    #       geo_filtered. These are real leads in an allowed market,
+    #       just location-ambiguous.
+    if lower in _MULTI_SITE_SENTINELS or _MULTI_SITE_REGEX.match(lower):
+        return {"raw": location_raw, "city": "Multiple", "region": None, "country": None, "confidence": 0.2}
+
     # ── 1. Remote / hybrid ───────────────────────────────────────────────
     if _REMOTE_RE.search(lower):
         if any(t in lower for t in ('uk', 'england', 'britain', 'london', 'scotland')):
@@ -778,6 +985,17 @@ def normalise_location(location_raw: str | None) -> dict:
         city_part = _county_match.group(1).strip()
         return {"raw": location_raw, "city": city_part, "region": None, "country": "USA", "confidence": 0.85}
 
+    # ── 1c. German Adzuna "(Kreis)" pattern → Germany ──────────────
+    # Catches "Heidenheim (Kreis), Baden-Württemberg" and
+    # "Walsrode, Soltau-Fallingbostel (Kreis)" style strings.
+    # Takes the first comma-part as the city; strips the "(Kreis)"
+    # suffix so the city displays cleanly. Recovers ~3.5K rows
+    # (2026-04-22 audit).
+    if _GERMAN_KREIS_RE.search(cleaned):
+        kreis_city = _GERMAN_KREIS_RE.sub('', cleaned.split(',')[0]).strip()
+        if kreis_city:
+            return {"raw": location_raw, "city": kreis_city, "region": None, "country": "Germany", "confidence": 0.85}
+
     # ── 1d. UK county pattern: "City, County XX" (e.g. "Dungannon, County Tyrone") ──
     _uk_county_match = re.match(r'^(.+?),\s+county\s+', cleaned, re.I)
     if _uk_county_match:
@@ -794,12 +1012,34 @@ def normalise_location(location_raw: str | None) -> dict:
             return {"raw": location_raw, "city": _comma_parts[0], "region": None, "country": "Canada", "confidence": 0.85}
 
     # ── 2. Structured parse: split and resolve country FIRST ─────────────
+    # For tri-part "City, Country-name, iso-2" strings (SmartRecruiters
+    # / Workday format — "Pasay City, PHILIPPINES, ph"), the trailing
+    # 2-letter code can collide with a US state or Canadian province
+    # ("id" = Indonesia but "ID" = Idaho; "ca" = Canada but "CA" =
+    # California). When that happens and parts[-2] holds an unambiguous
+    # country NAME, prefer it — the full name is always more
+    # authoritative than the 2-letter code. For 2-part strings
+    # ("Cambridge, MA") parts[-1] is the only signal, and
+    # `_resolve_country_token`'s state-wins list handles the tiebreak.
     parts = [p.strip() for p in re.split(r'[,|/]', cleaned) if p.strip()]
     if len(parts) >= 2:
-        # Try last part, then second-to-last for "City, State, Country" patterns
-        resolved_country = _resolve_country_token(parts[-1])
-        if not resolved_country and len(parts) >= 3:
-            resolved_country = _resolve_country_token(parts[-2])
+        last_token = parts[-1].strip()
+        last_lower = last_token.lower()
+        last_upper = last_token.upper()
+        last_is_ambiguous_2letter = (
+            len(last_upper) == 2
+            and last_lower in _COUNTRY_CODES
+            and (last_upper in _US_STATE_CODES or last_lower in _CANADIAN_PROVINCE_CODES)
+        )
+        if len(parts) >= 3 and last_is_ambiguous_2letter:
+            resolved_country = (
+                _resolve_country_token(parts[-2])
+                or _resolve_country_token(parts[-1])
+            )
+        else:
+            resolved_country = _resolve_country_token(parts[-1])
+            if not resolved_country and len(parts) >= 3:
+                resolved_country = _resolve_country_token(parts[-2])
 
         if resolved_country:
             # Try to find city constrained to this country
@@ -837,6 +1077,19 @@ def normalise_location(location_raw: str | None) -> dict:
     for keyword, city, country in _RULES_LOWER:
         if keyword in lower:
             return {"raw": location_raw, "city": city, "region": None, "country": country, "confidence": 0.6}
+
+    # ── 7b. UK known-town fallback (bare town name → UK) ───────────────
+    # Reed, Adzuna and some direct-ATS feeds routinely provide a bare
+    # UK town/borough name with no country marker ("Heywood", "Egham",
+    # "Lisvane"). Without this lookup those rows fell through to
+    # country=None even though they're unambiguously UK. Curated set —
+    # only entries that (a) appeared as raw_location in our DB and
+    # (b) aren't ambiguous with non-UK places of the same name.
+    # Recovers ~1.5K rows (2026-04-22 audit).
+    _first_part_lower = lower.split(',')[0].strip()
+    if _first_part_lower in _UK_KNOWN_TOWNS:
+        town_display = cleaned.split(',')[0].strip()
+        return {"raw": location_raw, "city": town_display, "region": None, "country": "UK", "confidence": 0.75}
 
     # ── 8. Unresolved ────────────────────────────────────────────────────
     return {"raw": location_raw, "city": None, "region": None, "country": None, "confidence": 0.1}
