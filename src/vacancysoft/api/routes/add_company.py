@@ -457,6 +457,26 @@ async def add_company_update_preview(req: AddCompanyUpdateRequest):
     except Exception:
         pass
 
+    def _best_lead_url(record: dict | None, fallback: str | None) -> str | None:
+        """Widen the URL net — the adapter's _parse_job only checks `external_url`
+        and `job_sources[0].url`. CoreSignal sometimes labels the advert URL
+        differently in preview responses, so we fall through a few candidates
+        before giving up."""
+        if isinstance(record, dict):
+            for field in ("external_url", "apply_url", "url", "job_url", "source_url"):
+                val = record.get(field)
+                if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
+                    return val.strip()
+            sources = record.get("job_sources")
+            if isinstance(sources, list):
+                for src in sources:
+                    if isinstance(src, dict):
+                        for field in ("url", "apply_url", "external_url"):
+                            val = src.get(field)
+                            if isinstance(val, str) and val.strip().startswith(("http://", "https://")):
+                                return val.strip()
+        return fallback
+
     leads: list[AddCompanyUpdateLead] = []
     for j in page.jobs:
         ext = j.external_job_id or ""
@@ -468,7 +488,7 @@ async def add_company_update_preview(req: AddCompanyUpdateRequest):
             title=j.title_raw or "",
             company=(j.provenance or {}).get("company"),
             location=j.location_raw,
-            url=j.apply_url or j.discovered_url,
+            url=_best_lead_url(j.listing_payload, j.apply_url or j.discovered_url),
             posted_at=j.posted_at_raw,
             summary=summary[:300] if summary else None,
         ))
