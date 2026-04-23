@@ -367,7 +367,7 @@ export default function AddCompanyModal({
                   </div>
                 </div>
                 <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
-                  {updateMessage || "These are new to CoreSignal — not already captured by this card."}
+                  {updateMessage || "These are new to CoreSignal — not already captured by this card. Each ticked lead fetches its full record (URL, JD, location, etc.) on commit — costs 1 credit per ticked lead."}
                 </div>
                 <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto">
                   {updateLeads.map((lead) => {

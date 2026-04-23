@@ -764,12 +764,21 @@ def _ensure_scoped_coresignal_source(
 
 @router.post("/api/sources/add-company/update-commit-selected", response_model=AddCompanyUpdateCommitResponse)
 async def add_company_update_commit_selected(req: AddCompanyUpdateCommitSelectedRequest):
-    """Persist a user-selected subset of preview leads — zero CoreSignal credits.
+    """Persist a user-selected subset of preview leads with full job detail.
 
-    Preview has already paid for the data. Selective commit reuses the payload,
-    skips any further scrape, inserts RawJobs directly (routed to UK or NY based
-    on location), then runs the normal enrich→classify→score pipeline.
+    For each selected lead we call CoreSignal ``/collect/{id}`` so the persisted
+    RawJob carries the complete record (URL, description, location, posted_at,
+    company, etc.) — i.e. what the downstream schema expects. The lead's preview
+    data is only used as a fallback when a /collect call fails.
+
+    Credit cost is one /collect per selected lead — proportional to the user's
+    selection, vs. the bulk commit path which runs the entire adapter and costs
+    up to hundreds of collects per run.
     """
+    import os
+    import asyncio
+    import httpx as _httpx
+    from vacancysoft.adapters.coresignal import COLLECT_ENDPOINT, _parse_job as _cs_parse
     from vacancysoft.pipelines.persistence import persist_discovery_batch
 
     src = _lookup_direct_source(req.source_id)
@@ -802,22 +811,70 @@ async def add_company_update_commit_selected(req: AddCompanyUpdateCommitSelected
                 s, employer, scope, locations, board_name,
             )
 
-    # Bucket leads by geo so each source gets its own persist_discovery_batch
-    buckets: dict[str, list[AddCompanyUpdateLead]] = {"uk": [], "ny": []}
+    # ── Phase 1: upgrade each ticked lead with a /collect call ──
+    # This is what gives us the full advert URL, description, and proper location
+    # — the preview payload alone is too sparse to populate the DB as the schema
+    # expects. One credit per selected lead; runs concurrently with a light cap.
+    api_key = (os.getenv("CORESIGNAL_API_KEY") or "").strip()
+    collected: dict[str, dict] = {}
+    if api_key:
+        headers = {
+            "apikey": api_key, "accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        sem = asyncio.Semaphore(10)
+
+        async def _collect_one(lead: AddCompanyUpdateLead, client: _httpx.AsyncClient):
+            if not lead.external_id:
+                return None, None
+            async with sem:
+                try:
+                    resp = await client.get(f"{COLLECT_ENDPOINT}/{lead.external_id}")
+                    if resp.status_code == 200:
+                        return lead.external_id, resp.json()
+                except Exception:
+                    pass
+            return lead.external_id, None
+
+        async with _httpx.AsyncClient(timeout=30, headers=headers) as client:
+            results = await asyncio.gather(
+                *(_collect_one(lead, client) for lead in req.leads),
+                return_exceptions=True,
+            )
+        for r in results:
+            if isinstance(r, tuple):
+                eid, rec = r
+                if eid and rec:
+                    collected[eid] = rec
+
+    # ── Phase 2: build DiscoveredJobRecord per lead (collect data preferred) ──
+    board_url = "https://api.coresignal.com/cdapi/v2/job_multi_source"
+
+    def _record_for(lead: AddCompanyUpdateLead):
+        raw = collected.get(lead.external_id or "")
+        if raw:
+            djr = _cs_parse(raw, board_url=board_url, term="add_company_update_selected")
+            if djr is not None:
+                return djr
+        return _lead_to_discovery_record(lead, employer)
+
+    # Bucket leads by geo (using the preview-reported location, which is what
+    # the user saw when picking — keeps the UX consistent even if collect
+    # returns a slightly different location string).
+    buckets: dict[str, list] = {"uk": [], "ny": []}
     for lead in req.leads:
-        buckets["ny" if _is_ny_location(lead.location) else "uk"].append(lead)
+        buckets["ny" if _is_ny_location(lead.location) else "uk"].append(_record_for(lead))
 
     persisted = 0
     with SessionLocal() as s:
-        for scope, scope_leads in buckets.items():
-            if not scope_leads:
+        for scope, scope_records in buckets.items():
+            if not scope_records:
                 continue
             src_obj = s.execute(
                 select(Source).where(Source.id == coresignal_ids[scope])
             ).scalar_one()
-            records = [_lead_to_discovery_record(l, employer) for l in scope_leads]
             _, count = persist_discovery_batch(
-                session=s, source=src_obj, records=records,
+                session=s, source=src_obj, records=scope_records,
                 trigger="add_company_update_selected",
             )
             persisted += count
@@ -853,6 +910,12 @@ async def add_company_update_commit_selected(req: AddCompanyUpdateCommitSelected
             "sids": source_ids_list, "core": list(_CORE_MARKETS),
         }).scalar() or 0
 
+    collected_count = len(collected)
+    fallback_count = len(req.leads) - collected_count
+    credit_note = (
+        f"Used {collected_count} CoreSignal /collect credit(s)"
+        + (f"; {fallback_count} lead(s) fell back to preview data only." if fallback_count else ".")
+    )
     return AddCompanyUpdateCommitResponse(
         status="ok", source_id=req.source_id, employer_name=employer,
         coresignal_source_ids=source_ids_list,
@@ -860,6 +923,6 @@ async def add_company_update_commit_selected(req: AddCompanyUpdateCommitSelected
         message=(
             f"Added {len(req.leads)} selected lead(s) to {employer} "
             f"({persisted} persisted, {int(leads_added)} scored into core markets). "
-            f"Zero extra CoreSignal credits used."
+            + credit_note
         ),
     )
