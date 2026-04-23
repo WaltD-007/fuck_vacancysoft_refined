@@ -146,17 +146,17 @@ class AddCompanyUpdatePreviewResponse(BaseModel):
 
 
 class AddCompanyUpdateCommitResponse(BaseModel):
-    """Response for /update-commit.
+    """Response for /update-commit and /update-commit-selected.
 
-    Two CoreSignal sources are created/reused per commit (UK + New York City)
-    and scraped independently — each gets its own SourceRun history so the
-    two geos can be re-run separately from the sources page later.
+    Both endpoints write to two CoreSignal Source rows per employer (UK + NY)
+    so the sources page exposes each geo separately. Bulk commit re-runs the
+    adapter (full credit cost); selective commit persists pre-fetched preview
+    leads (zero additional CoreSignal credits).
 
     status values:
-      * "ok"        — all scrapes ran; `leads_added` is the combined count
+      * "ok"        — commit completed; `leads_added` is the combined count
       * "not_found" — source_id did not resolve to an active direct card
-      * "error"     — at least one scrape failed; `leads_added` still reflects
-                      whatever did land, and `message` lists the failures
+      * "error"     — commit failed; inspect `message` for details
     """
     status: str
     source_id: int
@@ -164,6 +164,18 @@ class AddCompanyUpdateCommitResponse(BaseModel):
     coresignal_source_ids: list[int] = []
     leads_added: int = 0
     message: str
+
+
+class AddCompanyUpdateCommitSelectedRequest(BaseModel):
+    """Request for /update-commit-selected — the credit-saving variant.
+
+    The `leads` list is a subset of what /update-preview returned; only those
+    specific adverts will be persisted. Because we reuse the preview payload
+    directly, no further CoreSignal calls happen — the cost is zero credits
+    regardless of how many leads the user ticks.
+    """
+    source_id: int
+    leads: list[AddCompanyUpdateLead]
 
 
 class StatsOut(BaseModel):
