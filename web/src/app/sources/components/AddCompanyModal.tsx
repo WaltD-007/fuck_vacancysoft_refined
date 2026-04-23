@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import type { AddCompanyCandidate, Source, Stats } from "../types";
+import type { AddCompanyCandidate, AddCompanyUpdateLead, Source, Stats } from "../types";
 
 type AddCompanyResult = {
   status: string;
@@ -11,9 +11,16 @@ type AddCompanyResult = {
   source_id: number | null;
   message: string;
   candidates?: AddCompanyCandidate[];
+  // Returned by /search when status="exists": true if the existing direct card
+  // can be refreshed via a one-off CoreSignal sweep (the "Update" flow below).
+  can_update?: boolean;
 };
 
 type AddCompanyState = "idle" | "searching" | "confirming" | "scraping" | "done" | "error";
+
+// Sub-state machine for the "Update existing card via CoreSignal" flow — only
+// exercised when status="exists" + can_update.
+type UpdateState = "idle" | "previewing" | "ready" | "committing" | "done";
 
 type Props = {
   onClose: () => void;
@@ -59,11 +66,25 @@ export default function AddCompanyModal({
   const [addCompanyConfirmingFor, setAddCompanyConfirmingFor] = useState<string | null>(null);
   const [addCompanyError, setAddCompanyError] = useState("");
 
+  // Update-existing-card flow (only active when the search returns status="exists")
+  const [updateState, setUpdateState] = useState<UpdateState>("idle");
+  const [updateLeads, setUpdateLeads] = useState<AddCompanyUpdateLead[]>([]);
+  const [updateMessage, setUpdateMessage] = useState("");
+  const [updateError, setUpdateError] = useState("");
+
+  const resetUpdateFlow = () => {
+    setUpdateState("idle");
+    setUpdateLeads([]);
+    setUpdateMessage("");
+    setUpdateError("");
+  };
+
   const handleAddCompanySearch = async () => {
     const company = addCompanyName.trim();
     if (!company) return;
     setAddCompanyError("");
     setAddCompanyResult(null);
+    resetUpdateFlow();
     setAddCompanyState("searching");
     try {
       const res = await fetch(`${apiBase}/sources/add-company/search`, {
@@ -81,6 +102,13 @@ export default function AddCompanyModal({
       setAddCompanyResult(data);
       // status is one of: "ready" (needs confirm) | "no_jobs" | "exists"
       setAddCompanyState(data.status === "ready" ? "confirming" : "done");
+      // When the company already has a direct card, skip the extra click —
+      // auto-kick the update preview so the user immediately sees what CoreSignal
+      // can add. The "Update via CoreSignal" button is only shown as a fallback
+      // if this auto-fire doesn't happen (e.g. can_update missing from response).
+      if (data.status === "exists" && data.can_update && data.source_id) {
+        handleUpdatePreview(data.source_id);
+      }
     } catch (e) {
       setAddCompanyError((e as Error).message || "Failed to reach API");
       setAddCompanyState("error");
@@ -139,6 +167,79 @@ export default function AddCompanyModal({
     }
   };
 
+  // ── Update-existing-card flow ──
+  // Phase 1: preview the CoreSignal sweep without persisting.
+  // `sourceIdOverride` lets us kick the preview off immediately from
+  // handleAddCompanySearch (before React state catches up with setAddCompanyResult).
+  const handleUpdatePreview = async (sourceIdOverride?: number) => {
+    const sourceId = sourceIdOverride ?? addCompanyResult?.source_id;
+    if (!sourceId) return;
+    setUpdateError("");
+    setUpdateLeads([]);
+    setUpdateMessage("");
+    setUpdateState("previewing");
+    try {
+      const res = await fetch(`${apiBase}/sources/add-company/update-preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_id: sourceId, days_back: 30 }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setUpdateError(err.detail || `Server returned ${res.status}`);
+        setUpdateState("idle");
+        return;
+      }
+      const data = await res.json();
+      setUpdateMessage(data.message || "");
+      if (data.status === "ready") {
+        setUpdateLeads(data.leads || []);
+        setUpdateState("ready");
+      } else {
+        // no_jobs / not_found / error — terminal
+        setUpdateState("done");
+      }
+    } catch (e) {
+      setUpdateError((e as Error).message || "Failed to reach API");
+      setUpdateState("idle");
+    }
+  };
+
+  // Phase 2: commit — backend creates/reuses a CoreSignal source and runs the
+  // full scrape pipeline. Ledger merge surfaces the new leads on the direct card.
+  const handleUpdateCommit = async () => {
+    const sourceId = addCompanyResult?.source_id;
+    if (!sourceId) return;
+    setUpdateError("");
+    setUpdateState("committing");
+    try {
+      const res = await fetch(`${apiBase}/sources/add-company/update-commit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_id: sourceId, days_back: 30 }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setUpdateError(err.detail || `Server returned ${res.status}`);
+        setUpdateState("ready"); // stay on the leads list so the user can retry
+        return;
+      }
+      const data = await res.json();
+      setUpdateMessage(data.message || "");
+      setUpdateState("done");
+      onCardAdded(sourceId); // pin the updated card to the top
+      const params = countryFilter ? `?country=${encodeURIComponent(countryFilter)}` : "";
+      const [s, st] = await Promise.all([
+        fetch(`${apiBase}/sources${params}`).then((r) => r.json()),
+        fetch(`${apiBase}/stats${params}`).then((r) => r.json()),
+      ]);
+      onSourcesRefreshed(s, st);
+    } catch (e) {
+      setUpdateError((e as Error).message || "Failed to reach API");
+      setUpdateState("ready");
+    }
+  };
+
   return (
     <div className="mb-5" style={{ animation: "fadeIn 0.3s ease-out" }}>
       <div className="relative p-6 rounded-xl" style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}>
@@ -152,7 +253,7 @@ export default function AddCompanyModal({
           <input
             type="text"
             value={addCompanyName}
-            onChange={(e) => { setAddCompanyName(e.target.value); if (addCompanyState === "confirming" || addCompanyState === "done" || addCompanyState === "error") { setAddCompanyState("idle"); setAddCompanyResult(null); setAddCompanyError(""); } }}
+            onChange={(e) => { setAddCompanyName(e.target.value); if (addCompanyState === "confirming" || addCompanyState === "done" || addCompanyState === "error") { setAddCompanyState("idle"); setAddCompanyResult(null); setAddCompanyError(""); resetUpdateFlow(); } }}
             onPaste={(e) => { const text = e.clipboardData.getData("text"); if (text) { e.preventDefault(); setAddCompanyName(text.trim()); } }}
             onKeyDown={(e) => e.key === "Enter" && (addCompanyState === "idle" || addCompanyState === "done" || addCompanyState === "error") && handleAddCompanySearch()}
             placeholder="e.g. Goldman Sachs"
@@ -178,18 +279,115 @@ export default function AddCompanyModal({
           </div>
         )}
 
-        {/* Phase 1 result — `no_jobs` | `exists` (both terminal, no confirm) */}
-        {addCompanyState === "done" && addCompanyResult && (addCompanyResult.status === "no_jobs" || addCompanyResult.status === "exists") && (
+        {/* Phase 1 result — `no_jobs` (terminal) */}
+        {addCompanyState === "done" && addCompanyResult && addCompanyResult.status === "no_jobs" && (
           <div className="p-3 rounded-lg text-sm" style={{
             background: "var(--bg-primary)",
-            border: `1px solid ${addCompanyResult.status === "no_jobs" ? "var(--amber-border)" : "var(--border)"}`,
-            color: addCompanyResult.status === "no_jobs" ? "var(--amber)" : "var(--text-secondary)",
+            border: "1px solid var(--amber-border)",
+            color: "var(--amber)",
           }}>
-            <div className="font-semibold">
-              {addCompanyResult.status === "no_jobs" && "No jobs found"}
-              {addCompanyResult.status === "exists" && `Already exists${addCompanyResult.source_id ? ` (id=${addCompanyResult.source_id})` : ""}`}
+            <div className="font-semibold">No jobs found</div>
+            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{addCompanyResult.message}</div>
+          </div>
+        )}
+
+        {/* Phase 1 result — `exists`: offer an update sweep rather than dead-ending */}
+        {addCompanyState === "done" && addCompanyResult && addCompanyResult.status === "exists" && (
+          <div className="p-3 rounded-lg text-sm" style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
+            <div className="font-semibold" style={{ color: "var(--text-primary)" }}>
+              Already exists{addCompanyResult.source_id ? ` (id=${addCompanyResult.source_id})` : ""}
             </div>
             <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{addCompanyResult.message}</div>
+
+            {addCompanyResult.can_update && updateState === "idle" && !updateError && (
+              <button
+                onClick={handleUpdatePreview}
+                className="mt-3 px-4 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer"
+                style={{ background: "linear-gradient(135deg, var(--accent), #8b7cf7)" }}
+              >
+                Update via CoreSignal
+              </button>
+            )}
+
+            {updateState === "previewing" && (
+              <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                <span className="inline-block w-3 h-3 rounded-full" style={{ border: "2px solid var(--border)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
+                Running CoreSignal preview sweep…
+              </div>
+            )}
+
+            {updateError && (
+              <div className="mt-3 p-2 rounded-md text-xs" style={{ background: "var(--bg-card)", border: "1px solid var(--red-border)", color: "var(--red)" }}>
+                {updateError}
+              </div>
+            )}
+
+            {/* Preview results — leads list + Add all button */}
+            {(updateState === "ready" || updateState === "committing") && updateLeads.length > 0 && (
+              <div className="mt-3 p-3 rounded-lg" style={{ background: "var(--bg-card)", border: "1px solid var(--accent)" }}>
+                <div className="font-semibold text-[13px] mb-1" style={{ color: "var(--accent-light)" }}>
+                  {updateLeads.length} new lead{updateLeads.length === 1 ? "" : "s"} to add
+                </div>
+                <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
+                  {updateMessage || "These are new to CoreSignal — not already captured by this card."}
+                </div>
+                <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto">
+                  {updateLeads.map((lead) => (
+                    <div
+                      key={lead.external_id || `${lead.title}-${lead.url}`}
+                      className="flex items-start gap-3 px-3 py-2 rounded-md"
+                      style={{ background: "var(--bg-primary)", border: "1px solid var(--border-subtle)" }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                          {lead.url ? (
+                            <a href={lead.url} target="_blank" rel="noreferrer" style={{ color: "var(--text-primary)" }}>
+                              {lead.title}
+                            </a>
+                          ) : (
+                            lead.title
+                          )}
+                        </div>
+                        <div className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
+                          {[lead.company, lead.location, lead.posted_at].filter(Boolean).join(" — ")}
+                        </div>
+                        {lead.summary && (
+                          <div className="text-[11px] mt-1 line-clamp-2" style={{ color: "var(--text-muted)" }}>
+                            {lead.summary}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={handleUpdateCommit}
+                    disabled={updateState === "committing"}
+                    className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer flex items-center gap-1.5"
+                    style={{ background: "linear-gradient(135deg, var(--accent), #8b7cf7)", opacity: updateState === "committing" ? 0.7 : 1 }}
+                  >
+                    {updateState === "committing" && <span className="inline-block w-3 h-3 rounded-full" style={{ border: "2px solid var(--border)", borderTopColor: "white", animation: "spin 0.8s linear infinite" }} />}
+                    {updateState === "committing" ? "Adding…" : `Add all ${updateLeads.length} to ${addCompanyResult.company}`}
+                  </button>
+                  <button
+                    onClick={() => { resetUpdateFlow(); }}
+                    disabled={updateState === "committing"}
+                    className="px-4 py-1.5 rounded-lg text-xs font-semibold cursor-pointer"
+                    style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)", opacity: updateState === "committing" ? 0.5 : 1 }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Terminal update states — success or no new leads */}
+            {updateState === "done" && (
+              <div className="mt-3 p-2 rounded-md text-xs" style={{ background: "var(--bg-card)", border: "1px solid var(--green-border)", color: "var(--green)" }}>
+                {updateMessage || "Update complete."}
+              </div>
+            )}
           </div>
         )}
 

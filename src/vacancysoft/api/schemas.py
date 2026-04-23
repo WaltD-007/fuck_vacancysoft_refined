@@ -84,7 +84,9 @@ class AddCompanyResponse(BaseModel):
     status values:
       * "ready"    — search found jobs, user can now confirm (returned by /search only)
       * "no_jobs"  — nothing to add (returned by /search only)
-      * "exists"   — a direct card already exists; no Coresignal call made
+      * "exists"   — a direct card already exists; no Coresignal call made. When
+                     this is returned by /search the UI may offer an update flow
+                     (see `can_update` below).
       * "ok"       — card created and scraped (returned by /confirm only)
     """
     status: str
@@ -93,6 +95,70 @@ class AddCompanyResponse(BaseModel):
     source_id: int | None = None
     message: str
     candidates: list[AddCompanyCandidate] = []  # populated on /search when status="ready"
+    # True when status="exists" AND the direct card is updateable via a CoreSignal
+    # sweep (i.e. it's a real active direct card, not a broken stub). The UI uses
+    # this to offer an "Update via CoreSignal" action instead of a terminal banner.
+    can_update: bool = False
+
+
+# ── Update-existing-card flow (CoreSignal sweep against an existing direct card) ──
+
+class AddCompanyUpdateRequest(BaseModel):
+    """Request shape for both /update-preview and /update-commit.
+
+    `source_id` is the direct (non-aggregator) Source row the user is refreshing.
+    """
+    source_id: int
+    days_back: int = 30
+
+
+class AddCompanyUpdateLead(BaseModel):
+    """One lead surfaced by an update-preview sweep — not persisted."""
+    external_id: str
+    title: str
+    company: str | None = None
+    location: str | None = None
+    url: str | None = None
+    posted_at: str | None = None
+    summary: str | None = None
+
+
+class AddCompanyUpdatePreviewResponse(BaseModel):
+    """Response for /update-preview.
+
+    status values:
+      * "ready"     — leads list populated; UI shows them and offers Add
+      * "no_jobs"   — CoreSignal returned 0 matching leads
+      * "not_found" — source_id did not resolve to an active direct card
+      * "error"     — the preview call itself failed
+    """
+    status: str
+    source_id: int
+    employer_name: str
+    leads_found: int
+    leads: list[AddCompanyUpdateLead] = []
+    message: str
+
+
+class AddCompanyUpdateCommitResponse(BaseModel):
+    """Response for /update-commit.
+
+    Two CoreSignal sources are created/reused per commit (UK + New York City)
+    and scraped independently — each gets its own SourceRun history so the
+    two geos can be re-run separately from the sources page later.
+
+    status values:
+      * "ok"        — all scrapes ran; `leads_added` is the combined count
+      * "not_found" — source_id did not resolve to an active direct card
+      * "error"     — at least one scrape failed; `leads_added` still reflects
+                      whatever did land, and `message` lists the failures
+    """
+    status: str
+    source_id: int
+    employer_name: str
+    coresignal_source_ids: list[int] = []
+    leads_added: int = 0
+    message: str
 
 
 class StatsOut(BaseModel):
