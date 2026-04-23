@@ -335,13 +335,21 @@ export default function AddCompanyModal({
                       style={{ background: "var(--bg-primary)", border: "1px solid var(--border-subtle)" }}
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                        <div className="text-sm font-semibold truncate">
                           {lead.url ? (
-                            <a href={lead.url} target="_blank" rel="noreferrer" style={{ color: "var(--text-primary)" }}>
+                            <a
+                              href={lead.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="hover:underline"
+                              style={{ color: "var(--accent-light)" }}
+                              title={lead.url}
+                            >
                               {lead.title}
+                              <span className="text-[11px] ml-1" aria-hidden>↗</span>
                             </a>
                           ) : (
-                            lead.title
+                            <span style={{ color: "var(--text-primary)" }}>{lead.title}</span>
                           )}
                         </div>
                         <div className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
