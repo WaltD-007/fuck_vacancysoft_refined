@@ -25,6 +25,7 @@ from vacancysoft.api.schemas import (
     AddCompanyRequest,
     AddCompanyResponse,
     AddCompanyUpdateCommitResponse,
+    AddCompanyUpdateCommitSelectedRequest,
     AddCompanyUpdateLead,
     AddCompanyUpdatePreviewResponse,
     AddCompanyUpdateRequest,
@@ -655,5 +656,210 @@ async def add_company_update_commit(req: AddCompanyUpdateRequest):
         message=(
             f"Added {int(leads_added)} new lead(s) to {employer} via CoreSignal "
             f"(UK + NY ran independently)."
+        ),
+    )
+
+
+def _is_ny_location(location: str | None) -> bool:
+    """Route a lead to the NY-scoped CoreSignal source when its location mentions
+    New York, otherwise default to UK. Good enough for selective commit routing —
+    the user already saw the location in the UI.
+    """
+    if not location:
+        return False
+    loc = location.lower()
+    if "new york" in loc:
+        return True
+    if ", ny," in loc or loc.endswith(", ny"):
+        return True
+    return False
+
+
+def _lead_to_discovery_record(lead: AddCompanyUpdateLead, employer: str):
+    """Rebuild a DiscoveredJobRecord from a preview-sourced AddCompanyUpdateLead.
+
+    `listing_payload` carries just enough for the ledger merge
+    (`_extract_employer_from_payload` reads `company_name`). Confidence is a
+    notch below the 0.93 that collect-sourced records get — preview fields
+    may be sparser.
+    """
+    from vacancysoft.adapters.base import DiscoveredJobRecord
+
+    fields_present = sum(
+        1 for v in (lead.title, employer, lead.location, lead.url, lead.summary) if v
+    )
+    completeness = fields_present / 5
+    return DiscoveredJobRecord(
+        external_job_id=lead.external_id or lead.url or lead.title or "",
+        title_raw=lead.title or None,
+        location_raw=lead.location,
+        posted_at_raw=lead.posted_at,
+        summary_raw=lead.summary,
+        discovered_url=lead.url,
+        apply_url=lead.url,
+        listing_payload={
+            "company_name": employer,
+            "title": lead.title,
+            "location": lead.location,
+            "external_url": lead.url,
+        },
+        completeness_score=round(completeness, 4),
+        extraction_confidence=0.85,
+        provenance={
+            "adapter": "coresignal",
+            "method": "api",
+            "company": employer,
+            "platform": "Coresignal Multi-source (preview-selective)",
+            "search_term": "add_company_update_selected",
+        },
+    )
+
+
+def _ensure_scoped_coresignal_source(
+    session, employer: str, scope: str, locations: list[dict], board_name: str,
+) -> int:
+    """Find or create the location-scoped CoreSignal Source for this employer.
+
+    Shares the same source_key scheme as the bulk /update-commit flow so both
+    endpoints write to the same rows and the sources page doesn't multiply.
+    """
+    key = _addcompany_scoped_source_key(employer, scope)
+    existing = session.execute(
+        select(Source).where(Source.source_key == key)
+    ).scalar_one_or_none()
+    if existing:
+        existing.active = True
+        session.commit()
+        session.refresh(existing)
+        return existing.id
+    new_src = Source(
+        source_key=key,
+        employer_name=employer,
+        board_name=board_name,
+        base_url="https://api.coresignal.com/cdapi/v2/job_multi_source",
+        hostname="api.coresignal.com",
+        source_type="ats_api",
+        ats_family="coresignal",
+        adapter_name="coresignal",
+        active=True,
+        seed_type="add_company_update_selected",
+        discovery_method="add_company",
+        fingerprint=f"coresignal|{_addcompany_slugify(employer)}|{scope}",
+        canonical_company_key=_addcompany_slugify(employer),
+        config_blob={
+            "job_board_url": "https://api.coresignal.com/cdapi/v2/job_multi_source",
+            "company_filter": employer,
+            "use_full_taxonomy": True,
+            "use_preview": False,
+            "locations": locations,
+            "request_delay": 0.1,
+        },
+        capability_blob={},
+    )
+    session.add(new_src)
+    session.commit()
+    session.refresh(new_src)
+    return new_src.id
+
+
+@router.post("/api/sources/add-company/update-commit-selected", response_model=AddCompanyUpdateCommitResponse)
+async def add_company_update_commit_selected(req: AddCompanyUpdateCommitSelectedRequest):
+    """Persist a user-selected subset of preview leads — zero CoreSignal credits.
+
+    Preview has already paid for the data. Selective commit reuses the payload,
+    skips any further scrape, inserts RawJobs directly (routed to UK or NY based
+    on location), then runs the normal enrich→classify→score pipeline.
+    """
+    from vacancysoft.pipelines.persistence import persist_discovery_batch
+
+    src = _lookup_direct_source(req.source_id)
+    if not src:
+        return AddCompanyUpdateCommitResponse(
+            status="not_found", source_id=req.source_id, employer_name="",
+            message=f"No active direct card found with id={req.source_id}.",
+        )
+    employer = (src.employer_name or "").strip()
+    if not employer:
+        return AddCompanyUpdateCommitResponse(
+            status="error", source_id=req.source_id, employer_name="",
+            message="Direct card has no employer_name set.",
+        )
+    if not req.leads:
+        return AddCompanyUpdateCommitResponse(
+            status="error", source_id=req.source_id, employer_name=employer,
+            message="No leads selected — nothing to commit.",
+        )
+
+    # Ensure the two scoped CoreSignal sources exist (creates them on first call)
+    location_scopes = [
+        ("uk", [{"country": "United Kingdom"}], "Coresignal (UK)"),
+        ("ny", [{"country": "United States", "city": "New York"}], "Coresignal (New York)"),
+    ]
+    coresignal_ids: dict[str, int] = {}
+    with SessionLocal() as s:
+        for scope, locations, board_name in location_scopes:
+            coresignal_ids[scope] = _ensure_scoped_coresignal_source(
+                s, employer, scope, locations, board_name,
+            )
+
+    # Bucket leads by geo so each source gets its own persist_discovery_batch
+    buckets: dict[str, list[AddCompanyUpdateLead]] = {"uk": [], "ny": []}
+    for lead in req.leads:
+        buckets["ny" if _is_ny_location(lead.location) else "uk"].append(lead)
+
+    persisted = 0
+    with SessionLocal() as s:
+        for scope, scope_leads in buckets.items():
+            if not scope_leads:
+                continue
+            src_obj = s.execute(
+                select(Source).where(Source.id == coresignal_ids[scope])
+            ).scalar_one()
+            records = [_lead_to_discovery_record(l, employer) for l in scope_leads]
+            _, count = persist_discovery_batch(
+                session=s, source=src_obj, records=records,
+                trigger="add_company_update_selected",
+            )
+            persisted += count
+
+    # Run the standard post-discovery pipeline against the new RawJobs
+    from vacancysoft.pipelines.enrichment_persistence import enrich_raw_jobs
+    from vacancysoft.pipelines.classification_persistence import classify_enriched_jobs
+    from vacancysoft.pipelines.scoring_persistence import score_enriched_jobs
+
+    with SessionLocal() as s:
+        enrich_raw_jobs(s, limit=None)
+    with SessionLocal() as s:
+        classify_enriched_jobs(s, limit=None)
+    with SessionLocal() as s:
+        score_enriched_jobs(s, limit=None)
+
+    clear_ledger_caches()
+
+    source_ids_list = list(coresignal_ids.values())
+    with SessionLocal() as s:
+        leads_added = s.execute(text(
+            """
+            SELECT COUNT(*) FROM classification_results cr
+            JOIN enriched_jobs ej ON ej.id = cr.enriched_job_id
+            JOIN raw_jobs rj ON rj.id = ej.raw_job_id
+            WHERE rj.source_id IN :sids
+              AND cr.primary_taxonomy_key IN :core
+            """
+        ).bindparams(
+            bindparam("sids", expanding=True),
+            bindparam("core", expanding=True),
+        ), {
+            "sids": source_ids_list, "core": list(_CORE_MARKETS),
+        }).scalar() or 0
+
+    return AddCompanyUpdateCommitResponse(
+        status="ok", source_id=req.source_id, employer_name=employer,
+        coresignal_source_ids=source_ids_list,
+        leads_added=int(leads_added),
+        message=(
+            f"Added {len(req.leads)} selected lead(s) to {employer} "
+            f"({persisted} persisted, {int(leads_added)} scored into core markets). "
+            f"Zero extra CoreSignal credits used."
         ),
     )

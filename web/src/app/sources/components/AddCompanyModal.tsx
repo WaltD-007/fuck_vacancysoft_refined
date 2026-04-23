@@ -71,12 +71,27 @@ export default function AddCompanyModal({
   const [updateLeads, setUpdateLeads] = useState<AddCompanyUpdateLead[]>([]);
   const [updateMessage, setUpdateMessage] = useState("");
   const [updateError, setUpdateError] = useState("");
+  // Set of selected lead keys. Commit only persists the ticked leads, so the
+  // user can skip irrelevant adverts and avoid churning downstream tokens.
+  const [selectedLeadKeys, setSelectedLeadKeys] = useState<Set<string>>(new Set());
+
+  const leadKey = (lead: AddCompanyUpdateLead) =>
+    lead.external_id || `${lead.title}|${lead.url ?? ""}`;
 
   const resetUpdateFlow = () => {
     setUpdateState("idle");
     setUpdateLeads([]);
     setUpdateMessage("");
     setUpdateError("");
+    setSelectedLeadKeys(new Set());
+  };
+
+  const toggleLead = (key: string) => {
+    setSelectedLeadKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
   };
 
   const handleAddCompanySearch = async () => {
@@ -193,7 +208,10 @@ export default function AddCompanyModal({
       const data = await res.json();
       setUpdateMessage(data.message || "");
       if (data.status === "ready") {
-        setUpdateLeads(data.leads || []);
+        const leads: AddCompanyUpdateLead[] = data.leads || [];
+        setUpdateLeads(leads);
+        // Default: everything ticked, user unchecks the ones they don't want.
+        setSelectedLeadKeys(new Set(leads.map(leadKey)));
         setUpdateState("ready");
       } else {
         // no_jobs / not_found / error — terminal
@@ -205,18 +223,21 @@ export default function AddCompanyModal({
     }
   };
 
-  // Phase 2: commit — backend creates/reuses a CoreSignal source and runs the
-  // full scrape pipeline. Ledger merge surfaces the new leads on the direct card.
-  const handleUpdateCommit = async () => {
+  // Phase 2: commit — selective. Sends only the leads the user ticked; the
+  // backend persists the pre-fetched preview payloads directly, so this costs
+  // zero additional CoreSignal credits regardless of how many are selected.
+  const handleUpdateCommitSelected = async () => {
     const sourceId = addCompanyResult?.source_id;
     if (!sourceId) return;
+    const chosen = updateLeads.filter((lead) => selectedLeadKeys.has(leadKey(lead)));
+    if (chosen.length === 0) return;
     setUpdateError("");
     setUpdateState("committing");
     try {
-      const res = await fetch(`${apiBase}/sources/add-company/update-commit`, {
+      const res = await fetch(`${apiBase}/sources/add-company/update-commit-selected`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source_id: sourceId, days_back: 30 }),
+        body: JSON.stringify({ source_id: sourceId, leads: chosen }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -321,58 +342,100 @@ export default function AddCompanyModal({
             {/* Preview results — leads list + Add all button */}
             {(updateState === "ready" || updateState === "committing") && updateLeads.length > 0 && (
               <div className="mt-3 p-3 rounded-lg" style={{ background: "var(--bg-card)", border: "1px solid var(--accent)" }}>
-                <div className="font-semibold text-[13px] mb-1" style={{ color: "var(--accent-light)" }}>
-                  {updateLeads.length} new lead{updateLeads.length === 1 ? "" : "s"} to add
+                <div className="flex items-baseline justify-between mb-1">
+                  <div className="font-semibold text-[13px]" style={{ color: "var(--accent-light)" }}>
+                    {selectedLeadKeys.size} of {updateLeads.length} selected
+                  </div>
+                  <div className="flex gap-2 text-[11px]">
+                    <button
+                      onClick={() => setSelectedLeadKeys(new Set(updateLeads.map(leadKey)))}
+                      disabled={updateState === "committing"}
+                      className="underline cursor-pointer"
+                      style={{ color: "var(--text-muted)", background: "transparent", border: "none" }}
+                    >
+                      all
+                    </button>
+                    <span style={{ color: "var(--text-muted)" }}>·</span>
+                    <button
+                      onClick={() => setSelectedLeadKeys(new Set())}
+                      disabled={updateState === "committing"}
+                      className="underline cursor-pointer"
+                      style={{ color: "var(--text-muted)", background: "transparent", border: "none" }}
+                    >
+                      none
+                    </button>
+                  </div>
                 </div>
                 <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
                   {updateMessage || "These are new to CoreSignal — not already captured by this card."}
                 </div>
                 <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto">
-                  {updateLeads.map((lead) => (
-                    <div
-                      key={lead.external_id || `${lead.title}-${lead.url}`}
-                      className="flex items-start gap-3 px-3 py-2 rounded-md"
-                      style={{ background: "var(--bg-primary)", border: "1px solid var(--border-subtle)" }}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold truncate">
-                          {lead.url ? (
-                            <a
-                              href={lead.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="hover:underline"
-                              style={{ color: "var(--accent-light)" }}
-                              title={lead.url}
-                            >
-                              {lead.title}
-                              <span className="text-[11px] ml-1" aria-hidden>↗</span>
-                            </a>
-                          ) : (
-                            <span style={{ color: "var(--text-primary)" }}>{lead.title}</span>
+                  {updateLeads.map((lead) => {
+                    const key = leadKey(lead);
+                    const checked = selectedLeadKeys.has(key);
+                    return (
+                      <label
+                        key={key}
+                        className="flex items-start gap-3 px-3 py-2 rounded-md cursor-pointer"
+                        style={{
+                          background: "var(--bg-primary)",
+                          border: `1px solid ${checked ? "var(--accent)" : "var(--border-subtle)"}`,
+                          opacity: checked ? 1 : 0.55,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleLead(key)}
+                          disabled={updateState === "committing"}
+                          className="mt-1 cursor-pointer"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold truncate">
+                            {lead.url ? (
+                              <a
+                                href={lead.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="hover:underline"
+                                style={{ color: "var(--accent-light)" }}
+                                title={lead.url}
+                              >
+                                {lead.title}
+                                <span className="text-[11px] ml-1" aria-hidden>↗</span>
+                              </a>
+                            ) : (
+                              <span style={{ color: "var(--text-primary)" }}>{lead.title}</span>
+                            )}
+                          </div>
+                          <div className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
+                            {[lead.company, lead.location, lead.posted_at].filter(Boolean).join(" — ")}
+                          </div>
+                          {lead.summary && (
+                            <div className="text-[11px] mt-1 line-clamp-2" style={{ color: "var(--text-muted)" }}>
+                              {lead.summary}
+                            </div>
                           )}
                         </div>
-                        <div className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
-                          {[lead.company, lead.location, lead.posted_at].filter(Boolean).join(" — ")}
-                        </div>
-                        {lead.summary && (
-                          <div className="text-[11px] mt-1 line-clamp-2" style={{ color: "var(--text-muted)" }}>
-                            {lead.summary}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                      </label>
+                    );
+                  })}
                 </div>
                 <div className="flex gap-2 mt-3">
                   <button
-                    onClick={handleUpdateCommit}
-                    disabled={updateState === "committing"}
+                    onClick={handleUpdateCommitSelected}
+                    disabled={updateState === "committing" || selectedLeadKeys.size === 0}
                     className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer flex items-center gap-1.5"
-                    style={{ background: "linear-gradient(135deg, var(--accent), #8b7cf7)", opacity: updateState === "committing" ? 0.7 : 1 }}
+                    style={{
+                      background: "linear-gradient(135deg, var(--accent), #8b7cf7)",
+                      opacity: (updateState === "committing" || selectedLeadKeys.size === 0) ? 0.5 : 1,
+                    }}
                   >
                     {updateState === "committing" && <span className="inline-block w-3 h-3 rounded-full" style={{ border: "2px solid var(--border)", borderTopColor: "white", animation: "spin 0.8s linear infinite" }} />}
-                    {updateState === "committing" ? "Adding…" : `Add all ${updateLeads.length} to ${addCompanyResult.company}`}
+                    {updateState === "committing"
+                      ? "Adding…"
+                      : `Add ${selectedLeadKeys.size} selected to ${addCompanyResult.company}`}
                   </button>
                   <button
                     onClick={() => { resetUpdateFlow(); }}
