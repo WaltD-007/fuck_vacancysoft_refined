@@ -301,7 +301,7 @@ export default function AddCompanyModal({
 
             {addCompanyResult.can_update && updateState === "idle" && !updateError && (
               <button
-                onClick={handleUpdatePreview}
+                onClick={() => handleUpdatePreview()}
                 className="mt-3 px-4 py-1.5 rounded-lg text-xs font-semibold text-white cursor-pointer"
                 style={{ background: "linear-gradient(135deg, var(--accent), #8b7cf7)" }}
               >
