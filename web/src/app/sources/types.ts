@@ -97,6 +97,18 @@ export type AddCompanyCandidate = {
   already_in_db: boolean;
 };
 
+// One lead surfaced by POST /sources/add-company/update-preview —
+// not yet persisted. UI shows these in a table before committing.
+export type AddCompanyUpdateLead = {
+  external_id: string;
+  title: string;
+  company: string | null;
+  location: string | null;
+  url: string | null;
+  posted_at: string | null;
+  summary: string | null;
+};
+
 export type SourceView = "leads" | "no_jobs" | "not_relevant" | "broken" | "all";
 
 export const AGGREGATOR_LABELS: Record<string, string> = {
