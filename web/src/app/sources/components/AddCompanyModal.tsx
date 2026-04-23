@@ -291,14 +291,10 @@ export default function AddCompanyModal({
           </div>
         )}
 
-        {/* Phase 1 result — `exists`: offer an update sweep rather than dead-ending */}
+        {/* Phase 1 result — `exists`: skip the "Already exists" banner entirely and
+            drop straight into the auto-fired preview flow. Container kept for layout. */}
         {addCompanyState === "done" && addCompanyResult && addCompanyResult.status === "exists" && (
-          <div className="p-3 rounded-lg text-sm" style={{ background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}>
-            <div className="font-semibold" style={{ color: "var(--text-primary)" }}>
-              Already exists{addCompanyResult.source_id ? ` (id=${addCompanyResult.source_id})` : ""}
-            </div>
-            <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{addCompanyResult.message}</div>
-
+          <div className="text-sm">
             {addCompanyResult.can_update && updateState === "idle" && !updateError && (
               <button
                 onClick={() => handleUpdatePreview()}
