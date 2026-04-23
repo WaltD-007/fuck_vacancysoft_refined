@@ -44,6 +44,24 @@ logger = logging.getLogger(__name__)
 # Domains we can backfill via fast API calls (no browser needed)
 _API_DOMAINS = ("myworkdayjobs.com", "myworkdaysite.com", "smartrecruiters.com")
 
+# Aggregator domains to skip during detail backfill. Their APIs already deliver
+# description + posted date + location on the original adapter call, so hitting
+# the redirect/bounce page adds nothing — and at scale gets the scraper IP
+# flagged by Cloudflare (Adzuna's "suspicious behaviour" page, etc.). Skipping
+# them keeps the scraper quiet AND loses zero data.
+_AGGREGATOR_SKIP_DOMAINS = (
+    "adzuna.co",
+    "adzuna.com",
+    "reed.co.uk",
+    "efinancialcareers.com",
+    "efinancialcareers.co",
+    "indeed.com",
+    "indeed.co",
+    "linkedin.com",
+    "coresignal.com",
+    "google.com/search",  # google_jobs redirects
+)
+
 
 def _has_api_endpoint(url: str | None) -> bool:
     """Return True if the URL belongs to a platform with a fast detail API."""
@@ -65,6 +83,14 @@ def _backfill_one_sync(
         return False
 
     domain = urlparse(url).netloc.lower()
+
+    # Aggregator skip — their APIs already populated description/date/location on
+    # the original adapter run, so there's nothing useful to scrape from the
+    # redirect page. Skipping also stops us tripping Cloudflare bot detection.
+    if any(d in domain for d in _AGGREGATOR_SKIP_DOMAINS):
+        enriched.detail_fetch_status = "detail_fetched"
+        return False
+
     detail: dict[str, str | None] = {"date": None, "location": None}
 
     try:
