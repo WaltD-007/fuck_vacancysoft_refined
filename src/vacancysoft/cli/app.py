@@ -1161,11 +1161,22 @@ def run_pipeline(
 
     adapter_order = sorted(adapter_sources.keys(), key=_adapter_priority)
 
+    # Rolling per-adapter performance workbook — one tab per adapter, last 3 run
+    # blocks per tab. Replaces the old `leads_<adapter>_<date>.xlsx` per-adapter
+    # dump (which ran the full leads export every time and produced ~6MB of
+    # duplicate data per file). Full leads export remains available on-demand
+    # via `prospero export excel-profile`.
+    from datetime import datetime as _dt
+    from vacancysoft.reporting.adapter_performance import write_adapter_performance
+    run_started_at = _dt.now()
+    perf_report_path = "reports/adapter_performance.xlsx"
+
     console.print(Panel(
         f"[bold]Sources:[/bold] {len(sources)}  |  "
         f"[bold]Adapters:[/bold] {len(adapter_order)}  |  "
         f"[bold]Snapshot every:[/bold] {snapshot_every} leads  |  "
-        f"[bold]Output:[/bold] {output or 'none'}",
+        f"[bold]Output:[/bold] {output or 'none'}  |  "
+        f"[bold]Perf report:[/bold] {perf_report_path}",
         title="[bold bright_white]Pipeline Run[/bold bright_white]",
         border_style="bright_blue",
     ))
@@ -1583,6 +1594,19 @@ def run_pipeline(
                 _snapshot_excel(output, export_profile, scrape_log=scrape_log, source_results=source_results)
                 _log(f"[bright_white]SNAPSHOT[/bright_white] Excel saved after {adapter_name}")
                 scored_since_snapshot = 0
+
+            # Rolling performance workbook — one block per adapter per run, 3 runs kept.
+            # Non-fatal: failure here must not take down the scrape.
+            try:
+                write_adapter_performance(
+                    adapter_name=adapter_name,
+                    run_started_at=run_started_at,
+                    source_results=source_results,
+                    workbook_path=perf_report_path,
+                )
+                _log(f"[bright_white]PERF[/bright_white] adapter_performance.xlsx updated ({adapter_name})")
+            except Exception as perf_exc:
+                _log(f"[yellow]PERF[/yellow] failed to update adapter_performance.xlsx: {perf_exc}")
 
             # Mark adapter as done
             progress.update(task_id, status=f"[bold {colour}]done[/bold {colour}] — {total_jobs} jobs")
