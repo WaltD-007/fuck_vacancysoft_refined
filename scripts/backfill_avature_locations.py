@@ -169,6 +169,89 @@ def _fetch(url: str, timeout: float) -> tuple[int, str, int]:
         return 0, f"{type(exc).__name__}: {exc}", 0
 
 
+# ── Firefox fallback for Cloudflare-gated tenants ─────────────────────────
+# httpx returns 202 against tenants like koch.avature.net (Cloudflare JS
+# challenge that needs a real browser). Firefox's TLS fingerprint + HTTP/2
+# frame ordering differ from Chromium's enough that these tenants let
+# Firefox through where Chromium/httpx get bounced. Chromium is what
+# Playwright's automation-detection training usually focuses on; Firefox
+# slips through.
+#
+# We launch a single Firefox instance + context for the whole run and
+# reuse it for each Cloudflare-blocked URL — pay the startup cost once.
+_FIREFOX_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.7; rv:131.0) "
+    "Gecko/20100101 Firefox/131.0"
+)
+
+
+class _FirefoxFetcher:
+    """Lazy-start Firefox session, reused across URLs. Safe to skip init."""
+
+    def __init__(self, page_timeout_ms: int = 30000, settle_ms: int = 2000):
+        self._p = None
+        self._browser = None
+        self._context = None
+        self.page_timeout_ms = page_timeout_ms
+        self.settle_ms = settle_ms
+
+    def _ensure_started(self) -> None:
+        if self._browser is not None:
+            return
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise RuntimeError(
+                "Firefox fallback requires playwright — install with "
+                "`pip install playwright && playwright install firefox`"
+            ) from exc
+        self._p = sync_playwright().start()
+        self._browser = self._p.firefox.launch(headless=True)
+        self._context = self._browser.new_context(
+            user_agent=_FIREFOX_UA,
+            viewport={"width": 1400, "height": 900},
+            locale="en-US",
+        )
+
+    def fetch(self, url: str) -> tuple[int, str]:
+        """Return (status_ish, body). `status_ish` is 200 on success, 0 on error."""
+        self._ensure_started()
+        page = None
+        try:
+            page = self._context.new_page()
+            try:
+                page.goto(url, wait_until="networkidle", timeout=self.page_timeout_ms)
+            except Exception:
+                # networkidle can hang on pages with sticky long-poll connections;
+                # fall through to domcontentloaded + settle.
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=15000)
+                except Exception:
+                    pass
+            # Extra settle — Cloudflare's JS challenge may still be finalising
+            # after networkidle/domcontentloaded.
+            page.wait_for_timeout(self.settle_ms)
+            html = page.content()
+            return 200, html
+        except Exception as exc:
+            return 0, f"{type(exc).__name__}: {exc}"
+        finally:
+            if page is not None:
+                try:
+                    page.close()
+                except Exception:
+                    pass
+
+    def close(self) -> None:
+        try:
+            if self._browser is not None:
+                self._browser.close()
+            if self._p is not None:
+                self._p.stop()
+        except Exception:
+            pass
+
+
 def _tenant_from_url(url: str) -> str:
     m = re.match(r"https?://([^/]+)", url or "")
     return m.group(1).lower() if m else "?"
@@ -208,18 +291,32 @@ def main() -> int:
     parser.add_argument("--delay", type=float, default=0.4, help="Seconds between requests. Default 0.4.")
     parser.add_argument("--timeout", type=float, default=15.0, help="Per-request timeout seconds.")
     parser.add_argument("--per-tenant-limit", type=int, default=0, help="Cap rows processed per tenant (0 = no cap).")
+    parser.add_argument(
+        "--no-firefox",
+        action="store_true",
+        help="Skip Firefox fallback for Cloudflare-blocked tenants (httpx-only).",
+    )
+    parser.add_argument(
+        "--firefox-delay",
+        type=float,
+        default=1.0,
+        help="Seconds between Firefox fetches. Default 1.0 (slower than httpx — the session is reused).",
+    )
     args = parser.parse_args()
 
     mode = "DRY-RUN" if args.dry_run else "COMMIT"
+    ff_mode = "off" if args.no_firefox else "on (fallback for 202)"
     print(f"Avature backfill — {mode}")
-    print(f"  host_substring={args.host_substring or '<any avature>'}  limit={args.limit}  delay={args.delay}s")
+    print(f"  host_substring={args.host_substring or '<any avature>'}  limit={args.limit}  httpx_delay={args.delay}s  firefox={ff_mode}")
     print()
 
     stats = {
         "scanned": 0, "fetched_ok": 0, "extracted": 0, "wrote": 0,
         "blocked_202": 0, "blocked_403": 0, "fetch_failed": 0,
         "no_location_found": 0, "skipped_tenant_cap": 0,
+        "firefox_attempts": 0, "firefox_recovered": 0, "firefox_failed": 0,
     }
+    firefox: Optional[_FirefoxFetcher] = None if args.no_firefox else _FirefoxFetcher()
     per_tenant_processed: dict[str, int] = {}
     per_tenant_recovered: dict[str, int] = {}
     per_tenant_blocked: dict[str, int] = {}
@@ -239,8 +336,25 @@ def main() -> int:
 
             url = raw_job.discovered_url
             status, body, _size = _fetch(url, args.timeout)
+            used_firefox = False
             if status == 200:
                 stats["fetched_ok"] += 1
+            elif status == 202 and firefox is not None:
+                # Cloudflare JS challenge — retry with Firefox.
+                stats["firefox_attempts"] += 1
+                if stats["firefox_attempts"] <= 3 or stats["firefox_attempts"] % 100 == 0:
+                    print(f"  firefox retry  {tenant}  (attempt {stats['firefox_attempts']})")
+                ff_status, ff_body = firefox.fetch(url)
+                if ff_status == 200 and "article__content" in ff_body:
+                    status, body = ff_status, ff_body
+                    stats["fetched_ok"] += 1
+                    stats["firefox_recovered"] += 1
+                    used_firefox = True
+                else:
+                    stats["blocked_202"] += 1
+                    stats["firefox_failed"] += 1
+                    per_tenant_blocked[tenant] = per_tenant_blocked.get(tenant, 0) + 1
+                    continue
             elif status == 202:
                 stats["blocked_202"] += 1
                 per_tenant_blocked[tenant] = per_tenant_blocked.get(tenant, 0) + 1
@@ -285,11 +399,19 @@ def main() -> int:
                     session.commit()
                     print(f"  committed batch — wrote {stats['wrote']} so far")
 
-            if args.delay > 0:
+            # Rate-limit — Firefox fetches are already slow (5-8s each with
+            # networkidle + settle), so use a separate shorter delay for them.
+            if used_firefox:
+                if args.firefox_delay > 0:
+                    time.sleep(args.firefox_delay)
+            elif args.delay > 0:
                 time.sleep(args.delay)
 
         if not args.dry_run:
             session.commit()
+
+    if firefox is not None:
+        firefox.close()
 
     print()
     print("=== Summary ===")
