@@ -246,6 +246,95 @@ _CORRECTIONS: list[dict] = [
         },
         "reason": "Avature ATS — migrate off generic_site to dedicated adapter (2026-04-24).",
     },
+    # ── ADP WorkforceNow reclassifications (from 2026-04-24 full-DB audit) ──
+    # Each has a legit ADP URL with a CID query param (the company ID ADP uses
+    # to identify the tenant); base_url alone is enough for the adp adapter.
+    # Verified 200 + job-listing content via live probe before committing.
+    {
+        "employer": "MacKay Shields",
+        "action": "reclassify",
+        "adapter_name": "adp",
+        "ats_family": "adp",
+        "base_url": "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=e36fcc0f-b0a6-4b8e-ba8b-1fe996800059&ccId=19000101_000001&type=JS&lang=en_US",
+        "hostname": "workforcenow.adp.com",
+        "config_blob": {
+            "job_board_url": "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=e36fcc0f-b0a6-4b8e-ba8b-1fe996800059&ccId=19000101_000001&type=JS&lang=en_US",
+        },
+        "reason": "ADP WorkforceNow — generic_site → adp via upstream URL pattern (2026-04-24 full-DB audit).",
+    },
+    {
+        "employer": "Daiwa Capital Markets",
+        "action": "reclassify",
+        "adapter_name": "adp",
+        "ats_family": "adp",
+        "base_url": "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=d72c1443-0fed-4e79-b4e8-0ba4b95f5a7a&ccId=19000101_000001&lang=en_US",
+        "hostname": "workforcenow.adp.com",
+        "config_blob": {
+            "job_board_url": "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=d72c1443-0fed-4e79-b4e8-0ba4b95f5a7a&ccId=19000101_000001&lang=en_US",
+        },
+        "reason": "ADP WorkforceNow — generic_site → adp via upstream URL pattern (2026-04-24 full-DB audit).",
+    },
+    {
+        "employer": "Gowling WLG",
+        "action": "reclassify",
+        "adapter_name": "adp",
+        "ats_family": "adp",
+        "base_url": "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=44e55e56-7ae1-4f8f-a30a-ce7af37c1ae6&ccId=1224285855_693&type=JS&lang=en_CA",
+        "hostname": "workforcenow.adp.com",
+        "config_blob": {
+            "job_board_url": "https://workforcenow.adp.com/mascsr/default/mdf/recruitment/recruitment.html?cid=44e55e56-7ae1-4f8f-a30a-ce7af37c1ae6&ccId=1224285855_693&type=JS&lang=en_CA",
+        },
+        "reason": "ADP WorkforceNow — generic_site → adp via upstream URL pattern (2026-04-24 full-DB audit).",
+    },
+    {
+        "employer": "Zempler Bank",
+        "action": "reclassify",
+        "adapter_name": "adp",
+        "ats_family": "adp",
+        "base_url": "https://zemplerbank.careers.adp.com/",
+        "hostname": "zemplerbank.careers.adp.com",
+        "config_blob": {
+            "job_board_url": "https://zemplerbank.careers.adp.com/",
+        },
+        "reason": "ADP Careers — generic_site → adp via upstream URL pattern (2026-04-24 full-DB audit).",
+    },
+    # ── Truly-dead sources from the 2026-04-24 audit ────────────────────────
+    # These all returned DNS nonexistent or malformed base_url — no server to
+    # reach, no fix possible without a new URL. Deactivated via the corrections
+    # script so a reseed re-applies the deactivation cleanly.
+    {
+        "employer": "Arthur J. Gallagher",
+        "action": "deactivate",
+        "reason": (
+            "ajg.referrals.selectminds.com DNS unresolvable from scraper "
+            "(2026-04-24 audit). Reactivate with a valid ATS URL if the "
+            "referrals subdomain comes back."
+        ),
+    },
+    {
+        "employer": "Havin Bank",
+        "action": "deactivate",
+        "reason": (
+            "DNS for their careers host did not resolve from scraper "
+            "(2026-04-24 audit). Reactivate once a valid URL is known."
+        ),
+    },
+    {
+        "employer": "Marken",
+        "action": "deactivate",
+        "reason": (
+            "Source base_url is missing an http(s):// scheme (malformed). "
+            "Deactivated 2026-04-24; reactivate after supplying a valid URL."
+        ),
+    },
+    {
+        "employer": "Merali Beedle",
+        "action": "deactivate",
+        "reason": (
+            "Source base_url is missing an http(s):// scheme (malformed). "
+            "Deactivated 2026-04-24; reactivate after supplying a valid URL."
+        ),
+    },
 ]
 
 
