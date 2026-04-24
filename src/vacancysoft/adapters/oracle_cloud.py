@@ -51,6 +51,17 @@ _REJECT_TITLE_TOKENS = {
     "search jobs",
     "candidate home",
     "privacy policy",
+    # Date/posting-age filter chips from Oracle's left-hand filter panel
+    "greater than 30 days",
+    "more than 30 days",
+    "less than 30 days",
+    "less than 7 days",
+    "less than 14 days",
+    "less than 1 day",
+    "on-site",
+    "on site",
+    "remote",
+    "hybrid",
 }
 _REJECT_TITLE_PREFIXES = (
     "all jobs",
@@ -61,6 +72,36 @@ _REJECT_TITLE_PREFIXES = (
     "product management",
     "originations",
 )
+# Pattern reject list — matches UI chrome the token/prefix lists can't express.
+_REJECT_TITLE_REGEXES = (
+    # Date-range chips not covered by the token list: "More than 12 days"
+    re.compile(r"^(greater|less|more)\s+than\s+\d+\s+day", re.IGNORECASE),
+    # Oracle category-dropdown codes: "Executive.X", "Director.D", "Clerical.C",
+    # "Manager.M", "Administrative.A", "Engineer/Consultant.E"
+    re.compile(r"^[a-z][a-z /()-]{2,30}\.[a-z]$", re.IGNORECASE),
+    # Oracle ERP business-unit / cost-centre codes:
+    # "100201.Corporate Technology Admin", "293633-BUS DEVELOPMENT - 0802",
+    # "0810253-FUND ACCTG IRELAND LUX FDS"
+    re.compile(r"^\d{5,}[-.][A-Za-z]"),
+)
+# Country / region names that Oracle puts in its location facet dropdown and
+# that leak in as 'titles'. Only fullmatch — "India" alone is chrome, but
+# "India Head of Risk" is a real role.
+_REJECT_TITLE_COUNTRY_ONLY = {
+    "india", "united kingdom", "united states", "united states of america",
+    "canada", "australia", "ireland", "germany", "france", "spain", "italy",
+    "netherlands", "belgium", "switzerland", "luxembourg", "austria",
+    "china", "japan", "hong kong", "singapore", "malaysia", "philippines",
+    "thailand", "vietnam", "indonesia", "korea", "south korea", "taiwan",
+    "uae", "united arab emirates", "saudi arabia", "qatar", "oman", "bahrain",
+    "egypt", "israel", "jordan", "kuwait",
+    "brazil", "mexico", "argentina", "chile", "colombia", "peru", "venezuela",
+    "russia", "turkey", "poland", "czech republic", "romania", "hungary",
+    "sweden", "norway", "denmark", "finland", "iceland",
+    "south africa", "nigeria", "kenya", "morocco", "ghana",
+    "pakistan", "bangladesh", "sri lanka", "nepal",
+    "usa", "uk",
+}
 _REJECT_URL_TOKENS = ("privacy", "linkedin", "facebook", "twitter", "mailto:", "javascript:", "selectedpostingdatesfacet", "selectedcategoriesfacet")
 
 
@@ -86,7 +127,11 @@ def _looks_like_job_title(title: str | None) -> bool:
     lowered = title.strip().lower()
     if lowered in _REJECT_TITLE_TOKENS:
         return False
+    if lowered in _REJECT_TITLE_COUNTRY_ONLY:
+        return False
     if any(lowered.startswith(prefix) for prefix in _REJECT_TITLE_PREFIXES):
+        return False
+    if any(rx.match(title.strip()) for rx in _REJECT_TITLE_REGEXES):
         return False
     if re.fullmatch(r"[a-z &/-]+ \(\d+\)", lowered):
         return False
