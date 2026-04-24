@@ -100,6 +100,152 @@ _CORRECTIONS: list[dict] = [
             "hosted ATS is discovered."
         ),
     },
+    # ── Avature tenants — reclassify generic_site → avature ─────────────────
+    # Discovered 2026-04-24 during the post-Step-4 audit: 8 DB-wide Avature
+    # tenants were all classified as generic_site because no Avature adapter
+    # existed. PR that follows this batch introduces src/vacancysoft/adapters/
+    # avature.py; these corrections migrate the Source rows to it so the
+    # dedicated adapter replaces the generic_browser + backfill dance.
+    {
+        "employer": "Ally Invest",
+        "action": "reclassify",
+        "adapter_name": "avature",
+        "ats_family": "avature",
+        "base_url": "https://ally.avature.net/careers",
+        "hostname": "ally.avature.net",
+        "config_blob": {
+            "job_board_url": "https://ally.avature.net/careers",
+            "use_firefox": False,  # responds to httpx / open Cloudflare
+            "max_pages": 5,
+        },
+        "reason": "Avature ATS — migrate off generic_site to dedicated adapter (2026-04-24).",
+    },
+    {
+        "employer": "Berenberg",
+        "action": "reclassify",
+        "adapter_name": "avature",
+        "ats_family": "avature",
+        "base_url": "https://berenberg.avature.net/en_GB/careers",
+        "hostname": "berenberg.avature.net",
+        "config_blob": {
+            "job_board_url": "https://berenberg.avature.net/en_GB/careers",
+            "use_firefox": False,
+            "max_pages": 5,
+        },
+        "reason": "Avature ATS — migrate off generic_site to dedicated adapter (2026-04-24).",
+    },
+    {
+        "employer": "Bloomberg",
+        "action": "reclassify",
+        "adapter_name": "avature",
+        "ats_family": "avature",
+        "base_url": "https://bloomberg.avature.net/careers/SearchJobs/",
+        "hostname": "bloomberg.avature.net",
+        "config_blob": {
+            "job_board_url": "https://bloomberg.avature.net/careers/SearchJobs/",
+            "use_firefox": False,
+            "max_pages": 5,
+        },
+        "reason": "Avature ATS — migrate off generic_site to dedicated adapter (2026-04-24).",
+    },
+    {
+        "employer": "Carlyle",
+        "action": "reclassify",
+        "adapter_name": "avature",
+        "ats_family": "avature",
+        "base_url": "https://carlyle.avature.net/externalcareers",
+        "hostname": "carlyle.avature.net",
+        "config_blob": {
+            "job_board_url": "https://carlyle.avature.net/externalcareers",
+            "use_firefox": False,
+            "max_pages": 5,
+        },
+        "reason": "Avature ATS — migrate off generic_site to dedicated adapter (2026-04-24).",
+    },
+    {
+        "employer": "Koch Industries",
+        "action": "reclassify",
+        "adapter_name": "avature",
+        "ats_family": "avature",
+        "base_url": "https://koch.avature.net/en_US/careers",
+        "hostname": "koch.avature.net",
+        "config_blob": {
+            "job_board_url": "https://koch.avature.net/en_US/careers",
+            "use_firefox": True,  # Koch IS Cloudflare-gated
+            "max_pages": 5,
+        },
+        "reason": (
+            "Avature ATS — migrate off generic_site to dedicated adapter. "
+            "Koch is Cloudflare-gated so adapter uses Firefox transport. "
+            "Note: source is currently inactive (deactivated 2026-04-24 as "
+            "client de-prioritised); reclassify still applies in case of "
+            "future reactivation."
+        ),
+    },
+    {
+        "employer": "Liberty Specialty Markets",
+        "action": "reclassify",
+        "adapter_name": "avature",
+        "ats_family": "avature",
+        "base_url": "https://libertymutual1.avature.net/LibertyCareers",
+        "hostname": "libertymutual1.avature.net",
+        "config_blob": {
+            "job_board_url": "https://libertymutual1.avature.net/LibertyCareers",
+            "use_firefox": False,
+            "max_pages": 5,
+        },
+        "reason": "Avature ATS — migrate off generic_site to dedicated adapter (2026-04-24).",
+    },
+    {
+        "employer": "Macquarie",
+        "action": "reclassify",
+        "adapter_name": "avature",
+        "ats_family": "avature",
+        "base_url": "https://recruitment.macquarie.com/en_US/careers",
+        "hostname": "recruitment.macquarie.com",
+        "config_blob": {
+            "job_board_url": "https://recruitment.macquarie.com/en_US/careers",
+            "use_firefox": False,
+            "max_pages": 5,
+        },
+        "reason": (
+            "Avature ATS (white-labelled at recruitment.macquarie.com) — "
+            "migrate off generic_site to dedicated adapter (2026-04-24)."
+        ),
+    },
+    {
+        "employer": "Metro Bank",
+        "action": "reclassify",
+        "adapter_name": "avature",
+        "ats_family": "avature",
+        "base_url": "https://metrobank.avature.net/amazingcareers",
+        "hostname": "metrobank.avature.net",
+        "config_blob": {
+            "job_board_url": "https://metrobank.avature.net/amazingcareers",
+            "use_firefox": False,
+            "max_pages": 5,
+        },
+        "reason": (
+            "Avature ATS — migrate off generic_site to dedicated adapter. "
+            "A duplicate row seeded as taleo (id=1280) was deactivated "
+            "separately on 2026-04-24 — the taleo row was a seed-time "
+            "misclassification, URL is Avature."
+        ),
+    },
+    {
+        "employer": "Tesco Insurance",
+        "action": "reclassify",
+        "adapter_name": "avature",
+        "ats_family": "avature",
+        "base_url": "https://tescoinsuranceandmoneyservices.avature.net/careers",
+        "hostname": "tescoinsuranceandmoneyservices.avature.net",
+        "config_blob": {
+            "job_board_url": "https://tescoinsuranceandmoneyservices.avature.net/careers",
+            "use_firefox": False,
+            "max_pages": 5,
+        },
+        "reason": "Avature ATS — migrate off generic_site to dedicated adapter (2026-04-24).",
+    },
 ]
 
 
