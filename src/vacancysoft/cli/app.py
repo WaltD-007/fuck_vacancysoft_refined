@@ -86,10 +86,20 @@ def seed_sources(config_path: str = typer.Option("configs/seeds/employers.yaml",
 
 @db_app.command("seed-config-boards")
 def seed_config_boards() -> None:
+    """Seed Source records from configs/config.py.
+
+    Create-only: skips rows that already exist so audit corrections + UI
+    edits stay intact across re-runs. Safe to call from run.sh on every
+    boot. To deliberately update an existing row, use
+    ``scripts/apply_source_corrections.py`` or the Sources page UI.
+    """
     from vacancysoft.source_registry.config_seed_loader import seed_sources_from_config
     with SessionLocal() as session:
-        created, updated = seed_sources_from_config(session)
-    typer.echo(f"Seeded config boards. created={created} updated={updated}")
+        created, skipped, total_seen = seed_sources_from_config(session)
+    typer.echo(
+        f"Seeded config boards (create-only). "
+        f"new={created} already-existed={skipped} of {total_seen} seen."
+    )
 
 
 @db_app.command("stats")
