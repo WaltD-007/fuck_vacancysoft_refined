@@ -32,6 +32,7 @@ from vacancysoft.api.ledger import (
     _CORE_MARKETS,
     _category_counts,
     _extract_employer_from_payload,
+    _get_cached_ledger,
 )
 from vacancysoft.api.schemas import PasteLeadRequest, QueueRequest, StatsOut
 from vacancysoft.db.engine import SessionLocal
@@ -133,7 +134,17 @@ def get_dashboard():
     now = datetime.now(timezone.utc)
 
     with SessionLocal() as s:
-        cats = _category_counts(s)
+        # Use the source-card ledger (same data path the Sources page reads
+        # from) so the Dashboard's "Scored & Qualified" tile and "By Category"
+        # widget mirror the Sources page "Qualified Leads" + category chips
+        # exactly. The ledger applies (employer, title, category) dedup and
+        # drops orphan aggregator rows; a raw _category_counts(s) does not,
+        # which is why the two screens used to disagree.
+        ledger = _get_cached_ledger(country=None)
+        cats: dict[str, int] = {}
+        for card in ledger:
+            for cat_label, n in (card.get("categories") or {}).items():
+                cats[cat_label] = cats.get(cat_label, 0) + n
         total_scored = sum(cats.values())
         # total_jobs is restricted to ACTIVE sources — deactivating a company
         # instantly drops its raw/enriched/classified rows from every dashboard total.
