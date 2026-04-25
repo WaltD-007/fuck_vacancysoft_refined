@@ -104,7 +104,17 @@ def _build_config_blob_url_only(board: dict) -> dict:
     return blob
 
 
-def seed_sources_from_config(session: Session) -> tuple[int, int]:
+def seed_sources_from_config(session: Session) -> tuple[int, int, int]:
+    """Seed Source records from configs/config.py board lists.
+
+    Returns (created, skipped, total_seen).
+
+    Behaviour: **create-only**. Existing rows (matched by source_key) are
+    left untouched. This protects audit corrections + UI edits + admin
+    tweaks from being reverted by re-running ``run.sh`` or
+    ``prospero db seed-config-boards``. To deliberately update an existing
+    row, use ``scripts/apply_source_corrections.py`` or the Sources UI.
+    """
     import sys
     from pathlib import Path
     cwd = str(Path.cwd())
@@ -165,7 +175,8 @@ def seed_sources_from_config(session: Session) -> tuple[int, int]:
     slug_platforms = {"greenhouse", "workable", "ashby", "smartrecruiters", "lever", "icims"}
 
     created = 0
-    updated = 0
+    skipped = 0
+    total_seen = 0
 
     for platform_key, boards in all_boards:
         meta = PLATFORM_REGISTRY[platform_key]
@@ -175,6 +186,7 @@ def seed_sources_from_config(session: Session) -> tuple[int, int]:
         board_name = meta["board_name"]
 
         for board in boards:
+            total_seen += 1
             # Extract URL and company — Workday uses dataclass attrs, others are dicts
             if platform_key == "workday":
                 base_url = board.board_url
@@ -241,9 +253,20 @@ def seed_sources_from_config(session: Session) -> tuple[int, int]:
                 session.add(Source(**values))
                 created += 1
             else:
-                for key, value in values.items():
-                    setattr(existing, key, value)
-                updated += 1
+                # Create-only behaviour (2026-04-25): existing rows are sacred.
+                # Audit corrections (scripts/apply_source_corrections.py),
+                # Sources-page UI edits, and per-source admin tweaks live in
+                # the DB and must NOT be reverted by re-seeding. Without this
+                # guard, re-running run.sh would clobber the live adapter
+                # assignments + config_blobs that the audit pipeline produced —
+                # exactly what happened on 2026-04-24 (170 corrections, 77
+                # silently reverted by an accidental run.sh).
+                #
+                # To deliberately change an existing source, use
+                # apply_source_corrections.py or the Sources page UI.
+                # See /Users/antonyberou/.claude/plans/db-as-source-of-truth.md
+                # for the full long-term plan that retires this seed flow.
+                skipped += 1
 
     session.commit()
-    return created, updated
+    return created, skipped, total_seen
