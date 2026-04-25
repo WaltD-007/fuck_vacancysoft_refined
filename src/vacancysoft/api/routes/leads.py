@@ -28,6 +28,7 @@ from sqlalchemy import func, select
 
 from vacancysoft.api.ledger import (
     _AGGREGATOR_ADAPTERS,
+    _CATEGORY_LABELS,
     _CORE_MARKETS,
     _category_counts,
     _extract_employer_from_payload,
@@ -109,7 +110,10 @@ def get_dashboard():
       * avg_score_prev_week    same metric for 7–14 days ago (for delta)
       * campaigns_active       rows in campaign_outputs
       * dossiers_active        rows in intelligence_dossiers
-      * daily_leads            list of 30 ints, oldest first — daily core-market counts
+      * daily_leads            list of 90 ints, oldest first — daily core-market counts
+                               (frontend slices to 7/30/90 per the chart toggle)
+      * daily_categories       list of 90 dicts, parallel to daily_leads, each giving
+                               the per-category breakdown for that day
       * recent_leads           list of the most recent core-market leads, each with a
                                real `score` (0–10) and `discovered` ISO timestamp
       * source_health          last 20 scrape runs
@@ -207,25 +211,40 @@ def get_dashboard():
         except Exception:
             pass
 
-        # Daily histogram — last 30 days, oldest first, core markets only, active sources only
+        # Daily histogram — last 90 days, oldest first, core markets only, active sources only.
+        # Frontend slices client-side (7D / 30D / 90D toggle). Also returns per-category
+        # breakdown per day so the Dashboard can show the category mix for a specific day.
         daily_rows = s.execute(_sql_text("""
             SELECT generate_series::date AS day,
-                   COALESCE(c.n, 0) AS n
-            FROM generate_series((NOW() - INTERVAL '29 days')::date, NOW()::date, '1 day') AS generate_series
+                   COALESCE(c.n, 0) AS n,
+                   COALESCE(c.by_cat, '{}'::json) AS by_cat
+            FROM generate_series((NOW() - INTERVAL '89 days')::date, NOW()::date, '1 day') AS generate_series
             LEFT JOIN (
-                SELECT ej.created_at::date AS d, COUNT(*) AS n
-                FROM enriched_jobs ej
-                JOIN classification_results cr ON cr.enriched_job_id = ej.id
-                JOIN raw_jobs rj ON rj.id = ej.raw_job_id
-                JOIN sources src ON src.id = rj.source_id
-                WHERE cr.primary_taxonomy_key IN ('risk','quant','compliance','audit','cyber','legal','front_office')
-                  AND src.active = true
-                  AND ej.created_at >= NOW() - INTERVAL '30 days'
-                GROUP BY ej.created_at::date
+                SELECT d,
+                       SUM(cnt)::int AS n,
+                       json_object_agg(primary_taxonomy_key, cnt) AS by_cat
+                FROM (
+                    SELECT ej.created_at::date AS d,
+                           cr.primary_taxonomy_key,
+                           COUNT(*) AS cnt
+                    FROM enriched_jobs ej
+                    JOIN classification_results cr ON cr.enriched_job_id = ej.id
+                    JOIN raw_jobs rj ON rj.id = ej.raw_job_id
+                    JOIN sources src ON src.id = rj.source_id
+                    WHERE cr.primary_taxonomy_key IN ('risk','quant','compliance','audit','cyber','legal','front_office')
+                      AND src.active = true
+                      AND ej.created_at >= NOW() - INTERVAL '90 days'
+                    GROUP BY ej.created_at::date, cr.primary_taxonomy_key
+                ) x
+                GROUP BY d
             ) c ON c.d = generate_series::date
             ORDER BY generate_series
         """)).all()
         daily_leads = [int(r[1]) for r in daily_rows]
+        daily_categories = [
+            {_CATEGORY_LABELS.get(k, k): int(v) for k, v in (r[2] or {}).items()}
+            for r in daily_rows
+        ]
 
         # Recent leads — last 7 days, core markets only, active sources only, WITH real per-lead score
         cutoff = now - timedelta(days=7)
@@ -331,6 +350,7 @@ def get_dashboard():
         "recent_leads": leads,
         "source_health": source_health,
         "daily_leads": daily_leads,
+        "daily_categories": daily_categories,
         "leads_today": int(leads_today),
         "leads_yesterday": int(leads_yesterday),
         "avg_score": avg_score,

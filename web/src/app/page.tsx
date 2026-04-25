@@ -18,6 +18,7 @@ type Dashboard = {
   campaigns_active: number;
   dossiers_active: number;
   daily_leads: number[];
+  daily_categories: Record<string, number>[];
   categories: Record<string, number>;
   recent_leads: Array<{
     // enriched_job_id — used by the row-level admin buttons (Dead
@@ -163,6 +164,11 @@ export default function DashboardPage() {
   };
   const [queued, setQueued] = useState<Set<string>>(new Set());
   const [excludedCompanies, setExcludedCompanies] = useState<Set<string>>(new Set());
+  // Clicking a bar in "Leads Discovered" selects that day and filters the
+  // "By Category" block below to that day's breakdown. null = all-time totals.
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  // Chart range toggle. Slices the 90-day series returned by the API.
+  const [period, setPeriod] = useState<"7D" | "30D" | "90D">("30D");
   // company -> end timestamp ms; non-empty rows are greyed out and
   // become live until the timer expires, at which point we POST.
   const [pendingUndo, setPendingUndo] = useState<Record<string, number>>({});
@@ -279,12 +285,22 @@ export default function DashboardPage() {
   const scored = data?.total_scored ?? 0;
   const activeSources = data?.active_sources ?? 0;
   const brokenSources = data?.broken_sources ?? 0;
-  const cats = data?.categories ?? {};
-  const maxCat = Math.max(...Object.values(cats), 1);
+  const allTimeCats = data?.categories ?? {};
   const leads = data?.recent_leads ?? [];
-  const health = data?.source_health ?? [];
-  const dailyLeads = data?.daily_leads ?? [];
+  // Full 90-day series from the API; slice client-side based on the chart toggle.
+  const fullDailyLeads = data?.daily_leads ?? [];
+  const fullDailyCategories = data?.daily_categories ?? [];
+  const periodDays = period === "7D" ? 7 : period === "30D" ? 30 : 90;
+  const dailyLeads = fullDailyLeads.slice(-periodDays);
+  const dailyCategories = fullDailyCategories.slice(-periodDays);
   const maxDaily = Math.max(...dailyLeads, 1);
+  // Displayed category breakdown — full-period totals by default, or a single
+  // day's counts when the user clicks a bar in "Leads Discovered".
+  const cats: Record<string, number> =
+    selectedDay !== null && dailyCategories[selectedDay]
+      ? dailyCategories[selectedDay]
+      : allTimeCats;
+  const maxCat = Math.max(...Object.values(cats), 1);
   const leadsTodayDelta = data ? formatDelta(data.leads_today, data.leads_yesterday) : { text: "—", color: "#555570" };
   const avgScore = data?.avg_score ?? 0;
   const avgScoreDelta = data ? formatScoreDelta(data.avg_score, data.avg_score_prev_week) : { text: "—", color: "#555570" };
@@ -328,51 +344,10 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {/* Main content: Left (chart + feed) | Right (category + health) */}
+          {/* Main content: Left (feed only) | Right (chart + category) */}
           <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
             {/* Left column */}
             <div className="flex flex-col gap-4">
-              {/* Chart */}
-              <div className="p-5 rounded-xl" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <div className="text-sm font-semibold">Leads Discovered</div>
-                    <div className="text-xs mt-0.5" style={{ color: "#555570" }}>Daily discovery volume across all sources</div>
-                  </div>
-                  <div className="flex gap-1">
-                    {["7D", "30D", "90D"].map((p) => (
-                      <span key={p} className="px-2.5 py-1 text-[11px] font-medium rounded-md cursor-pointer"
-                        style={p === "30D" ? { background: "rgba(108,92,231,0.15)", color: "#a29bfe", border: "1px solid rgba(108,92,231,0.2)" } : { color: "#555570" }}>
-                        {p}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-end gap-[3px]" style={{ height: 160, padding: "0 4px" }}>
-                  {dailyLeads.length > 0 ? (
-                    dailyLeads.map((n, i) => {
-                      const pct = maxDaily > 0 ? (n / maxDaily) * 100 : 0;
-                      return (
-                        <div
-                          key={i}
-                          className="flex-1 rounded-t-sm cursor-pointer"
-                          title={`${n.toLocaleString()} leads`}
-                          style={{
-                            height: `${Math.max(pct, 1)}%`,
-                            background: "linear-gradient(to top, #6c5ce7, #a29bfe)",
-                            opacity: 0.6 + (i / Math.max(dailyLeads.length, 1)) * 0.4,
-                            minWidth: 4,
-                          }}
-                        />
-                      );
-                    })
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-xs" style={{ color: "#555570" }}>
-                      No lead activity in the last 30 days
-                    </div>
-                  )}
-                </div>
-              </div>
             {/* Live Feed */}
             <div className="rounded-xl overflow-hidden" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
               <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid #1f1f2f" }}>
@@ -529,10 +504,142 @@ export default function DashboardPage() {
 
             {/* Right column */}
             <div className="flex flex-col gap-4">
+              {/* Chart */}
+              <div className="p-5 rounded-xl" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <div className="text-sm font-semibold">Leads Discovered</div>
+                    <div className="text-xs mt-0.5" style={{ color: "#555570" }}>Daily discovery volume across all sources</div>
+                  </div>
+                  <div className="flex gap-1">
+                    {(["7D", "30D", "90D"] as const).map((p) => (
+                      <button
+                        key={p}
+                        className="px-2.5 py-1 text-[11px] font-medium rounded-md cursor-pointer"
+                        onClick={() => { setPeriod(p); setSelectedDay(null); }}
+                        style={p === period
+                          ? { background: "rgba(108,92,231,0.15)", color: "#a29bfe", border: "1px solid rgba(108,92,231,0.2)" }
+                          : { color: "#555570", background: "transparent", border: "1px solid transparent" }}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="relative" style={{ height: 160, padding: "4px 6px 0" }}>
+                  {dailyLeads.length > 0 ? (
+                    (() => {
+                      const n = dailyLeads.length;
+                      // SVG viewBox is (n-1) wide × 100 tall so each data point sits at
+                      // integer x-coords. Stroke stays uniform via non-scaling-stroke.
+                      const vbWidth = Math.max(n - 1, 1);
+                      const pointsArr = dailyLeads.map((v, i) => {
+                        const x = n === 1 ? vbWidth / 2 : i;
+                        const y = 100 - (maxDaily > 0 ? (v / maxDaily) * 95 : 0) - 2; // 2px breathing room
+                        return { x, y };
+                      });
+                      const linePath = pointsArr
+                        .map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(3)},${p.y.toFixed(3)}`)
+                        .join(" ");
+                      const areaPath = `${linePath} L${pointsArr[pointsArr.length - 1].x.toFixed(3)},100 L${pointsArr[0].x.toFixed(3)},100 Z`;
+                      return (
+                        <>
+                          <svg
+                            viewBox={`0 0 ${vbWidth} 100`}
+                            preserveAspectRatio="none"
+                            className="absolute inset-0 w-full h-full"
+                            style={{ pointerEvents: "none" }}
+                          >
+                            <defs>
+                              <linearGradient id="leadsAreaFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="#00d2a0" stopOpacity="0.35" />
+                                <stop offset="100%" stopColor="#00d2a0" stopOpacity="0" />
+                              </linearGradient>
+                            </defs>
+                            <path d={areaPath} fill="url(#leadsAreaFill)" />
+                            <path
+                              d={linePath}
+                              fill="none"
+                              stroke="#00d2a0"
+                              strokeWidth={2}
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              vectorEffect="non-scaling-stroke"
+                            />
+                          </svg>
+                          {/* Click targets — absolutely positioned circles over each data point */}
+                          {dailyLeads.map((v, i) => {
+                            const isSelected = selectedDay === i;
+                            const daysAgo = n - 1 - i;
+                            const dateLabel = daysAgo === 0 ? "today" : daysAgo === 1 ? "yesterday" : `${daysAgo}d ago`;
+                            const leftPct = n === 1 ? 50 : (i / (n - 1)) * 100;
+                            const topPct = 100 - (maxDaily > 0 ? (v / maxDaily) * 95 : 0) - 2;
+                            return (
+                              <button
+                                key={i}
+                                type="button"
+                                title={`${v.toLocaleString()} leads — ${dateLabel}${isSelected ? " (selected)" : ""}`}
+                                onClick={() => setSelectedDay(isSelected ? null : i)}
+                                className="absolute cursor-pointer"
+                                style={{
+                                  left: `calc(${leftPct}% - 7px)`,
+                                  top: `calc(${topPct}% - 7px)`,
+                                  width: 14,
+                                  height: 14,
+                                  borderRadius: "50%",
+                                  background: isSelected ? "#00d2a0" : "transparent",
+                                  border: isSelected ? "2px solid #5dfaca" : "2px solid transparent",
+                                  transition: "background 120ms, border 120ms, transform 120ms",
+                                  padding: 0,
+                                  transform: isSelected ? "scale(1.15)" : "scale(1)",
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!isSelected) {
+                                    e.currentTarget.style.background = "rgba(0,210,160,0.35)";
+                                    e.currentTarget.style.border = "2px solid rgba(0,210,160,0.6)";
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!isSelected) {
+                                    e.currentTarget.style.background = "transparent";
+                                    e.currentTarget.style.border = "2px solid transparent";
+                                  }
+                                }}
+                              />
+                            );
+                          })}
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-xs" style={{ color: "#555570" }}>
+                      No lead activity in the last 30 days
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Category breakdown */}
               <div className="p-5 rounded-xl" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
-                <div className="text-sm font-semibold mb-1">By Category</div>
-                <div className="text-xs mb-4" style={{ color: "#555570" }}>Qualified leads breakdown</div>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-sm font-semibold">By Category</div>
+                  {selectedDay !== null && (
+                    <button
+                      className="text-[11px] px-2 py-0.5 rounded cursor-pointer"
+                      style={{ background: "rgba(0,210,160,0.08)", color: "#00d2a0", border: "1px solid rgba(0,210,160,0.25)" }}
+                      onClick={() => setSelectedDay(null)}
+                    >Clear day filter</button>
+                  )}
+                </div>
+                <div className="text-xs mb-4" style={{ color: "#555570" }}>
+                  {(() => {
+                    if (selectedDay === null) return "Qualified leads breakdown — all time";
+                    const daysAgo = dailyLeads.length - 1 - selectedDay;
+                    const dateLabel = daysAgo === 0 ? "today" : daysAgo === 1 ? "yesterday" : `${daysAgo} days ago`;
+                    const dayTotal = dailyLeads[selectedDay] || 0;
+                    return `${dayTotal.toLocaleString()} leads ${dateLabel} — click the bar again to clear`;
+                  })()}
+                </div>
                 <div className="flex flex-col gap-2.5">
                   {["Risk", "Quant", "Compliance", "Audit", "Cyber", "Legal", "Front Office"].map((cat) => {
                     const count = cats[cat] || 0;
@@ -551,30 +658,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Source Health */}
-              <div className="rounded-xl overflow-hidden" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
-                <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: "1px solid #1f1f2f" }}>
-                  <div className="text-sm font-semibold">Source Health</div>
-                  <div className="text-xs px-2.5 py-1 rounded-md cursor-pointer" style={{ color: "#555570", border: "1px solid #2a2a3a" }}>Show Failing &#9662;</div>
-                </div>
-                <div style={{ maxHeight: 360, overflowY: "auto" }}>
-                  {health.length === 0 ? (
-                    <div className="px-5 py-8 text-center text-xs" style={{ color: "#555570" }}>
-                      No recent scrape activity.
-                    </div>
-                  ) : (
-                    health.map((h, i) => (
-                      <div key={i} className="px-5 py-3 flex items-center gap-3" style={{ borderBottom: "1px solid #1f1f2f" }}>
-                        <div className="w-2 h-2 rounded-full shrink-0" style={{ background: h.status === "success" ? "#00d2a0" : "#ff6b6b" }} />
-                        <div className="text-[13px] font-medium flex-1">{h.company}</div>
-                        <div className="text-[11px] px-2 py-0.5 rounded" style={{ background: "#0a0a0f", color: "#555570", fontFamily: "'JetBrains Mono', monospace" }}>{h.adapter}</div>
-                        <div className="text-xs font-medium min-w-[50px] text-right" style={{ fontFamily: "'JetBrains Mono', monospace" }}>{(h.jobs ?? 0).toLocaleString()}</div>
-                        <div className="text-[11px] min-w-[35px] text-right" style={{ color: "#555570" }}>{((h.duration_ms ?? 0) / 1000).toFixed(1)}s</div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
             </div>{/* end right column */}
           </div>
         </div>
