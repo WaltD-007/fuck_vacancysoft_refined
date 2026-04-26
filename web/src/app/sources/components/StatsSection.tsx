@@ -109,7 +109,7 @@ export default function StatsSection({
           { key: "no_jobs" as const, label: "No Jobs Found", count: noJobsCount, color: "var(--amber)" },
           { key: "not_relevant" as const, label: "Not Relevant", count: notRelevantCount, color: "var(--text-secondary)" },
           { key: "broken" as const, label: "Broken", count: brokenCount, color: "var(--red)" },
-          { key: "all" as const, label: "All Sources", count: withLeadsCount + noJobsCount + notRelevantCount + brokenCount, color: "var(--text-primary)" },
+          { key: "all" as const, label: "All Companies", count: withLeadsCount + noJobsCount + notRelevantCount + brokenCount, color: "var(--text-primary)" },
         ].map((v) => (
           <div
             key={v.key}

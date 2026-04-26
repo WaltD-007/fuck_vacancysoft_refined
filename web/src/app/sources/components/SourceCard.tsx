@@ -158,7 +158,7 @@ export default function SourceCard({
                     onClick={(e) => { e.stopPropagation(); onDiagnose(src.id); }}
                     className="text-[10px] font-medium px-2 py-0.5 rounded cursor-pointer"
                     style={{ background: "rgba(255,107,107,0.08)", color: "var(--red)", border: "1px solid rgba(255,107,107,0.2)" }}
-                    title="Diagnose why this source has no leads"
+                    title="Diagnose why this company has no leads"
                   >
                     &#9881; Diagnose
                   </button>
@@ -181,7 +181,7 @@ export default function SourceCard({
                   onClick={(e) => { e.stopPropagation(); onRequestDelete(src.id); }}
                   className="text-[10px] font-medium px-1.5 py-0.5 rounded cursor-pointer"
                   style={{ background: "var(--bg-elevated)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
-                  title="Remove this source"
+                  title="Remove this company"
                 >
                   &times;
                 </button>

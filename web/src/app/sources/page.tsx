@@ -423,14 +423,14 @@ export default function SourcesPage() {
       {/* Main */}
       <main className="ml-60 h-screen flex flex-col overflow-hidden">
         <div className="flex items-center px-8 h-14 shrink-0" style={{ background: "rgba(10,10,15,0.8)", borderBottom: "1px solid var(--border-subtle)" }}>
-          <div className="font-bold text-base">Sources</div>
+          <div className="font-bold text-base">Companies</div>
         </div>
 
         <div className="px-7 pt-5 shrink-0" style={{ background: "var(--bg-primary)" }}>
           {/* Header */}
           <div className="flex justify-between items-center mb-5">
             <div>
-              <div className="text-xl font-bold">Sources</div>
+              <div className="text-xl font-bold">Companies</div>
               <div className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>{sources.length} companies with active leads</div>
             </div>
             <div className="flex items-center gap-3">
@@ -524,8 +524,8 @@ export default function SourcesPage() {
           <div className="flex items-center gap-2 mb-4">
             <div className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>
               {filters.length > 0
-                ? `Showing sources with ${filters.join(" OR ")}${subFilters.length > 0 ? ` · ${subFilters.join(" OR ")}` : ""} leads`
-                : "All sources"}
+                ? `Showing companies with ${filters.join(" OR ")}${subFilters.length > 0 ? ` · ${subFilters.join(" OR ")}` : ""} leads`
+                : "All companies"}
             </div>
             {(filters.length > 0 || subFilters.length > 0) && (
               <button onClick={() => { setFilters([]); setSubFilters([]); }} className="text-xs px-2 py-0.5 rounded cursor-pointer" style={{ background: "var(--bg-elevated)", color: "var(--accent-light)", border: "1px solid var(--border)" }}>
