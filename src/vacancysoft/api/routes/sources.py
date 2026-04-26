@@ -42,7 +42,6 @@ from vacancysoft.api.schemas import (
 from vacancysoft.api.source_detector import detect_and_validate
 from vacancysoft.db.engine import SessionLocal
 from vacancysoft.db.models import EnrichedJob, RawJob, ScoreResult, Source
-from vacancysoft.source_registry.sector_classifier import detect_sector
 from vacancysoft.source_registry.config_seed_loader import PLATFORM_REGISTRY
 
 
@@ -277,7 +276,6 @@ async def add_source(req: AddSourceRequest):
             discovery_method="url_auto_detect",
             fingerprint=f"{hostname}|{meta['ats_family'] or meta['adapter']}",
             canonical_company_key=_slugify(req.company),
-            sector=detect_sector(req.company, meta["adapter"], req.url),
             config_blob=config_blob,
             capability_blob={},
         )
