@@ -151,6 +151,7 @@ class EnrichedJob(Base):
     employment_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     seniority_hint: Mapped[str | None] = mapped_column(String(128), nullable=True)
     business_area_hint: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    employer_sector: Mapped[str] = mapped_column(String(64), default="unknown", server_default="unknown", index=True)
     detail_fetch_status: Mapped[str] = mapped_column(String(32), default="pending")
     enrichment_confidence: Mapped[float] = mapped_column(Float, default=0.0)
     completeness_score: Mapped[float] = mapped_column(Float, default=0.0)

@@ -674,12 +674,12 @@ employers:
   engelhart: commodity_trading
   world_fuel_services: commodity_trading
 
-  # ── Aggregators (always overridden by adapter check, but listed for completeness)
-  adzuna: aggregator
-  reed: aggregator
-  google_jobs: aggregator
-  efinancialcareers: aggregator
-  coresignal: aggregator
+  # ── Aggregators are handled by the adapter-override branch in
+  #    detect_sector(). Explicit name-level mappings would mis-classify
+  #    aggregator-fed leads with no resolved employer as 'aggregator'
+  #    instead of the more honest 'unknown'. The Adzuna SOURCE row still
+  #    lands on 'aggregator' because the adapter override fires when
+  #    sector is computed at source-create time.
 
   # ── Avature buy-side cohort (Liberty/Macquarie/MetLife/etc.)
   liberty_specialty_markets: insurance

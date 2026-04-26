@@ -702,6 +702,10 @@ def _ensure_manual_paste_source(session) -> Source:
         discovery_method="manual_paste",
         fingerprint="manual_paste",
         canonical_company_key="manual_paste",
+        # The umbrella source is sector-agnostic; per-lead employer_sector
+        # is what matters for paste leads (resolved from enriched.team
+        # at enrichment time).
+        sector="unknown",
         config_blob=None,
         capability_blob={},
     )

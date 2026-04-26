@@ -14,6 +14,7 @@ from vacancysoft.enrichers.location_normaliser import (
 )
 from vacancysoft.enrichers.recruiter_filter import is_recruiter
 from vacancysoft.classifiers.title_rules import is_relevant_title
+from vacancysoft.source_registry.sector_classifier import detect_sector
 
 _SENIORITY_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:chief|c-suite|cro|cfo|cto|coo|cio|ciso)\b", re.I), "c_suite"),
@@ -527,6 +528,28 @@ def persist_enrichment_for_raw_job(
     canonical_job_key = _canonical_job_key(raw_job, location)
     seniority = _extract_seniority(title)
 
+    # Resolve the employer this lead actually represents:
+    # 1. payload-extracted employer (winning for aggregator leads), else
+    # 2. the source's employer_name (winning for direct leads).
+    # Then classify the sector once at enrichment time so the resulting
+    # EnrichedJob carries `employer_sector` independent of how it was
+    # scraped. Aggregator-fed Goldman jobs end up with
+    # employer_sector='investment_bank', not 'aggregator'.
+    resolved_employer = extracted_employer
+    if not resolved_employer:
+        src_for_sector = session.execute(
+            select(Source).where(Source.id == raw_job.source_id)
+        ).scalar_one_or_none()
+        resolved_employer = src_for_sector.employer_name if src_for_sector else None
+    employer_sector = detect_sector(
+        resolved_employer or "",
+        # Pass empty adapter_name so aggregator override doesn't clobber
+        # the per-employer classification at enrichment time. The lead
+        # belongs to the underlying employer, not to the source's adapter.
+        "",
+        "",
+    )
+
     existing = session.execute(
         select(EnrichedJob).where(EnrichedJob.raw_job_id == raw_job.id)
     ).scalar_one_or_none()
@@ -548,6 +571,7 @@ def persist_enrichment_for_raw_job(
         "employment_type": None,
         "seniority_hint": seniority,
         "business_area_hint": None,
+        "employer_sector": employer_sector,
         "detail_fetch_status": "enriched",
         "enrichment_confidence": max(location.get("confidence", 0.0), raw_job.extraction_confidence),
         "completeness_score": raw_job.completeness_score,

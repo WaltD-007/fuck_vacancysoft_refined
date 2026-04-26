@@ -305,6 +305,7 @@ def add_source(
     from urllib.parse import urlparse as _urlparse
     from vacancysoft.api.source_detector import detect_and_validate
     from vacancysoft.source_registry.config_seed_loader import PLATFORM_REGISTRY
+    from vacancysoft.source_registry.sector_classifier import detect_sector
 
     result = asyncio.run(detect_and_validate(url))
 
@@ -421,6 +422,7 @@ def add_source(
             discovery_method="url_auto_detect",
             fingerprint=f"{hostname}|{meta['ats_family'] or meta['adapter']}",
             canonical_company_key=_slugify(company_name),
+            sector=detect_sector(company_name, meta["adapter"], url),
             config_blob=config_blob,
             capability_blob={},
         ))

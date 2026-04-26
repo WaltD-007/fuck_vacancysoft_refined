@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import bindparam, func, select, text
 
 from vacancysoft.api.ledger import _AGGREGATOR_ADAPTERS, _CORE_MARKETS, clear_ledger_caches
+from vacancysoft.source_registry.sector_classifier import detect_sector
 from vacancysoft.api.schemas import (
     AddCompanyCandidate,
     AddCompanyRequest,
@@ -351,6 +352,7 @@ async def add_company_confirm(req: AddCompanyRequest):
             discovery_method="add_company",
             fingerprint=f"coresignal|{_addcompany_slugify(company)}",
             canonical_company_key=_addcompany_slugify(company),
+            sector=detect_sector(company, "coresignal", "https://api.coresignal.com/cdapi/v2/job_multi_source"),
             config_blob={
                 "job_board_url": "https://api.coresignal.com/cdapi/v2/job_multi_source",
                 "company_filter": company,
@@ -598,6 +600,7 @@ async def add_company_update_commit(req: AddCompanyUpdateRequest):
                     discovery_method="add_company",
                     fingerprint=f"coresignal|{_addcompany_slugify(employer)}|{scope}",
                     canonical_company_key=_addcompany_slugify(employer),
+                    sector=detect_sector(employer, "coresignal", "https://api.coresignal.com/cdapi/v2/job_multi_source"),
                     config_blob=config,
                     capability_blob={},
                 )
@@ -746,6 +749,7 @@ def _ensure_scoped_coresignal_source(
         discovery_method="add_company",
         fingerprint=f"coresignal|{_addcompany_slugify(employer)}|{scope}",
         canonical_company_key=_addcompany_slugify(employer),
+        sector=detect_sector(employer, "coresignal", "https://api.coresignal.com/cdapi/v2/job_multi_source"),
         config_blob={
             "job_board_url": "https://api.coresignal.com/cdapi/v2/job_multi_source",
             "company_filter": employer,
