@@ -7,6 +7,8 @@
 
 > Naming note: the codebase still uses `vacancysoft` as the Python package name. The product name is **Prospero**. A rename is planned (`~/.claude/plans/rename-vacancysoft-to-prospero.md`). Treat the two as synonyms in this doc.
 
+> Internal references: file paths starting with `~/.claude/plans/` and `~/.claude/projects/.../memory/` are team-internal planning and memory docs that live outside the repository and are not accessible to readers outside the working environment. When you see one, read it as "this thread exists and is tracked", not as a clickable link. PR numbers (e.g. PR #77, PR #86) refer to the GitHub repository's pull requests.
+
 ---
 
 ## 1. TL;DR
@@ -24,7 +26,7 @@ The full product is **code-complete except for the live-send wiring**. Keybridge
 
 **Cost envelope**: ~$0.135/lead for full intelligence (dossier + HM search + campaign).
 **Scale today**: ~1,500 sources, ~120k enriched jobs, single-user dev mode.
-**Scale target**: 25-30 BS recruiters single-tenant by ~June 2026, multi-tenant SaaS 12+ months out.
+**Scale target**: 25-30 Barclay Simpson (BS) recruiters single-tenant by ~June 2026, multi-tenant SaaS 12+ months out. *(Barclay Simpson is the executive-search agency that is Prospero's first tenant.)*
 
 ---
 
@@ -582,6 +584,30 @@ Return shape from both providers is identical, allowing hot-swap without downstr
 }
 ```
 
+**Example output** (synthetic — not a real company; for shape illustration):
+
+```json
+{
+  "company_context": "Meridian Bank is a top-10 UK challenger bank (~£42bn balance sheet, 1,800 staff). Heavy mortgage book, growing SME-lending arm. Recent PRA stress-test feedback flagged interest-rate-risk modelling — the board has visibly increased risk-function headcount over the last 18 months.",
+  "core_problem": "Existing market-risk team is two-strong and overloaded; the SME push has added new risk vectors the current toolset doesn't cover. JD asks for a 'Head' but the seniority + comp band suggests they want a player-coach who can build a 4-5 person team within 12 months.",
+  "stated_vs_actual": [
+    {"jd_asks_for": "10+ years market-risk at a top-tier bank", "business_likely_needs": "Hands-on VaR/SVaR modelling plus credible team-building track record at a similar challenger"},
+    {"jd_asks_for": "FRM or CFA preferred", "business_likely_needs": "PRA stress-test exposure matters more than the certifications"}
+  ],
+  "spec_risk": [
+    {"risk": "JD overweight on technical depth, underweight on stakeholder management", "severity": "high", "explanation": "Reports to CRO with board exposure; technical-only hires have churned at peers within 12 months"},
+    {"risk": "Comp band (£140-170k base) below tier-1 banks", "severity": "medium", "explanation": "Strong tier-1 candidates need conviction on the growth story; weaker tier-2 candidates may apply but struggle with PRA scrutiny"}
+  ],
+  "candidate_profiles": [
+    {"label": "Profile A — Tier-1 mid-career mover", "background": "VP/Director at HSBC, Barclays, or NatWest, 10-14 years, looking to step up", "fit_reason": "Has FRTB and stress-test exposure baked in; comp jump achievable", "outcomes": "65-75% conversion if approached on growth narrative not just title"},
+    {"label": "Profile B — Challenger-bank lateral", "background": "Head/Deputy Head at Metro, Aldermore, or OakNorth", "fit_reason": "Already operates at the right scale and PRA tier", "outcomes": "Lower volume but higher close rate; check competitor non-competes"}
+  ],
+  "lead_score": 4,
+  "lead_score_justification": "Named Head role at a growing challenger bank with recent regulator attention — high commercial intent. Comp band is the only friction. Direct hire likely (not contingent on agency).",
+  "hiring_manager_boolean": "(\"Chief Risk Officer\" OR CRO OR \"Head of Risk\") AND \"Meridian Bank\" site:linkedin.com/in"
+}
+```
+
 **Prompt structure**:
 - `base_dossier.py` (152 LOC) — system + user template, hard word caps.
 - `category_blocks.py` (~17,800 LOC) — per-category research_scope, market_context_guidance, search_boolean_guidance, hm_function_guidance, hm_search_queries (v1 hand-authored, v2 generic with `[function]` + `[location]` slots), outreach_angle (v1 only).
@@ -1056,6 +1082,44 @@ If `REDIS_URL` isn't reachable on startup, the API falls back to in-process queu
 
 ## 13. Operations & deployment
 
+### 13.0 First-time local setup (zero-to-running checklist)
+
+For a developer cloning the repo for the first time. Assumes macOS; Linux is similar (use apt/snap instead of brew). Windows: use WSL2.
+
+**Prerequisites** (install once):
+- Python 3.13 + `uv` (or `pip` + `venv`)
+- Node 20+ + npm
+- PostgreSQL 15+ — `brew install postgresql@15 && brew services start postgresql@15`
+- Redis 7+ — `brew install redis && brew services start redis`
+
+**Setup**:
+1. `git clone <repo> && cd fuck_vacancysoft_refined`
+2. `cp .env.example .env` and fill in at minimum:
+   - `OPENAI_API_KEY=sk-...` (required for any LLM call)
+   - `DATABASE_URL=postgresql://localhost/prospero`
+   - `REDIS_URL=redis://localhost:6379/0`
+   - Leave `OUTREACH_DRY_RUN=true` (the safety net — see §13.5).
+3. `uv sync` (Python deps) — or `pip install -e .` if not using uv.
+4. `cd web && npm install && cd ..` (frontend deps).
+5. `uv run playwright install chromium` (browser adapters need this).
+6. `createdb prospero` (Postgres database).
+7. `uv run prospero db init` — runs alembic migrations to create the 19 tables.
+8. `uv run prospero db seed-sources` — bootstraps ~1,500 sources from `configs/seeds/employers.yaml`.
+9. `./start.sh` — launches API (`:8000`), ARQ worker, and Next.js web (`:3000`) in one terminal. (Alternative launchers: `./run.sh`, `./launch_grok.py` — see [memory note](#) on why all three are kept.)
+
+**First scrape** (verifies the discovery path):
+- Open http://localhost:3000/sources, pick any source row, click "Scrape" — jobs should appear in the Leads tab within 30s.
+- Or via CLI: `uv run prospero pipeline run --adapter greenhouse --limit 5`.
+
+**Smoke test the LLM path** (verifies intelligence wiring):
+- On the Leads page, click any accepted lead → "Generate dossier". Costs ~$0.08, takes 30-90s. Confirms `OPENAI_API_KEY` is wired and the worker is processing jobs end-to-end.
+
+**Common gotchas**:
+- Postgres not running → `brew services list` to check; `start postgresql@15` to fix.
+- `OPENAI_API_KEY` unset → dossier generation will silently 401; check worker stdout.
+- Playwright Chromium not installed → all browser-tier adapters fail with `playwright._impl._errors.Error: Executable doesn't exist`. Re-run step 5.
+- Port 8000 already bound → `start.sh` kills it; manually: `lsof -ti:8000 | xargs kill -9`.
+
 ### 13.1 Local dev
 
 `./start.sh` (macOS) — kills :8000, ensures redis + postgres are running (brew services), launches uvicorn API, ARQ worker, npm web dev. All on localhost.
@@ -1290,6 +1354,9 @@ fuck_vacancysoft_refined/
 | **Aggregator** | A job board that re-publishes jobs from many companies (Adzuna, Reed, Google Jobs, CoreSignal, eFinancialCareers). Lower-priority data source than direct adapters. |
 | **Aggregator-cover** | The dedup rule that says: if the same job is found via an aggregator AND a direct adapter, the direct version wins. |
 | **ATS** | Applicant Tracking System. The platform a company uses to publish jobs (Workday, Greenhouse, Lever, etc.). |
+| **Alembic** | Python schema-migration tool for SQLAlchemy. Migrations live in [alembic/versions/](alembic/versions/). |
+| **ARQ** | Async Redis Queue. The job-queue library Prospero uses for the worker (`pip install arq`). Async-first alternative to Celery. |
+| **BS** | Barclay Simpson — the executive-search agency that is Prospero's first tenant (~25-30 recruiters targeted for ~June 2026 launch). |
 | **Campaign** | A 5-sequence × 6-tone email matrix (30 emails) generated from a dossier, persisted to `campaign_outputs`. |
 | **CoreSignal** | An aggregator we use to *reverse-source* — find companies hiring in our markets. The "Add Company" flow on the Sources page. |
 | **Dossier** | The 7-section LLM-generated intelligence brief on one job opportunity (8 JSON fields; lead_score + justification are one section), persisted to `intelligence_dossiers`. |

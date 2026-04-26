@@ -9,7 +9,6 @@ import SourceFilters from "./components/SourceFilters";
 import StatsSection from "./components/StatsSection";
 import {
   CATEGORY_COLORS,
-  type DetectResult,
   isBroken,
   type ScoredJob,
   type Source,
@@ -42,12 +41,6 @@ export default function SourcesPage() {
   const [sources, setSources] = useState<Source[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [addUrl, setAddUrl] = useState("");
-  const [detectResult, setDetectResult] = useState<DetectResult | null>(null);
-  const [companyName, setCompanyName] = useState("");
-  const [addState, setAddState] = useState<"idle" | "detecting" | "detected" | "error" | "added">("idle");
-  const [addError, setAddError] = useState("");
   const [filters, setFilters] = useState<string[]>([]);      // multi-select OR: category chips
   const [subFilters, setSubFilters] = useState<string[]>([]); // multi-select OR: sub-specialism chips
   const [addedSourceId, setAddedSourceId] = useState<number | null>(null);
@@ -104,80 +97,6 @@ export default function SourcesPage() {
     setLoading(sourcesLoading);
   }, [sourcesLoading]);
 
-
-  const handleDetect = async () => {
-    if (!addUrl.trim()) return;
-    setAddState("detecting");
-    setDetectResult(null);
-    try {
-      const res = await fetch(`${API}/sources/detect`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: addUrl.trim() }),
-      });
-      const data: DetectResult = await res.json();
-      setDetectResult(data);
-      setCompanyName(data.company_guess || "");
-      setAddState(data.error && !data.reachable ? "error" : "detected");
-      if (data.error && !data.reachable) setAddError(data.error);
-    } catch {
-      setAddError("Failed to connect to API");
-      setAddState("error");
-    }
-  };
-
-  const [isAdding, setIsAdding] = useState(false);
-
-  // Phase 1: Coresignal count-only search. No DB writes.
-  const handleAdd = async () => {
-    if (!detectResult || !companyName.trim()) return;
-    setIsAdding(true);
-    try {
-      const res = await fetch(`${API}/sources`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: detectResult.url || addUrl.trim(), company: companyName.trim() }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAddedSourceId(data.id);
-        setScrapeState("idle");
-        setScrapeResult("");
-        setAddState("added");
-        const [s, st] = await Promise.all([
-          fetch(`${API}/sources`).then((r) => r.json()),
-          fetch(`${API}/stats`).then((r) => r.json()),
-        ]);
-        setSources(s);
-        setStats(st);
-      } else if (res.status === 409) {
-        // Already exists — find it and highlight it
-        const err = await res.json();
-        const [s, st] = await Promise.all([
-          fetch(`${API}/sources`).then((r) => r.json()),
-          fetch(`${API}/stats`).then((r) => r.json()),
-        ]);
-        setSources(s);
-        setStats(st);
-        if (err.id) {
-          setAddedSourceId(err.id);
-        } else {
-          const existing = s.find((src: Source) => src.employer_name.toLowerCase() === companyName.trim().toLowerCase());
-          if (existing) setAddedSourceId(existing.id);
-        }
-        setAddState("added");
-      } else {
-        const err = await res.json();
-        setAddError(err.detail || "Failed to add");
-        setAddState("error");
-      }
-    } catch {
-      setAddError("Failed to connect to API");
-      setAddState("error");
-    } finally {
-      setIsAdding(false);
-    }
-  };
 
   const handleScrape = async (sourceId?: number) => {
     const id = sourceId ?? addedSourceId;
@@ -504,14 +423,14 @@ export default function SourcesPage() {
       {/* Main */}
       <main className="ml-60 h-screen flex flex-col overflow-hidden">
         <div className="flex items-center px-8 h-14 shrink-0" style={{ background: "rgba(10,10,15,0.8)", borderBottom: "1px solid var(--border-subtle)" }}>
-          <div className="font-bold text-base">Sources</div>
+          <div className="font-bold text-base">Companies</div>
         </div>
 
         <div className="px-7 pt-5 shrink-0" style={{ background: "var(--bg-primary)" }}>
           {/* Header */}
           <div className="flex justify-between items-center mb-5">
             <div>
-              <div className="text-xl font-bold">Sources</div>
+              <div className="text-xl font-bold">Companies</div>
               <div className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>{sources.length} companies with active leads</div>
             </div>
             <div className="flex items-center gap-3">
@@ -524,10 +443,6 @@ export default function SourcesPage() {
                 employmentTypeFilter={employmentTypeFilter}
                 onEmploymentTypeFilterChange={(value) => { setEmploymentTypeFilter(value); setSourceJobs({}); setExpandedSource(null); }}
               />
-              {/* Add Source temporarily disconnected — keep entire flow intact for reinstatement. */}
-              {false && (
-                <button onClick={() => { setShowAdd(!showAdd); setAddState("idle"); setDetectResult(null); setAddUrl(""); }} className="px-4 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer" style={{ background: "linear-gradient(135deg, var(--accent), #8b7cf7)", boxShadow: "0 2px 12px rgba(108,92,231,0.3)" }}>+ Add Source</button>
-              )}
               {/* Add Company — Coresignal-backed taxonomy sweep. Modal mounts
                   fresh each time the user opens it, so all internal state
                   (name, phase, result, error) resets naturally — no need to
@@ -557,101 +472,6 @@ export default function SourcesPage() {
               }}
               onSourcesRefreshed={(s, st) => { setSources(s); setStats(st); }}
             />
-          )}
-
-          {/* Add Source Panel */}
-          {showAdd && (
-            <div className="mb-5" style={{ animation: "fadeIn 0.3s ease-out" }}>
-              <div className="relative p-6 rounded-xl" style={{ background: "var(--bg-card)", border: "1px solid var(--border-subtle)" }}>
-                <button onClick={() => setShowAdd(false)} className="absolute top-3 right-4 text-lg cursor-pointer" style={{ color: "var(--text-muted)" }}>&times;</button>
-                <div className="font-bold text-[15px] mb-1">Add a New Source</div>
-                <div className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>Paste any careers page URL — we&apos;ll auto-detect the platform and validate it</div>
-
-                <div className="flex gap-2.5 mb-4">
-                  <input type="text" value={addUrl} onChange={(e) => setAddUrl(e.target.value)} onPaste={(e) => { const text = e.clipboardData.getData("text"); if (text) { e.preventDefault(); setAddUrl(text.trim()); } }} onKeyDown={(e) => e.key === "Enter" && handleDetect()} placeholder="https://boards.greenhouse.io/robinhood" className="flex-1 px-4 py-2.5 rounded-lg text-sm outline-none" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
-                  <button onClick={handleDetect} disabled={addState === "detecting"} className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white cursor-pointer whitespace-nowrap" style={{ background: "linear-gradient(135deg, var(--accent), #8b7cf7)" }}>
-                    {addState === "detecting" ? "Detecting..." : "Detect & Validate"}
-                  </button>
-                </div>
-
-                {addState === "detecting" && (
-                  <div className="py-5 text-center text-sm" style={{ color: "var(--text-secondary)" }}>
-                    <span className="inline-block w-4 h-4 rounded-full mr-2 align-middle" style={{ border: "2px solid var(--border)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
-                    Analysing URL...
-                  </div>
-                )}
-
-                {addState === "detected" && detectResult && (
-                  <div className="p-4 rounded-lg" style={{ background: "var(--bg-primary)", border: "1px solid var(--green-border)" }}>
-                    <div className="flex items-start gap-4">
-                      <div className="w-10 h-10 rounded-lg flex items-center justify-center text-lg shrink-0" style={{ background: "var(--green-bg)", border: "1px solid var(--green-border)" }}>&#10003;</div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="font-bold text-[15px]">{detectResult.company_guess || "Unknown"}</span>
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider" style={{ background: "var(--accent-glow)", color: "var(--accent-light)", border: "1px solid rgba(108,92,231,0.2)" }}>{detectResult.adapter}</span>
-                        </div>
-                        <div className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
-                          {detectResult.job_count !== null ? `${detectResult.job_count} jobs found · Board is active` : "URL is reachable · Will use browser scraper"}
-                        </div>
-                        <div className="grid grid-cols-2 gap-2.5">
-                          <div>
-                            <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Company Name</div>
-                            <input type="text" value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="w-full px-2.5 py-1.5 rounded text-sm outline-none" style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }} />
-                          </div>
-                          <div>
-                            <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Platform</div>
-                            <input type="text" value={detectResult.adapter} disabled className="w-full px-2.5 py-1.5 rounded text-sm" style={{ background: "var(--bg-secondary)", border: "1px solid var(--border-subtle)", color: "var(--text-muted)" }} />
-                          </div>
-                        </div>
-                        <div className="flex gap-2 mt-3.5">
-                          <button onClick={handleAdd} disabled={isAdding} className="px-4 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer flex items-center gap-2" style={{ background: isAdding ? "var(--bg-elevated)" : "linear-gradient(135deg, var(--accent), #8b7cf7)", opacity: isAdding ? 0.7 : 1 }}>
-                            {isAdding && <span className="inline-block w-3.5 h-3.5 rounded-full" style={{ border: "2px solid var(--border)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />}
-                            {isAdding ? "Adding..." : "Add to Sources"}
-                          </button>
-                          <button onClick={() => setShowAdd(false)} className="px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer" style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>Cancel</button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {addState === "error" && (
-                  <div className="p-4 rounded-lg" style={{ background: "var(--bg-primary)", border: "1px solid var(--red-border)" }}>
-                    <div className="font-semibold text-sm" style={{ color: "var(--red)" }}>{addError}</div>
-                    <button onClick={() => setAddState("idle")} className="mt-2 px-3 py-1.5 rounded text-xs font-semibold cursor-pointer" style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>Try Again</button>
-                  </div>
-                )}
-
-                {addState === "added" && (
-                  <div className="p-5 rounded-lg text-center" style={{ background: "var(--bg-primary)", border: "1px solid var(--green-border)" }}>
-                    <div className="text-2xl mb-2">&#10003;</div>
-                    <div className="font-bold text-[15px]" style={{ color: "var(--green)" }}>Source Added</div>
-                    <div className="text-xs mt-1 mb-3" style={{ color: "var(--text-muted)" }}>{companyName} will be included in the next pipeline run</div>
-                    <div className="flex gap-2 justify-center">
-                      {scrapeState === "idle" && (
-                        <button onClick={() => handleScrape()} className="px-4 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer" style={{ background: "linear-gradient(135deg, var(--accent), #8b7cf7)" }}>
-                          Scrape Now
-                        </button>
-                      )}
-                      {scrapeState === "scraping" && (
-                        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--accent-light)" }}>
-                          <span className="inline-block w-4 h-4 rounded-full" style={{ border: "2px solid var(--border)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
-                          Scraping {companyName}...
-                        </div>
-                      )}
-                      {scrapeState === "done" && (
-                        <div className="text-sm font-semibold" style={{ color: scrapeResult.startsWith("Failed") ? "var(--red)" : "var(--green)" }}>
-                          {scrapeResult}
-                        </div>
-                      )}
-                      <button onClick={() => { setShowAdd(false); setAddState("idle"); setAddUrl(""); setDetectResult(null); setScrapeState("idle"); }} className="px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer" style={{ background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
-                        Close
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
           )}
 
           {/* Stats tiles + category / sub-specialism / adapter / aggregator chips */}
@@ -704,8 +524,8 @@ export default function SourcesPage() {
           <div className="flex items-center gap-2 mb-4">
             <div className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>
               {filters.length > 0
-                ? `Showing sources with ${filters.join(" OR ")}${subFilters.length > 0 ? ` · ${subFilters.join(" OR ")}` : ""} leads`
-                : "All sources"}
+                ? `Showing companies with ${filters.join(" OR ")}${subFilters.length > 0 ? ` · ${subFilters.join(" OR ")}` : ""} leads`
+                : "All companies"}
             </div>
             {(filters.length > 0 || subFilters.length > 0) && (
               <button onClick={() => { setFilters([]); setSubFilters([]); }} className="text-xs px-2 py-0.5 rounded cursor-pointer" style={{ background: "var(--bg-elevated)", color: "var(--accent-light)", border: "1px solid var(--border)" }}>

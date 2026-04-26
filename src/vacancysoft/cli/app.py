@@ -303,10 +303,14 @@ def add_source(
     """Auto-detect platform from a URL and add it as a source."""
     import hashlib
     from urllib.parse import urlparse as _urlparse
-    from vacancysoft.api.source_detector import detect_and_validate
+    from vacancysoft.api.source_detector import UnsafeURLError, detect_and_validate
     from vacancysoft.source_registry.config_seed_loader import PLATFORM_REGISTRY
 
-    result = asyncio.run(detect_and_validate(url))
+    try:
+        result = asyncio.run(detect_and_validate(url))
+    except UnsafeURLError as exc:
+        typer.echo(f"Refusing to add source: {exc}", err=True)
+        raise typer.Exit(code=2)
 
     if result["error"] and not result["reachable"]:
         typer.echo(f"Warning: {result['error']} — adding as generic browser source anyway")

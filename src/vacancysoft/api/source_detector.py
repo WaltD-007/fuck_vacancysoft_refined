@@ -4,10 +4,80 @@ User pastes a careers URL → system figures out the adapter, slug, and company 
 """
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import re
+import socket
 from urllib.parse import urlparse
 
 import httpx
+
+
+# ── SSRF defence ─────────────────────────────────────────────────────────────
+# Every operator-supplied URL goes through validate_public_url() before any
+# outbound request fires. Originally added (2026-04-26 security audit) when
+# the API exposed POST /api/sources/detect and POST /api/sources for
+# URL-driven adds — both now removed in favour of the CoreSignal-backed Add
+# Company flow. Validator is retained because the same code path still serves
+# the diagnose endpoint (re-detects platform on existing rows), the
+# `prospero db add-source` CLI command, and the redetect_failing_sources
+# maintenance script. Defence in depth, free to keep.
+#
+# Limitations to revisit if threat model widens:
+#   - DNS rebinding: validator resolves once, the actual request may re-resolve
+#     and get a different IP. Mitigation requires pinning the resolved IP into
+#     the connection (custom transport).
+#   - Playwright redirects (Step 3 of deep_detect_platform): browser navigation
+#     follows server redirects without going through our event hook. The initial
+#     URL is validated at function entry; mid-navigation redirects to internal
+#     targets are NOT validated. Use a Playwright route handler to plug.
+
+class UnsafeURLError(ValueError):
+    """Raised when a URL fails the SSRF allow-list (non-HTTP scheme, no host,
+    DNS failure, or resolves to a non-public IP). Callers should map this to
+    400 Bad Request at the API boundary."""
+
+
+async def validate_public_url(url: str) -> None:
+    """Reject URLs that don't look like a normal public web request. Resolves
+    every IP the host points to and rejects if any one is private / loopback /
+    link-local / multicast / reserved / unspecified — covers IPv4 and IPv6.
+    Raises UnsafeURLError on any rejection."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise UnsafeURLError(f"URL scheme not allowed: {parsed.scheme!r}")
+    host = parsed.hostname
+    if not host:
+        raise UnsafeURLError(f"URL has no host: {url!r}")
+    loop = asyncio.get_running_loop()
+    try:
+        infos = await loop.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise UnsafeURLError(f"Hostname did not resolve: {host!r} ({exc})") from exc
+    for info in infos:
+        addr_str = info[4][0]
+        try:
+            ip = ipaddress.ip_address(addr_str)
+        except ValueError as exc:
+            raise UnsafeURLError(f"Could not parse resolved address {addr_str!r}") from exc
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise UnsafeURLError(
+                f"URL host {host!r} resolves to non-public address {addr_str}"
+            )
+
+
+async def _validate_outgoing_request(request: httpx.Request) -> None:
+    """httpx event_hook — runs before every outbound request, including
+    redirect targets. Ensures a public URL that 302s to an internal address
+    can't slip through after the initial entry-point validation."""
+    await validate_public_url(str(request.url))
 
 
 # ── Pattern matchers (order matters — most specific first) ──────────────────
@@ -203,9 +273,18 @@ async def deep_detect_platform(url: str, timeout: float = 20.0) -> dict | None:
     if not url.startswith("http"):
         url = "https://" + url
 
+    # SSRF defence — validate before any request. Raises UnsafeURLError,
+    # which the route layer maps to 400. We deliberately let it propagate
+    # past the broad except-blocks below (see UnsafeURLError re-raises).
+    await validate_public_url(url)
+
     http_blocked = False
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            event_hooks={"request": [_validate_outgoing_request]},
+        ) as client:
             resp = await client.get(url)
             if resp.status_code >= 400:
                 http_blocked = True
@@ -281,9 +360,16 @@ async def deep_detect_platform(url: str, timeout: float = 20.0) -> dict | None:
                         detection["root_url"] = url
                         detection["detected_via"] = "job_link_follow"
                         return detection
+                except UnsafeURLError:
+                    # Page contained a link to an internal address — skip
+                    # this link, keep trying others. Don't propagate; one
+                    # bad link doesn't mean the original URL is unsafe.
+                    continue
                 except Exception:
                     continue
 
+    except UnsafeURLError:
+        raise  # SSRF defence — never silenced by the fallback path
     except Exception:
         pass
 
@@ -353,6 +439,11 @@ async def deep_detect_platform(url: str, timeout: float = 20.0) -> dict | None:
                     )
                     for href in job_links:
                         try:
+                            # Validate before navigating — Playwright's request
+                            # path is separate from our httpx event hook, so
+                            # internal-IP follow-throughs from a hostile careers
+                            # page would otherwise slip through.
+                            await validate_public_url(href)
                             await page.goto(href, wait_until="domcontentloaded", timeout=10000)
                             final_url = page.url
                             detection = detect_platform(final_url)
@@ -360,6 +451,8 @@ async def deep_detect_platform(url: str, timeout: float = 20.0) -> dict | None:
                                 detection["root_url"] = url
                                 detection["detected_via"] = f"{browser_name}_job_link_follow"
                                 return detection
+                        except UnsafeURLError:
+                            continue
                         except Exception:
                             continue
 
@@ -386,6 +479,10 @@ async def detect_and_validate(url: str, timeout: float = 30.0) -> dict:
     Detect platform, then do a quick HTTP check to confirm the URL is reachable.
     For API-based adapters (greenhouse, lever), hit the API to get a job count.
 
+    Raises:
+        UnsafeURLError: if the URL points to a non-public host (SSRF defence).
+            The route layer maps this to 400 Bad Request.
+
     Returns:
         adapter: str
         slug: str | None
@@ -395,6 +492,12 @@ async def detect_and_validate(url: str, timeout: float = 30.0) -> dict:
         job_count: int | None    — if we can quickly determine it
         error: str | None
     """
+    # SSRF defence — single entry-point check that protects every remaining
+    # caller: /api/sources/{id}/diagnose, the CLI `db add-source`, and
+    # scripts/redetect_failing_sources.py. The route layer maps UnsafeURLError
+    # to 400 Bad Request.
+    await validate_public_url(url)
+
     detection = detect_platform(url)
 
     # If initial detection is generic, try deep detection (scan page for embedded ATS)
@@ -421,7 +524,11 @@ async def detect_and_validate(url: str, timeout: float = 30.0) -> dict:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            event_hooks={"request": [_validate_outgoing_request]},
+        ) as client:
             # For Greenhouse, hit the API directly for a quick job count
             if adapter == "greenhouse" and slug:
                 api_url = f"https://api.greenhouse.io/v1/boards/{slug}/jobs"

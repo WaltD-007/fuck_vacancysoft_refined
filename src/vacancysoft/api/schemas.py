@@ -34,33 +34,6 @@ class SourceOut(BaseModel):
         from_attributes = True
 
 
-class DetectRequest(BaseModel):
-    url: str
-
-
-class DetectResponse(BaseModel):
-    adapter: str
-    slug: str | None
-    url: str
-    company_guess: str
-    reachable: bool
-    job_count: int | None
-    error: str | None
-
-
-class AddSourceRequest(BaseModel):
-    url: str
-    company: str
-
-
-class AddSourceResponse(BaseModel):
-    id: int
-    employer_name: str
-    adapter_name: str
-    base_url: str
-    message: str
-
-
 class AddCompanyRequest(BaseModel):
     company: str
     countries: list[str] | None = None  # defaults to ["United Kingdom"]

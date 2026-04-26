@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -19,9 +21,18 @@ from vacancysoft.db.engine import SessionLocal
 
 app = FastAPI(title="Prospero API", version="0.1.0")
 
+# CORS: explicit origin list, never wildcard with credentials. WEB_ORIGIN is a
+# comma-separated list (e.g. "https://prospero.example.com,https://staging.example.com").
+# Defaults to localhost dev origins so a fresh clone works without setup.
+_cors_origins = [
+    origin.strip()
+    for origin in os.environ.get("WEB_ORIGIN", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

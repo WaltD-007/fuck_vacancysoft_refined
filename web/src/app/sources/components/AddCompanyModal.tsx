@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { safeHref } from "../../lib/safe";
 import type { AddCompanyCandidate, AddCompanyUpdateLead, Source, Stats } from "../types";
 
 type AddCompanyResult = {
@@ -394,7 +395,7 @@ export default function AddCompanyModal({
                           <div className="text-sm font-semibold truncate">
                             {lead.url ? (
                               <a
-                                href={lead.url}
+                                href={safeHref(lead.url, "#")}
                                 target="_blank"
                                 rel="noreferrer"
                                 onClick={(e) => e.stopPropagation()}
@@ -489,7 +490,7 @@ export default function AddCompanyModal({
                         <div className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
                           {cand.sample_title && cand.sample_url ? (
                             <a
-                              href={cand.sample_url}
+                              href={safeHref(cand.sample_url, "#")}
                               target="_blank"
                               rel="noreferrer"
                               className="hover:underline"

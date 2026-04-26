@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import Sidebar from "../components/Sidebar";
 import { API, fetcher } from "../lib/swr";
+import { safeHref } from "../lib/safe";
 
 const catColors: Record<string, string> = { Risk: "#a29bfe", Quant: "#4dabf7", Compliance: "#00d2a0", Audit: "#ffd93d", Cyber: "#ff6b6b", Legal: "#fd79a8", "Quant Risk": "#4dabf7", "Front Office": "#ffa500" };
 
@@ -177,7 +178,10 @@ function DossierPanel({ dossier, onCreateCampaign, jobUrl, company, leadId }: { 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 200, overflowY: "auto", paddingRight: 4 }}>
             {dossier.hiring_managers.map((hm, i) => {
               const linkedinUrl = (hm as Record<string, string>).linkedin_url || (hm as Record<string, string>).url;
-              const searchUrl = linkedinUrl || `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(hm.name)}`;
+              const fallbackUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(hm.name)}`;
+              // safeHref blocks `javascript:` and other non-http(s) schemes that a
+              // prompt-injected dossier could smuggle into linkedin_url.
+              const searchUrl = safeHref(linkedinUrl, fallbackUrl);
               return (
                 <div key={i} style={{ background: "#0a0a0f", border: "1px solid #1f1f2f", borderRadius: 6, padding: "10px 12px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
