@@ -5,24 +5,22 @@ Covers everything under `/api/sources/*` except the Coresignal
 
   GET    /api/sources
   GET    /api/sources/{source_id}/jobs
-  POST   /api/sources/detect
-  POST   /api/sources
   POST   /api/sources/{source_id}/scrape
   POST   /api/sources/{source_id}/diagnose
   DELETE /api/sources/{source_id}
 
-Extracted verbatim from `api/server.py` during the Week 4 split.
+URL-driven add (POST /api/sources, POST /api/sources/detect) was removed
+in favour of the CoreSignal-backed Add Company flow. The CLI command
+`prospero db add-source <url>` remains for operator-only use; it calls
+`detect_and_validate()` directly without going through HTTP.
 """
 
 from __future__ import annotations
 
 import asyncio
-import hashlib
 from typing import Any
-from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
 from vacancysoft.api.ledger import (
@@ -32,24 +30,21 @@ from vacancysoft.api.ledger import (
     _SOURCES_CACHE_TTL,
 )
 from vacancysoft.api.schemas import (
-    AddSourceRequest,
-    AddSourceResponse,
-    DetectRequest,
-    DetectResponse,
     ScoredJobOut,
     SourceOut,
 )
-from vacancysoft.api.source_detector import detect_and_validate
+from vacancysoft.api.source_detector import (
+    UnsafeURLError,
+    _validate_outgoing_request,
+    detect_and_validate,
+    validate_public_url,
+)
 from vacancysoft.db.engine import SessionLocal
 from vacancysoft.db.models import EnrichedJob, RawJob, ScoreResult, Source
 from vacancysoft.source_registry.config_seed_loader import PLATFORM_REGISTRY
 
 
 router = APIRouter(tags=["sources"])
-
-
-def _slugify(v: str) -> str:
-    return "_".join("".join(ch.lower() if ch.isalnum() else " " for ch in v).split())
 
 
 ADAPTER_MAP = {
@@ -215,84 +210,6 @@ def get_source_jobs(
     return result
 
 
-@router.post("/api/sources/detect", response_model=DetectResponse)
-async def detect_source(req: DetectRequest):
-    result = await detect_and_validate(req.url, timeout=15)
-    return DetectResponse(**result)
-
-
-@router.post("/api/sources", response_model=AddSourceResponse)
-async def add_source(req: AddSourceRequest):
-    result = await detect_and_validate(req.url, timeout=15)
-    adapter = result["adapter"]
-    slug = result["slug"]
-
-    platform_key = ADAPTER_MAP.get(adapter, "generic_browser")
-    meta = PLATFORM_REGISTRY.get(platform_key, PLATFORM_REGISTRY["generic_browser"])
-
-    config_blob = {"job_board_url": req.url}
-    if slug:
-        config_blob["slug"] = slug
-
-    # Workday endpoint derivation
-    if adapter == "workday":
-        # Strip /details/ and everything after (user may have pasted a specific job URL)
-        clean_url = req.url.split("/details/")[0].split("/job/")[0]
-        p = urlparse(clean_url)
-        host_parts = p.netloc.lower().split(".")
-        path_parts = [pp for pp in p.path.split("/") if pp and pp.lower() not in ("en-us", "en-gb", "en", "jobs", "job")]
-        tenant = host_parts[0]
-        shard = host_parts[1] if len(host_parts) > 2 else host_parts[0]
-        site_path = path_parts[-1] if path_parts else tenant
-        config_blob["endpoint_url"] = f"https://{tenant}.{shard}.myworkdayjobs.com/wday/cxs/{tenant}/{site_path}/jobs"
-        config_blob["tenant"] = tenant
-        config_blob["shard"] = shard
-        config_blob["site_path"] = site_path
-
-    url_hash = hashlib.md5(req.url.encode()).hexdigest()[:8]
-    source_key = f"{meta['adapter']}_{_slugify(req.company)}_{url_hash}"
-    parsed = urlparse(req.url)
-    hostname = parsed.hostname or "unknown"
-
-    with SessionLocal() as s:
-        existing = s.execute(
-            select(Source).where((Source.source_key == source_key) | (Source.base_url == req.url))
-        ).scalars().first()
-
-        if existing:
-            return JSONResponse(status_code=409, content={"detail": f"Source already exists: {existing.employer_name} ({existing.adapter_name})", "id": existing.id})
-
-        src = Source(
-            source_key=source_key,
-            employer_name=req.company,
-            board_name=meta["board_name"],
-            base_url=req.url,
-            hostname=hostname,
-            source_type=meta["source_type"],
-            ats_family=meta["ats_family"],
-            adapter_name=meta["adapter"],
-            active=True,
-            seed_type="manual_add",
-            discovery_method="url_auto_detect",
-            fingerprint=f"{hostname}|{meta['ats_family'] or meta['adapter']}",
-            canonical_company_key=_slugify(req.company),
-            config_blob=config_blob,
-            capability_blob={},
-        )
-        s.add(src)
-        s.commit()
-        s.refresh(src)
-
-        return AddSourceResponse(
-            id=src.id,
-            employer_name=src.employer_name,
-            adapter_name=src.adapter_name,
-            base_url=src.base_url,
-            message=f"Added {src.employer_name} ({src.adapter_name})"
-            + (f" — {result['job_count']} jobs detected" if result.get("job_count") else ""),
-        )
-
-
 @router.post("/api/sources/{source_id}/scrape")
 async def scrape_source_endpoint(source_id: int, request: Request):
     """Scrape a source. API-based adapters go through Redis worker, browser-based run inline."""
@@ -337,9 +254,20 @@ async def diagnose_source(source_id: int, request: Request):
     }
 
     # Step 1: Check if the URL is reachable
+    # SSRF defence: current_url comes from the DB (added via add_source which
+    # now validates), but we re-validate here in case the row predates the fix
+    # or was inserted by a script. Bad rows get a 400 instead of being probed.
     import httpx as _httpx
     try:
-        async with _httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        await validate_public_url(current_url)
+    except UnsafeURLError as exc:
+        raise HTTPException(status_code=400, detail=f"Stored source URL is not safe to fetch: {exc}")
+    try:
+        async with _httpx.AsyncClient(
+            timeout=15,
+            follow_redirects=True,
+            event_hooks={"request": [_validate_outgoing_request]},
+        ) as client:
             resp = await client.get(current_url)
             diagnosis["http_status"] = resp.status_code
             diagnosis["final_url"] = str(resp.url)

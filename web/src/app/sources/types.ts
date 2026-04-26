@@ -89,16 +89,6 @@ export type ScoredJob = {
   url: string | null;
 };
 
-export type DetectResult = {
-  adapter: string;
-  slug: string | null;
-  url: string;
-  company_guess: string;
-  reachable: boolean;
-  job_count: number | null;
-  error: string | null;
-};
-
 export type AddCompanyCandidate = {
   employer_name: string;
   jobs_count: number;
