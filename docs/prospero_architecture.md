@@ -15,7 +15,7 @@ Prospero is a recruitment-intelligence platform for an executive-search agency. 
 
 1. **Discover** open finance/risk/quant/compliance/audit/cyber/legal jobs by scraping ~1,500 sources (35 ATS-specific adapters + a generic-site fallback).
 2. **Filter and score** each job (geography, recruiter-vs-employer, title relevance, completeness) and decide if it's worth pursuing.
-3. **Generate hiring intelligence** for accepted leads — an 8-section LLM dossier (company context, real problem, JD-vs-actual gaps, risks, candidate profiles, lead score, hiring-manager search) plus a 5-sequence × 6-tone outreach campaign personalised to the operator's voice.
+3. **Generate hiring intelligence** for accepted leads — a 7-section LLM dossier (company context, real problem, JD-vs-actual gaps, risks, candidate profiles, lead score, hiring-manager search) plus a 5-sequence × 6-tone outreach campaign personalised to the operator's voice.
 4. **Send and track** the outreach via Microsoft Graph (5-email cadence at 0/7/14/21/28 days, auto-cancelled on detected reply).
 
 The full product is **code-complete except for the live-send wiring**. Keybridge security approval has been received (2026-04-26). Remaining blockers are: Entra app registration, PR D (launch/cancel endpoints + UI button), PR E (Bicep IaC), the self-reply-filter Entra-GUID refactor, a production smoke test, and flipping the `OUTREACH_DRY_RUN` kill switch on launch day.
@@ -403,7 +403,52 @@ PLATFORM_REGISTRY = {
 
 `detect_adapter_from_url()` (lines 40-46): a priority-ordered regex override list (`_URL_ADAPTER_OVERRIDES`) that forces a platform assignment. Example: `r"\.hibob\.com"` → hibob, regardless of which config list the URL appears in.
 
-> **Sync issue**: `_URL_ADAPTER_OVERRIDES` and `PLATFORM_PATTERNS` (in source_detector.py) are not kept in sync. They drift. Future refactor candidate.
+> **Sync issue**: `_URL_ADAPTER_OVERRIDES` and `PLATFORM_PATTERNS` (in source_detector.py) are not kept in sync. They drift. Tracked in §14.3 (parked work).
+
+### 4.5 Lifecycle of a Source
+
+There's no formal state machine — a Source's liveness is derived from columns on three rows plus a per-run enum. The states observed in production:
+
+| State | Where it lives | Meaning |
+|---|---|---|
+| `active = True` | `sources.active` | In scope; scrapes will run. |
+| `active = False` | `sources.active` | Disabled — either operator-deleted via Sources UI or auto-marked dead by `scripts/mark_dead_boards.py`. |
+| `HEALTHY / DEGRADED / DEAD / NEEDS_REVIEW` | `HealthState` enum in `adapters/base.py:19-22` | Per-run state attached to `AdapterDiagnostics`. Not persisted directly; consumed by adapter-performance tooling. |
+| Reliability score | `source_health.reliability_score` (0.0-1.0) | Rolling derived from past `SourceRun` outcomes; feeds the scoring formula's `source_reliability` weight. |
+| Consecutive failures | `source_health.consecutive_failures` | Increments on FAIL, resets on OK. |
+| `anomaly_flags` | `source_health.anomaly_flags` (JSON) | Free-form bag: "0-jobs success", "selector rot suspected", "auth challenge seen". |
+
+**Transitions** (informal, observed by reading the code):
+
+```
+   add via UI / db add-source / config seed
+                    │
+                    ▼
+        active=True (no SourceHealth yet)
+                    │
+                    │ first scrape runs
+                    ▼
+        active=True + SourceHealth row
+                    │
+       ┌────────────┼────────────────┐
+       ▼            ▼                ▼
+    OK run     FAIL run         Cloudflare / WAF
+       │            │                │
+       │ rel ↑      │ rel ↓          │ status="blocked" returned by
+       │ failures=0 │ failures++     │ /api/sources/{id}/diagnose
+       │            │ flags accrue   │ (transient — Source row unchanged)
+       │            │                │
+       │            ▼                │
+       │   mark_dead_boards.py finds │
+       │   genuinely unreachable rows│
+       │   (DNS / repeat 4xx / WAF)  │
+       │            │                │
+       ▼            ▼                ▼
+  stays active   active=False     operator
+                                  decides
+```
+
+**The "Broken" verdict** (PR #60, commit `806637d`): a source is "Broken" only when **direct scrape failed AND no aggregator covered the employer**. This stops false alarms when Adzuna/Reed still deliver the same employer's jobs after the direct route degrades.
 
 ---
 
@@ -515,7 +560,7 @@ Return shape from both providers is identical, allowing hot-swap without downstr
 
 [src/vacancysoft/intelligence/dossier.py](src/vacancysoft/intelligence/dossier.py) (462 LOC).
 
-**8-section JSON schema** with strict word caps:
+**JSON output schema** — 8 fields covering 7 dossier sections (`lead_score` + `lead_score_justification` share a section), with strict word caps:
 
 ```json
 {
@@ -582,6 +627,28 @@ Already covered in §3.8. Source: [src/vacancysoft/intelligence/campaign.py](src
 | **Total (default config)** | | **~$0.135** |
 
 DeepSeek toggle is roughly cost-neutral — cheaper per token but the reasoner emits 1.5-3× completion tokens.
+
+### 6.9 Latency budget
+
+Targets and observed numbers, for setting expectations and alarms:
+
+| Operation | Target | Observed | Notes |
+|---|---|---|---|
+| `GET /api/dashboard` (cache hit) | <200ms p95 | not measured | 30s in-process cache; payload pre-computed |
+| `GET /api/dashboard` (cache miss) | <2s p95 | not measured | rebuilds the ledger join chain |
+| `GET /api/sources` (cache miss) | <1s p95 | not measured | similar ledger rebuild |
+| Dossier main call (gpt-5.2) | 30-90s | 30-60s typical | medium web_search, low reasoning |
+| HM search — SerpApi path | <15s | ~11s | 3 SerpApi queries + gpt-4o-mini extraction |
+| HM search — OpenAI fallback | <60s | ~56s | gpt-5.2 + Responses API + high web_search |
+| Campaign call (gpt-5.4) | <30s | 15-30s typical | low reasoning, max_tokens=16000 |
+| Send email (Graph) | <2s | not measured | two-step send + recovery fetch |
+| Reply poll | <500ms | not measured | metadata-only `$filter` query |
+| `pipeline run` per source — API adapter | <30s | varies | Workday/Greenhouse-class |
+| `pipeline run` per source — browser adapter | <90s | varies | Playwright render + scroll |
+
+Rows marked "not measured" have no instrumented baseline. Wire Application Insights traces post-launch to populate them.
+
+The 450s timeout on dossier/campaign calls is a ceiling for reasoning-token blowups, not a target — typical-case latency is well below it.
 
 ---
 
@@ -1060,8 +1127,8 @@ This is small (~10 LOC) but it's a silent landmine — the email match would jus
 - [ ] Entra app registration with `Mail.Send` + `Mail.ReadBasic` application permissions.
 - [ ] Entra admin consent.
 - [ ] Application Access Policy scoped to `prospero-users` group.
-- [ ] PR D — `/api/campaigns/{id}/launch` and `/cancel` endpoints (~50 LOC).
-- [ ] PR D — Builder UI launch button + sequence-status view.
+- [ ] PR D (backend) — `/api/campaigns/{id}/launch` and `/cancel` endpoints (~50 LOC, half-day).
+- [ ] PR D (frontend) — Builder UI launch button + sequence-status view (substantially larger; estimate 200-400 LOC of React + new hook plumbing, 1-2 days).
 - [ ] PR E — Bicep Key Vault + Container App env-var bindings.
 - [ ] Smoke test (real send + reply + cancellation) in production with `OUTREACH_DRY_RUN=true` first.
 - [ ] Self-reply filter refactored for Entra GUIDs (§13.3).
@@ -1092,14 +1159,30 @@ In production, this means:
 
 There is **no immutability safeguard** — anyone with Container App config rights can flip the value. Consider locking it down via Bicep + RBAC if compliance requires.
 
+### 13.6 Backups & disaster recovery
+
+**Postgres**: Azure Postgres Flexible Server has Point-in-Time Recovery enabled by default. The deployment plan calls for **7-day default retention extended to 35-day for production**. RTO/RPO not yet formally defined — runbook item.
+
+**Local SQL dumps**: `.data/backups/` holds manual `pg_dump` snapshots taken before risky operations (e.g. `prospero-pre-sector-rollback-2026-04-26-2013.sql` exists from the recent sector-tagging revert). Naming convention: `prospero-pre-<change>-YYYY-MM-DD-HHMM.sql`. Operator runbook should specify when to take one (alembic downgrade beyond one revision; bulk apply_source_corrections.py runs; production data fixes).
+
+**Redis**: ephemeral by design. ARQ queue holds in-flight jobs; every task is idempotent (re-reads its anchor row, exits if already-done), so loss of Redis means jobs need to be re-enqueued, not re-executed inconsistently. Bicep configures Redis Basic C0 (no clustering, no failover) — fine for the BS scale; revisit at multi-tenant.
+
+**Container Apps**: stateless. Lost replicas auto-recover from the ACR image. No state to restore.
+
+**Key Vault**: soft-delete enabled by default; rotated secrets stay recoverable for 90 days. **Graph client secret should rotate every 180 days** (Microsoft recommendation). Rotation cadence is not yet codified.
+
+**Azure Files** (artifacts mount): once `/artifacts/raw/` moves off ephemeral container storage, the Azure Files share inherits Azure's default backup. Snapshot retention defaults to 7 days; lift to 35 if raw payloads become operationally important.
+
+**DR drill**: not yet performed. Pre-launch checklist item — restore from a 7-day-old PITR snapshot to a sandbox database, verify `pipeline run` re-executes cleanly. Cadence post-launch: once per quarter.
+
 ---
 
 ## 14. What's not yet built — gap register
 
 ### 14.1 Pre-launch (live-send blocked)
 
-- **PR D** — `/api/campaigns/{id}/launch` + `/cancel` endpoints. ~50 LOC. Code on the worker side (`schedule_outreach_sequence`) is complete; just needs the route layer.
-- **PR D** — Builder UI launch button + sequence-status view.
+- **PR D-backend** — `/api/campaigns/{id}/launch` + `/cancel` endpoints. ~50 LOC. Worker side (`schedule_outreach_sequence`) is complete; just needs the route layer.
+- **PR D-frontend** — Builder UI launch button + sequence-status view. Substantially bigger than the backend half; new components, status polling, error states.
 - **PR E** — Bicep IaC module + ops runbook.
 - **Entra app registration** — external dependency, not code. (Keybridge approval received 2026-04-26.)
 
@@ -1120,6 +1203,7 @@ There is **no immutability safeguard** — anyone with Container App config righ
 - **JSON-LD fallback in generic_site** — sites with embedded JobPosting schema should be parsed structurally; not yet wired.
 - **Detail backfill in main pipeline** — [detail_backfill.py](src/vacancysoft/pipelines/detail_backfill.py) (380 LOC: Workday + generic-HTML + SmartRecruiters detail fetchers) is wired into the CLI as `db backfill-detail` ([cli/app.py:47](src/vacancysoft/cli/app.py) imports it; called at lines 647, 1298, 1331, 1514, 1556) but is **not auto-run by `pipeline run`**. Could fold into the standard pipeline if detail-page enrichment becomes a default step.
 - **Multi-source concurrency** — pipeline currently serial per-source.
+- **PLATFORM_PATTERNS / `_URL_ADAPTER_OVERRIDES` consolidation** — the URL→adapter regex list lives in two places (see §4.4) and they drift. Single source of truth refactor is parked.
 - **A/B testing harness** — no built-in experiment harness for template versions, models, prompts.
 - **Streaming responses** — all LLM calls are request-response.
 - **Dossier chat-back** — no follow-up Q&A after dossier returns.
@@ -1142,7 +1226,6 @@ There is **no immutability safeguard** — anyone with Container App config righ
 ### 14.5 Documentation gaps
 
 - **No central "adapter MANIFEST"** — 35 files with no tier/capability matrix. Suggestion: `src/vacancysoft/adapters/MANIFEST.md`.
-- **PLATFORM_PATTERNS and \_URL_ADAPTER_OVERRIDES drift** — should be a single source of truth (§4.4).
 - **Capture mode is a hidden diagnostic** — `PROSPERO_GENERIC_CAPTURE_DIR` undocumented outside code. Add to operator runbook.
 - **No operator-facing cost dashboard** — `cost_report.py` is CLI-only.
 - **No dossier versioning strategy** — no auto-migration of old rows when prompt schema changes.
@@ -1205,7 +1288,7 @@ fuck_vacancysoft_refined/
 | **ATS** | Applicant Tracking System. The platform a company uses to publish jobs (Workday, Greenhouse, Lever, etc.). |
 | **Campaign** | A 5-sequence × 6-tone email matrix (30 emails) generated from a dossier, persisted to `campaign_outputs`. |
 | **CoreSignal** | An aggregator we use to *reverse-source* — find companies hiring in our markets. The "Add Company" flow on the Sources page. |
-| **Dossier** | The 8-section LLM-generated intelligence brief on one job opportunity, persisted to `intelligence_dossiers`. |
+| **Dossier** | The 7-section LLM-generated intelligence brief on one job opportunity (8 JSON fields; lead_score + justification are one section), persisted to `intelligence_dossiers`. |
 | **DRY_RUN** | The kill switch (`OUTREACH_DRY_RUN` env var) that stubs all Microsoft Graph calls. Default true. |
 | **Easy Auth** | Azure App Service / Container Apps built-in authentication that injects identity headers at the ingress. We'll use it with Entra ID. |
 | **Entra** | Microsoft's identity service (formerly Azure AD). |
@@ -1232,17 +1315,108 @@ All plans live under `~/.claude/plans/`. The ones currently load-bearing for ong
 |---|---|
 | `handoff-location-quality-phase2.md` | 4 location-quality threads (region/type wiring, city coverage, leakage, addresses). |
 | `fix-adapter-failures.md` | Per-adapter failure recovery (Phase 1, 3, 4a merged; 4b + 6 pending). |
-| `handoff-steps-4-5.md` | Bucket C selector strategy for generic_site. |
+| `handoff-steps-4-5.md` | Bucket C selector strategy for generic_site. Combined with `handoff-location-quality-phase2.md` these are the two highest-priority active workstreams. |
 | `radiant-honking-music.md` | Phase 2 audit upgrade (iframe URL extraction; 149 ATS misclassifications). |
 | `rename-vacancysoft-to-prospero.md` | Package rename. |
 | `db-as-source-of-truth.md` | Seed-loader → DB migration (PR 1 shipped, 2-3 queued). |
-| `handoff-steps-4-5.md` + `handoff-location-quality-phase2.md` | The two highest-priority active workstreams. |
 
 Reverted plans (kept for reference, not active):
 - Sector tagging — reverted in PR #86 after 82% of cards landed as 'unknown'. Plan at `~/.claude/plans/sector-tagging-plan.md` and post-mortem at `/tmp/sector_tagging_final_report.md`.
 
 ---
 
+## Appendix D: Design decision log
+
+A reverse-engineered selection of architectural choices visible in the codebase, with the rationale a new developer would benefit from. Some rationale is reconstructed from code shape rather than original design notes — flagged where applicable.
+
+### ARQ over Celery for the worker queue
+
+**Choice**: ARQ + Redis ([src/vacancysoft/worker/](src/vacancysoft/worker/)).
+
+**Why**:
+- ARQ is async-first (asyncio-native). FastAPI, the LLM clients, and the adapters are all async. Celery is sync-default — using it would mean per-task event-loop bridges.
+- Broker requirement is just Redis. Celery typically wants RabbitMQ for production-grade routing.
+- Smaller surface. Job idempotency in this codebase (every task re-reads its anchor row before acting) means Celery's heavyweight state-tracking buys us little.
+
+**When this might bite**: ARQ has a smaller community than Celery and lacks the surrounding ecosystem (Flower, beat, rich result backends). For multi-tenant SaaS at hundreds of QPS, revisit.
+
+### Next.js without SSR or RSC
+
+**Choice**: Next.js 16 used as a client-side React app. All pages use SWR; no `getServerSideProps`, no React Server Components.
+
+**Why**:
+- All dashboard data is per-user (auth header → DB lookup). SSR would require the API on every render — same DB hit, no caching win.
+- A private internal app has no SEO requirements.
+- SWR's mutate-and-revalidate pattern fits the operator workflow ("click action → cache cleared → next view re-fetches") cleanly.
+- Faster local iteration: no Node-side build step blocking page reloads.
+
+**When this might bite**: a public marketing page or customer-facing portal would benefit from SSR.
+
+### One table per pipeline stage
+
+**Choice**: separate `raw_jobs`, `enriched_jobs`, `classification_results`, `score_results`, `intelligence_dossiers`, `campaign_outputs` tables FK-chained, instead of a single wide row with state columns.
+
+**Why**:
+- Per-stage versioning (`classifier_version`, `scoring_version`, `prompt_version`). New classifier version doesn't overwrite old results — both coexist for diff/A-B comparison.
+- Stages can be re-run in isolation (`pipeline classify` doesn't touch enrichment output).
+- Auditability: "why was this row accepted?" is answered by reading the row, not re-running the code.
+- Per-stage diagnostics (e.g. `SourceRun.diagnostics_blob`) localise cleanly.
+
+**Trade-off**: wide JOINs in the ledger function (§9.4); mitigated by the 30s in-process cache.
+
+### Soft-delete by default
+
+**Choice**: `Source.active = False` is the default delete; rows are not physically removed.
+
+**Why**:
+- Aggregator-cover dedup (§3.1, §9.4) needs the row to still exist to know "this employer was direct-scraped at some point". Hard-delete would silently re-promote aggregator data.
+- Re-activating an accidentally-deleted source is a UI click, not a DB restore.
+- DB growth is bounded by source count (~1500), not deletion churn.
+
+### In-process API caching (not Redis-backed)
+
+**Choice**: 30s module-level dicts in `api/ledger.py` and `routes/leads.py` (§9.3) instead of Redis.
+
+**Why** (rationale partly reconstructed):
+- Simpler in single-replica dev.
+- Redis adds a network hop on every cache hit; for a 30s window, the cache thrashes too quickly to amortise the hop.
+- Mutation routes can synchronously invalidate without serialisation.
+
+**When this bites**: as soon as the API runs >1 replica. Migration path in §9.3.
+
+### Dossier is one-shot, not chat-back
+
+**Choice**: a single LLM call (plus an HM-search call); no follow-up Q&A.
+
+**Why** (partly reconstructed):
+- Caching is straightforward — `core_problem` non-empty → return cached row.
+- Cost predictability — ~$0.135/lead deterministic.
+- Operator workflow is "generate → review → launch or move on", not "iterative refinement".
+
+**When this bites**: when an operator wants to ask "tell me more about Profile A's likely placement market" without leaving the app.
+
+### DRY_RUN as a runtime env var, not a build flag
+
+**Choice**: `OUTREACH_DRY_RUN` read on every Graph call, not at boot.
+
+**Why**:
+- Operator can flip without redeploying.
+- Fail-safe default — anything other than explicit `false` stays `true`. Misconfig produces dry-run, not live mail.
+- Tests run in the same code path with the env unset; no mock injection needed.
+
+**Trade-off**: no immutability — anyone with Container App config rights can flip. Compliance teams may want this locked down via Bicep + RBAC.
+
+### Voice layer is opt-in, not automatic
+
+**Choice**: worker pre-gen passes `user_context=None`; voice is only injected when the Builder UI explicitly calls `build_user_context()`.
+
+**Why**:
+- Worker-driven dossiers/campaigns are reproducible — same enriched_job_id → same campaign output, regardless of which user happens to be logged in.
+- Cold-start operators get generic-tone output without surprise voice noise from another operator's samples.
+- Voice is opted into via the "Save as training sample" button in Builder; once real `SentMessage` rows exist (post-launch), they auto-feed voice via the merge logic in `voice.py`.
+
+---
+
 **End of document.**
 
-If this is your first session on Prospero: read §1, §2, §3 in full. Skim §4-13. Bookmark §14 as the gap register. Use §11 + Appendix A as reference.
+If this is your first session on Prospero: read §1, §2, §3 in full. Skim §4-13. Bookmark §14 as the gap register. Use §11 + Appendix A as reference. Appendix D is a "why is it like this" companion.
