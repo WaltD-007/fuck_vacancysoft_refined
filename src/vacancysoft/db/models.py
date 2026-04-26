@@ -42,6 +42,7 @@ class Source(Base):
     discovery_method: Mapped[str | None] = mapped_column(String(128), nullable=True)
     fingerprint: Mapped[str] = mapped_column(String(255), index=True)
     canonical_company_key: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    sector: Mapped[str] = mapped_column(String(64), default="unknown", server_default="unknown", index=True)
     config_blob: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     capability_blob: Mapped[dict] = mapped_column(JSON, default=dict)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
