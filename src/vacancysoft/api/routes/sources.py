@@ -68,23 +68,14 @@ _API_ONLY_ADAPTERS = {"workday", "greenhouse", "workable", "ashby", "smartrecrui
 
 
 @router.get("/api/sources", response_model=list[SourceOut])
-def list_sources(country: str | None = None, sector: str | None = None):
-    """List source cards, optionally filtered by country and/or sector.
-
-    `sector` is the per-employer industry tag derived in the ledger via
-    detect_sector(card.employer_display). Aggregator-fed cards classify
-    by their underlying employer, not by the source adapter — so a
-    Goldman lead from Adzuna ends up in the `investment_bank` bucket.
-    """
+def list_sources(country: str | None = None):
     import time as _time
-    cache_key = f"{country or '__all__'}|{sector or '__all__'}"
+    cache_key = country or "__all__"
     cached = _sources_cache.get(cache_key)
     if cached and (_time.time() - cached[0]) < _SOURCES_CACHE_TTL:
         return cached[1]
 
     ledger = _get_cached_ledger(country=country)
-    if sector:
-        ledger = [c for c in ledger if c.get("sector") == sector]
     result = [
         SourceOut(
             id=card["card_id"],
@@ -94,7 +85,6 @@ def list_sources(country: str | None = None, sector: str | None = None):
             active=card["active"],
             seed_type=card["seed_type"] or "aggregator",
             ats_family=card["ats_family"],
-            sector=card.get("sector", "unknown"),
             jobs=card["raw_jobs_count"],
             enriched=0,
             scored=len(card["lead_ids"]),
