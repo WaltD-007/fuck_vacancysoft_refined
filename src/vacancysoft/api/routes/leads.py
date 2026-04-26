@@ -158,12 +158,21 @@ def get_dashboard():
             .where(Source.active.is_(True))
             .where(Source.adapter_name.notin_(_AGGREGATOR_ADAPTERS))
         ).scalar() or 0
-        broken = s.execute(
-            select(func.count(func.distinct(SourceRun.source_id)))
-            .join(Source, Source.id == SourceRun.source_id)
-            .where(SourceRun.status == "error")
-            .where(Source.active.is_(True))
-        ).scalar() or 0
+        # Broken count mirrors the Sources page "Broken" bucket exactly so
+        # the two screens always agree. A card is broken iff:
+        #   1) latest direct run failed, AND
+        #   2) no aggregator (Adzuna/Reed/etc.) covered the employer, AND
+        #   3) no sister direct source produced classified leads.
+        # The previous query (count of distinct source_ids with ANY error in
+        # history) double-counted sister sources and ignored aggregator/
+        # direct-coverage fallbacks, producing 5x the Sources page number.
+        broken = sum(
+            1
+            for card in ledger
+            if card.get("last_run_status") in ("FAIL", "error")
+            and not sum((card.get("aggregator_hits") or {}).values())
+            and not sum((card.get("categories") or {}).values())
+        )
 
         # Today vs yesterday (core-market leads created) for delta-style UI widgets
         leads_today = s.execute(
