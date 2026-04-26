@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import useSWR, { mutate as globalMutate } from "swr";
 import Sidebar from "../components/Sidebar";
 import { API, fetcher } from "../lib/swr";
+import { safeHref } from "../lib/safe";
 
 const catColors: Record<string, string> = { Risk: "#a29bfe", Quant: "#4dabf7", Compliance: "#00d2a0", Audit: "#ffd93d", Cyber: "#ff6b6b", Legal: "#fd79a8", "Quant Risk": "#4dabf7", "Front Office": "#ffa500" };
 
@@ -64,17 +65,6 @@ function timeAgo(iso: string | null): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
-}
-
-// Reject URLs whose scheme isn't http(s). LLM-generated dossier fields can
-// be poisoned via prompt injection in a hostile job description, so any URL
-// that arrives via the dossier (e.g. hiring_managers[i].linkedin_url) must
-// be scheme-checked before being placed into an `href` — React 19 does not
-// block `javascript:` URLs in href, only warns in dev. Returns `fallback`
-// when the URL is missing, malformed, or not http(s).
-function safeHref(url: string | null | undefined, fallback: string): string {
-  if (typeof url !== "string") return fallback;
-  return /^https?:\/\//i.test(url.trim()) ? url : fallback;
 }
 
 function Linkify({ text }: { text: string }) {

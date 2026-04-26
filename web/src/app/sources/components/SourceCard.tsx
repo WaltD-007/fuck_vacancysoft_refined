@@ -2,6 +2,7 @@
 
 import type { Dispatch, SetStateAction } from "react";
 
+import { safeHref } from "../../lib/safe";
 import { isBroken, type ScoredJob, type Source } from "../types";
 import SourceJobsDrawer from "./SourceJobsDrawer";
 import { FEATURES } from "../../lib/features";
@@ -200,7 +201,7 @@ export default function SourceCard({
         </div>
         <div className="mb-2">
           <span className="text-[9px] font-medium px-1.5 py-0.5 rounded uppercase mr-1.5" style={{ background: "var(--bg-elevated)", color: "var(--text-muted)", fontFamily: "'JetBrains Mono', monospace" }}>{src.adapter_name}</span>
-          <a href={src.base_url} target="_blank" rel="noreferrer" className="text-[9px] hover:underline" style={{ color: "var(--text-muted)" }}>{src.base_url.length > 55 ? src.base_url.slice(0, 55) + "..." : src.base_url}</a>
+          <a href={safeHref(src.base_url, "#")} target="_blank" rel="noreferrer" className="text-[9px] hover:underline" style={{ color: "var(--text-muted)" }}>{src.base_url.length > 55 ? src.base_url.slice(0, 55) + "..." : src.base_url}</a>
         </div>
         <div className="flex flex-wrap gap-2">
           {getCats(src) && Object.entries(getCats(src))

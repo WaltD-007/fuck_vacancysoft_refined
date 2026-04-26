@@ -2,6 +2,7 @@
 
 import type { Dispatch, SetStateAction } from "react";
 
+import { safeHref } from "../../lib/safe";
 import type { ScoredJob } from "../types";
 
 type Props = {
@@ -182,7 +183,7 @@ export default function SourceJobsDrawer({
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold truncate">
                     {job.url ? (
-                      <a href={job.url} target="_blank" rel="noreferrer" style={{ color: "var(--text-primary)" }} className="hover:underline">{job.title}</a>
+                      <a href={safeHref(job.url, "#")} target="_blank" rel="noreferrer" style={{ color: "var(--text-primary)" }} className="hover:underline">{job.title}</a>
                     ) : job.title}
                   </div>
                   <div className="text-[10px] truncate" style={{ color: "var(--text-muted)" }}>

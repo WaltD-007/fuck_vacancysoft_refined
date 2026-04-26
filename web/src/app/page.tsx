@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import Sidebar from "./components/Sidebar";
 import { API, fetcher } from "./lib/swr";
+import { safeHref } from "./lib/safe";
 import { useCurrentUser } from "./lib/useCurrentUser";
 
 type Dashboard = {
@@ -436,7 +437,7 @@ export default function DashboardPage() {
                               </>
                             ) : (
                               <>
-                                <a href={lead.url || "#"} target="_blank" rel="noreferrer" className="px-2.5 py-1 rounded text-[10px] font-semibold text-white cursor-pointer inline-block" style={{ background: "#00d2a0", textDecoration: "none" }}>&#128196; View Advert</a>
+                                <a href={safeHref(lead.url, "#")} target="_blank" rel="noreferrer" className="px-2.5 py-1 rounded text-[10px] font-semibold text-white cursor-pointer inline-block" style={{ background: "#00d2a0", textDecoration: "none" }}>&#128196; View Advert</a>
                                 {queued.has(lead.url || lead.title) ? (
                                   <span className="px-2.5 py-1 rounded text-[10px] font-semibold" style={{ background: "rgba(0,210,160,0.08)", color: "#00d2a0", border: "1px solid rgba(0,210,160,0.2)" }}>&#10003; Added</span>
                                 ) : (
