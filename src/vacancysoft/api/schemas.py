@@ -18,6 +18,11 @@ class SourceOut(BaseModel):
     active: bool
     seed_type: str
     ats_family: str | None
+    # Sector classification at the EMPLOYER (card) level — derived from
+    # employer_display by detect_sector(). Distinct from any adapter-level
+    # sector on the underlying source row. Aggregator-fed Goldman cards
+    # land on 'investment_bank', not 'aggregator'.
+    sector: str = "unknown"
     jobs: int = 0
     enriched: int = 0
     scored: int = 0
