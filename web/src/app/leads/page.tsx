@@ -66,6 +66,17 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+// Reject URLs whose scheme isn't http(s). LLM-generated dossier fields can
+// be poisoned via prompt injection in a hostile job description, so any URL
+// that arrives via the dossier (e.g. hiring_managers[i].linkedin_url) must
+// be scheme-checked before being placed into an `href` — React 19 does not
+// block `javascript:` URLs in href, only warns in dev. Returns `fallback`
+// when the URL is missing, malformed, or not http(s).
+function safeHref(url: string | null | undefined, fallback: string): string {
+  if (typeof url !== "string") return fallback;
+  return /^https?:\/\//i.test(url.trim()) ? url : fallback;
+}
+
 function Linkify({ text }: { text: string }) {
   const urlRegex = /(https?:\/\/[^\s),\]]+)/g;
   const parts = text.split(urlRegex);
@@ -177,7 +188,10 @@ function DossierPanel({ dossier, onCreateCampaign, jobUrl, company, leadId }: { 
           <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 200, overflowY: "auto", paddingRight: 4 }}>
             {dossier.hiring_managers.map((hm, i) => {
               const linkedinUrl = (hm as Record<string, string>).linkedin_url || (hm as Record<string, string>).url;
-              const searchUrl = linkedinUrl || `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(hm.name)}`;
+              const fallbackUrl = `https://www.linkedin.com/search/results/people/?keywords=${encodeURIComponent(hm.name)}`;
+              // safeHref blocks `javascript:` and other non-http(s) schemes that a
+              // prompt-injected dossier could smuggle into linkedin_url.
+              const searchUrl = safeHref(linkedinUrl, fallbackUrl);
               return (
                 <div key={i} style={{ background: "#0a0a0f", border: "1px solid #1f1f2f", borderRadius: 6, padding: "10px 12px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
