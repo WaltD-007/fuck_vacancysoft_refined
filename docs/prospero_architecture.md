@@ -91,7 +91,7 @@ A single trace from operator action to sent email, calling out every persistence
 
 1. Operator opens **Sources** page → "Add Source" → pastes URL.
 2. Frontend `POST /api/sources/detect` → `source_detector.detect_platform(url)` ([src/vacancysoft/api/source_detector.py:15](src/vacancysoft/api/source_detector.py)). Regex match against `PLATFORM_PATTERNS` (Workday, Greenhouse, etc.) returns adapter name + extracted config or `None` (= falls through to generic).
-3. Frontend `POST /api/sources` → API inserts `Source` row, fingerprint dedup, enqueues ARQ `discover_source` job. Adds `sector='unknown'` (sector tagging was reverted PR #86).
+3. Frontend `POST /api/sources` → API inserts `Source` row, fingerprint dedup, enqueues ARQ `discover_source` job.
 4. Worker pops job → instantiates adapter via `load_adapter_by_name()` → calls `adapter.discover(source_config)`.
 5. Adapter returns `DiscoveryPage(records: list[DiscoveredJobRecord], diagnostics: AdapterDiagnostics)`.
 6. Worker writes:
@@ -103,7 +103,7 @@ A single trace from operator action to sent email, calling out every persistence
 1. Operator opens **Leads** page → "Paste advert" tab → pastes free-form advert text.
 2. Frontend `POST /api/leads/paste` with `{text}` body.
 3. API calls `extract_advert_fields(text)` ([src/vacancysoft/intelligence/advert_extraction.py:1](src/vacancysoft/intelligence/advert_extraction.py)) → gpt-4o-mini extracts `{title, company, location, postedDate}` deterministically (`temperature=0.0`).
-4. API creates a synthetic `Source` (sector=unknown, adapter='manual_paste') + `RawJob` + `EnrichedJob` in one transaction.
+4. API creates a synthetic `Source` (adapter='manual_paste') + `RawJob` + `EnrichedJob` in one transaction.
 5. API enqueues lead for dossier/campaign generation via `process_lead` worker task.
 
 ### 3.3 Discovery path (alternative: paste advert URL)
@@ -148,13 +148,21 @@ TaxonomyMatch(
 
 `_TAXONOMY_RULES` is a per-category list of `(phrase, weight, sub_specialism)` tuples. Phrases checked longest-first.
 
-Decision threshold (in [src/vacancysoft/classifiers/classification.py:13](src/vacancysoft/classifiers/classification.py)):
+Decision threshold lives in `decision_from_score(score: float)` at [src/vacancysoft/scoring/engine.py:48-54](src/vacancysoft/scoring/engine.py) and gates on the **composite export score** (not on `title_relevance` alone):
 
 ```python
-decision = "accepted" if relevance >= 0.75 else "review" if relevance >= 0.45 else "rejected"
+def decision_from_score(score: float) -> str:
+    t = get_thresholds()
+    if score >= t.get("accepted", 0.75):
+        return "accepted"
+    if score >= t.get("review", 0.45):
+        return "review"
+    return "rejected"
 ```
 
-> **Known bug**: `relevance >= 0.75` can fire even when `primary_taxonomy_key is None`. DB ends up with logically inconsistent rows. Exporters filter `WHERE primary_taxonomy_key IS NOT NULL`, so it doesn't reach customers — but the bug is real and should be fixed at source.
+The composite score is `compute_export_score()` from §3.6. Thresholds are configurable via `configs/scoring.toml`.
+
+> **Known bug**: the composite `score` can clear 0.75 even when `primary_taxonomy_key is None`. The gate doesn't require a taxonomy match, so a high `title_relevance` plus decent location/freshness/completeness can carry a row over the line with a null taxonomy key. DB ends up with logically inconsistent rows. Exporters filter `WHERE primary_taxonomy_key IS NOT NULL`, so it doesn't reach customers — but the bug is real and should be fixed at source.
 
 ### 3.6 Scoring
 
@@ -448,7 +456,7 @@ if any(p in title.lower() for p in MID_RELEVANCE_PHRASES):  score += 0.25
 return min(score, 1.0)
 ```
 
-> **Bug**: `relevance >= 0.75` can fire even when `taxonomy.classify_against_legacy_taxonomy()` returns `primary_taxonomy_key=None`. DB has logically inconsistent rows. Workaround: exporters filter `WHERE primary_taxonomy_key IS NOT NULL`. Real fix: tighten the accept gate so it requires both relevance AND taxonomy match.
+> **Bug**: the composite `score` can clear 0.75 even when `taxonomy.classify_against_legacy_taxonomy()` returns `primary_taxonomy_key=None`. The accept gate is on `score`, not on the taxonomy match (see §3.5). DB has logically inconsistent rows. Workaround: exporters filter `WHERE primary_taxonomy_key IS NOT NULL`. Real fix: tighten the accept gate to require a non-null taxonomy match in addition to score.
 
 ### 5.4 Scoring
 
@@ -721,22 +729,22 @@ Startup sequence:
 
 | Router | File | LOC | Endpoints |
 |---|---|---:|---|
-| leads | [routes/leads.py](src/vacancysoft/api/routes/leads.py) | 1203 | `/api/stats`, `/api/dashboard`, `/api/countries`, `/api/queue`, `/api/queue/{id}/send`, `/api/leads/paste`, `/api/leads/{id}` (DELETE), `/api/leads/{id}/flag-location`, `/api/agency` |
+| leads | [routes/leads.py](src/vacancysoft/api/routes/leads.py) | 1203 | `/api/stats`, `/api/dashboard`, `/api/countries`, `/api/queue` (POST/GET), `/api/queue/{id}/send`, `/api/queue/{id}` (DELETE), `/api/leads/paste`, `/api/leads/{id}` (DELETE), `/api/leads/{id}/flag-location` |
 | sources | [routes/sources.py](src/vacancysoft/api/routes/sources.py) | 491 | `/api/sources`, `/api/sources/{id}/jobs`, `/api/sources/detect`, `/api/sources` (POST), `/api/sources/{id}/scrape`, `/api/sources/{id}/diagnose`, `/api/sources/{id}` (DELETE) |
 | add_company | [routes/add_company.py](src/vacancysoft/api/routes/add_company.py) | 928 | CoreSignal reverse-sourcing (search/preview/confirm phases) |
-| campaigns | [routes/campaigns.py](src/vacancysoft/api/routes/campaigns.py) | 316 | `/api/campaigns`, `/api/campaigns/{dossier_id}/preview`, **MISSING: `/launch`, `/cancel`** (PR D) |
+| campaigns | [routes/campaigns.py](src/vacancysoft/api/routes/campaigns.py) | 316 | `/api/agency` (POST), `/api/leads/{id}/dossier` (POST/GET), `/api/leads/{id}/campaign` (POST). **MISSING: `/launch`, `/cancel`** — PR D adds them; final paths TBD. |
 | users | [routes/users.py](src/vacancysoft/api/routes/users.py) | 107 | `/api/users/me`, `/api/users/me/preferences` (PATCH), `/api/users` (admin), `/api/users` (POST admin) |
 | voice | [routes/voice.py](src/vacancysoft/api/routes/voice.py) | 203 | `/api/voice/prompts` (GET/POST/DELETE) |
 
 ### 9.3 In-process caches (the multi-replica gotcha)
 
-Three module-level dicts in `routes/leads.py` and `routes/sources.py`:
+Three module-level dicts. `_sources_cache` and `_ledger_cache` live in [api/ledger.py:41-42](src/vacancysoft/api/ledger.py); `_dashboard_cache` lives in [routes/leads.py:55](src/vacancysoft/api/routes/leads.py). `routes/sources.py` only imports the ledger caches.
 
-| Cache | TTL | Key | Invalidated by |
-|---|---:|---|---|
-| `_dashboard_cache` | 30s | `__all__` | `clear_dashboard_cache()` on any mutation |
-| `_sources_cache` | 30s | per country | `clear_ledger_caches()` |
-| `_ledger_cache` | 30s | per country | `clear_ledger_caches()` |
+| Cache | Defined in | TTL | Key | Invalidated by |
+|---|---|---:|---|---|
+| `_dashboard_cache` | `routes/leads.py` | 30s | `__all__` | `clear_dashboard_cache()` on any mutation |
+| `_sources_cache` | `api/ledger.py` | 30s | per country | `clear_ledger_caches()` |
+| `_ledger_cache` | `api/ledger.py` | 30s | per country | `clear_ledger_caches()` |
 
 **Multi-replica implication**: when scaling to >1 API replica, mutations on replica A invalidate only A's cache. Replica B can serve stale data for up to 30s. Currently not a problem (single-replica dev). For Container Apps multi-replica, migrate to Redis-backed cache.
 
@@ -749,8 +757,6 @@ Three module-level dicts in `routes/leads.py` and `routes/sources.py`:
 3. **Category counts** — per-source counts in each of the 7 core markets.
 4. **Lead threshold** — `export_eligibility_score >= 6.0` (note: not the same threshold as `export_decision == 'accepted'` which uses score >= 0.75 in the [0,1] domain — there's a separate "lead-quality" gate that uses raw scores).
 5. **last_run_status** — most recent `SourceRun.diagnostics_blob` summary.
-
-Defining a sector (currently always 'unknown' since PR #86 reverted sector tagging) was added to the ledger output but does no real filtering work today.
 
 ### 9.5 Authentication
 
@@ -1112,7 +1118,7 @@ There is **no immutability safeguard** — anyone with Container App config righ
 
 - **Multi-tenancy** — no `tenant_id`/`org_id` columns. All data visible to all users in single-tenant. Full SaaS migration is 12+ months out.
 - **JSON-LD fallback in generic_site** — sites with embedded JobPosting schema should be parsed structurally; not yet wired.
-- **Detail backfill pipeline** ([detail_backfill.py](src/vacancysoft/pipelines/detail_backfill.py)) — placeholder file, not integrated.
+- **Detail backfill in main pipeline** — [detail_backfill.py](src/vacancysoft/pipelines/detail_backfill.py) (380 LOC: Workday + generic-HTML + SmartRecruiters detail fetchers) is wired into the CLI as `db backfill-detail` ([cli/app.py:47](src/vacancysoft/cli/app.py) imports it; called at lines 647, 1298, 1331, 1514, 1556) but is **not auto-run by `pipeline run`**. Could fold into the standard pipeline if detail-page enrichment becomes a default step.
 - **Multi-source concurrency** — pipeline currently serial per-source.
 - **A/B testing harness** — no built-in experiment harness for template versions, models, prompts.
 - **Streaming responses** — all LLM calls are request-response.
