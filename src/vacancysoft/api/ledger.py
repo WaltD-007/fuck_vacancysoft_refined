@@ -200,10 +200,6 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
         # else: keep existing (first-seen wins within same tier)
 
     # ---- 3) Aggregate deduped leads into per-employer cards ----
-    # Lazy import — avoids a circular dep when ledger.py is imported by
-    # source_registry.* during startup.
-    from vacancysoft.source_registry.sector_classifier import detect_sector
-
     cards: dict[str, dict] = {}
     for lead in dedup.values():
         card = cards.setdefault(lead["employer_norm"], {
@@ -215,12 +211,6 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             "active": True,
             "seed_type": None,
             "ats_family": None,
-            # Sector at the CARD level — derived from the resolved
-            # employer name, not from any single source's sector. This
-            # means an aggregator-fed Goldman card gets sector
-            # 'investment_bank', not 'aggregator'. Computed once at
-            # ledger-build time; cached with the rest of the ledger.
-            "sector": detect_sector(lead["employer_display"], "", ""),
             "direct_source_ids": [],
             "lead_ids": [],
             "categories": {},

@@ -10,13 +10,6 @@ export type Source = {
   active: boolean;
   seed_type: string;
   ats_family: string | null;
-  // Sector classification at the employer level — derived in the
-  // ledger via detect_sector(employer_display). Aggregator-fed cards
-  // classify by their underlying employer, so a Goldman card from
-  // Adzuna lands on 'investment_bank', not 'aggregator'.
-  // Defaults to 'unknown' for un-curated firms; PR 4 surfaces those
-  // for review.
-  sector?: string;
   jobs: number;
   enriched: number;
   scored: number;
