@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from vacancysoft.db.models import Source
+from vacancysoft.source_registry.sector_classifier import detect_sector
 
 
 def _slugify(value: str) -> str:
@@ -245,6 +246,7 @@ def seed_sources_from_config(session: Session) -> tuple[int, int, int]:
                 "discovery_method": "config_py_seed",
                 "fingerprint": fingerprint,
                 "canonical_company_key": _slugify(company),
+                "sector": detect_sector(company, adapter_name, base_url),
                 "config_blob": config_blob,
                 "capability_blob": {},
             }
