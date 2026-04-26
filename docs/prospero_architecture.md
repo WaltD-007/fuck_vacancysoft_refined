@@ -448,7 +448,7 @@ There's no formal state machine — a Source's liveness is derived from columns 
                                   decides
 ```
 
-**The "Broken" verdict** (PR #60, commit `806637d`): a source is "Broken" only when **direct scrape failed AND no aggregator covered the employer**. This stops false alarms when Adzuna/Reed still deliver the same employer's jobs after the direct route degrades.
+**The "Broken" verdict** (PR #60, commit `806767d`; later refined by PR #81 `ca894b7` which added "zero direct leads too" to suppress further false positives): a source is "Broken" only when **direct scrape failed AND no aggregator covered the employer**. This stops false alarms when Adzuna/Reed still deliver the same employer's jobs after the direct route degrades.
 
 ---
 
@@ -637,16 +637,20 @@ Targets and observed numbers, for setting expectations and alarms:
 | `GET /api/dashboard` (cache hit) | <200ms p95 | not measured | 30s in-process cache; payload pre-computed |
 | `GET /api/dashboard` (cache miss) | <2s p95 | not measured | rebuilds the ledger join chain |
 | `GET /api/sources` (cache miss) | <1s p95 | not measured | similar ledger rebuild |
-| Dossier main call (gpt-5.2) | 30-90s | 30-60s typical | medium web_search, low reasoning |
+| Dossier main call (gpt-5.2) | 30-90s | 30-60s estimate¹ | medium web_search, low reasoning |
 | HM search — SerpApi path | <15s | ~11s | 3 SerpApi queries + gpt-4o-mini extraction |
 | HM search — OpenAI fallback | <60s | ~56s | gpt-5.2 + Responses API + high web_search |
-| Campaign call (gpt-5.4) | <30s | 15-30s typical | low reasoning, max_tokens=16000 |
+| Campaign call (gpt-5.4) | <30s | 15-30s estimate¹ | low reasoning, max_tokens=16000 |
 | Send email (Graph) | <2s | not measured | two-step send + recovery fetch |
 | Reply poll | <500ms | not measured | metadata-only `$filter` query |
 | `pipeline run` per source — API adapter | <30s | varies | Workday/Greenhouse-class |
 | `pipeline run` per source — browser adapter | <90s | varies | Playwright render + scroll |
 
 Rows marked "not measured" have no instrumented baseline. Wire Application Insights traces post-launch to populate them.
+
+¹ The dossier and campaign "estimate" rows are inferred from typical web_search-enabled OpenAI latencies and the configured timeouts. `intelligence_dossiers.latency_ms` and `campaign_outputs.latency_ms` columns DO exist (see [models.py:267,283](src/vacancysoft/db/models.py)), so a single `SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_ms)` would give the real numbers — worth running before relying on these.
+
+The HM-search latencies (~11s SerpApi, ~56s OpenAI) are operator-recorded numbers from code comments in [hm_search_serpapi.py:35,45](src/vacancysoft/intelligence/hm_search_serpapi.py).
 
 The 450s timeout on dossier/campaign calls is a ceiling for reasoning-token blowups, not a target — typical-case latency is well below it.
 
@@ -1163,13 +1167,13 @@ There is **no immutability safeguard** — anyone with Container App config righ
 
 **Postgres**: Azure Postgres Flexible Server has Point-in-Time Recovery enabled by default. The deployment plan calls for **7-day default retention extended to 35-day for production**. RTO/RPO not yet formally defined — runbook item.
 
-**Local SQL dumps**: `.data/backups/` holds manual `pg_dump` snapshots taken before risky operations (e.g. `prospero-pre-sector-rollback-2026-04-26-2013.sql` exists from the recent sector-tagging revert). Naming convention: `prospero-pre-<change>-YYYY-MM-DD-HHMM.sql`. Operator runbook should specify when to take one (alembic downgrade beyond one revision; bulk apply_source_corrections.py runs; production data fixes).
+**Local SQL dumps**: `.data/backups/` holds manual `pg_dump` snapshots taken before risky operations. Real examples on disk today: `prospero-pre-sector-pr1-2026-04-26-1920.sql` and `prospero-pre-sector-pr2-2026-04-26-1933.sql` (taken before each sector PR ran), `prospero-pre-full-rebuild-2026-04-24-1742.sql`, `prospero-pre-redetect-2026-04-22-2208.sql`. Naming convention: `prospero-pre-<change>-YYYY-MM-DD-HHMM.sql`. Operator runbook should specify when to take one (alembic downgrade beyond one revision; bulk `apply_source_corrections.py` runs; production data fixes).
 
 **Redis**: ephemeral by design. ARQ queue holds in-flight jobs; every task is idempotent (re-reads its anchor row, exits if already-done), so loss of Redis means jobs need to be re-enqueued, not re-executed inconsistently. Bicep configures Redis Basic C0 (no clustering, no failover) — fine for the BS scale; revisit at multi-tenant.
 
 **Container Apps**: stateless. Lost replicas auto-recover from the ACR image. No state to restore.
 
-**Key Vault**: soft-delete enabled by default; rotated secrets stay recoverable for 90 days. **Graph client secret should rotate every 180 days** (Microsoft recommendation). Rotation cadence is not yet codified.
+**Key Vault**: soft-delete enabled by default; rotated secrets stay recoverable for 90 days. **Graph client secret rotation cadence is not yet codified** — common practice is every 6-12 months; pick a number, document it, and set a calendar reminder. Microsoft does not mandate a specific interval but flags long-lived secrets in Entra security signals.
 
 **Azure Files** (artifacts mount): once `/artifacts/raw/` moves off ephemeral container storage, the Azure Files share inherits Azure's default backup. Snapshot retention defaults to 7 days; lift to 35 if raw payloads become operationally important.
 
