@@ -67,6 +67,12 @@ export default function SourcesPage() {
   const [countries, setCountries] = useState<{ country: string; count: number }[]>([]);
   const [countryFilter, setCountryFilter] = useState("");
   const [employmentTypeFilter, setEmploymentTypeFilter] = useState("Permanent");
+  // Sector chip filter — narrows cards to one industry bucket
+  // (hedge_fund, asset_manager, retail_bank, etc.). Empty string = all.
+  // Sector data lives on each Source via card.sector populated by the
+  // ledger; the dropdown lists only sectors with at least one card so
+  // the operator never sees a dead option.
+  const [sectorFilter, setSectorFilter] = useState("");
   const [companySearch, setCompanySearch] = useState("");
   const [adapterFilter, setAdapterFilter] = useState("");
   const [aggregatorFilter, setAggregatorFilter] = useState("");
@@ -481,10 +487,20 @@ export default function SourcesPage() {
   });
   const sortedAggregators = Object.entries(aggregatorCardCounts).sort((a, b) => b[1] - a[1]);
 
+  // Sector counts across the current viewFiltered list — drives the
+  // sector dropdown (only sectors with >0 cards appear) and lets the
+  // option labels show counts.
+  const sectorCounts: Record<string, number> = {};
+  viewFiltered.forEach((s) => {
+    const k = s.sector || "unknown";
+    sectorCounts[k] = (sectorCounts[k] || 0) + 1;
+  });
+
   const filtered = viewFiltered
     .filter((s) => !adapterFilter || s.adapter_name === adapterFilter)
     .filter((s) => !aggregatorFilter || (s.aggregator_hits?.[aggregatorFilter] ?? 0) > 0)
-    .filter((s) => !employmentTypeFilter || (s.employment_types?.[employmentTypeFilter] ?? 0) > 0);
+    .filter((s) => !employmentTypeFilter || (s.employment_types?.[employmentTypeFilter] ?? 0) > 0)
+    .filter((s) => !sectorFilter || (s.sector || "unknown") === sectorFilter);
   // Put recently added source first — `highlightSourceId` (from Add Company) takes
   // priority over `addedSourceId` (from legacy Add Source flow).
   const pinned = highlightSourceId ? sources.find((s) => s.id === highlightSourceId) : null;
@@ -523,6 +539,9 @@ export default function SourcesPage() {
                 countries={countries}
                 employmentTypeFilter={employmentTypeFilter}
                 onEmploymentTypeFilterChange={(value) => { setEmploymentTypeFilter(value); setSourceJobs({}); setExpandedSource(null); }}
+                sectorFilter={sectorFilter}
+                onSectorFilterChange={(value) => { setSectorFilter(value); setSourceJobs({}); setExpandedSource(null); }}
+                sectorCounts={sectorCounts}
               />
               {/* Add Source temporarily disconnected — keep entire flow intact for reinstatement. */}
               {false && (
