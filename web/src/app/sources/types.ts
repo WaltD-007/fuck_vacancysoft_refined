@@ -50,7 +50,17 @@ export function isBroken(src: Source): boolean {
     (sum, n) => sum + (n || 0),
     0,
   );
-  return aggregatorLeads === 0;
+  if (aggregatorLeads > 0) return false;
+  // last_run_status reflects the WORST status across all sister sources
+  // for this employer. If any sister direct source has produced classified
+  // leads (categories), the card has live coverage and isn't broken — the
+  // failing sister is just one of several scrape paths to the same firm.
+  const directLeads = Object.values(src.categories || {}).reduce(
+    (sum, n) => sum + (n || 0),
+    0,
+  );
+  if (directLeads > 0) return false;
+  return true;
 }
 
 export type Stats = {
