@@ -51,7 +51,7 @@ export default function Sidebar() {
   const nav: NavItem[] = [
     { label: "Dashboard", href: "/", icon: "▣", section: "OVERVIEW" },
     { label: "Lead List", href: "/leads", icon: "★", section: "OVERVIEW", badge: queueCount > 0 ? queueCount.toString() : undefined, badgeColor: "#00d2a0" },
-    { label: "Sources", href: "/sources", icon: "⊙", section: "PIPELINE", badge: undefined, badgeColor: "#6c5ce7" },
+    { label: "Companies", href: "/sources", icon: "⊙", section: "PIPELINE", badge: undefined, badgeColor: "#6c5ce7" },
     { label: "Campaign Builder", href: "/builder", icon: "✎", section: "PIPELINE" },
     { label: "Campaigns", href: "/campaigns", icon: "✉", section: "PIPELINE", badge: undefined, badgeColor: "#ffd93d", disabled: !FEATURES.campaignsManager },
     { label: "Voice", href: "/settings/voice", icon: "◍", section: "SETTINGS", disabled: !FEATURES.voicePrompts },
