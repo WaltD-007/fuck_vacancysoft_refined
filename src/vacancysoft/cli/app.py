@@ -102,6 +102,191 @@ def seed_config_boards() -> None:
     )
 
 
+@db_app.command("sector-audit")
+def sector_audit(
+    limit: int = typer.Option(50, "--limit", help="Show at most N unknown employers."),
+    min_leads: int = typer.Option(1, "--min-leads", help="Only show employers with >= N leads."),
+) -> None:
+    """List employers currently classified as `sector='unknown'`, ordered
+    by lead volume (descending). Use to triage the YAML — high-volume
+    unknowns are the most valuable to add explicit mappings for.
+
+    Cheap to run; queries are indexed. Safe in production.
+    """
+    from sqlalchemy import func as _func
+    typer.echo(f"=== unknown-sector employers (top {limit}, min_leads={min_leads}) ===")
+    with SessionLocal() as session:
+        # Count enriched_jobs per (resolved employer = team or source.employer_name)
+        # for rows where employer_sector='unknown'. Group by employer name so
+        # one entry per firm, regardless of how many sources fed them.
+        rows = session.execute(
+            select(
+                _func.coalesce(EnrichedJob.team, Source.employer_name).label("employer"),
+                _func.count().label("leads"),
+            )
+            .select_from(EnrichedJob)
+            .join(RawJob, RawJob.id == EnrichedJob.raw_job_id)
+            .join(Source, Source.id == RawJob.source_id)
+            .where(EnrichedJob.employer_sector == "unknown")
+            .group_by("employer")
+            .having(_func.count() >= min_leads)
+            .order_by(_func.count().desc())
+            .limit(limit)
+        ).all()
+    if not rows:
+        typer.echo("No unknown employers above threshold — coverage is complete.")
+        return
+    typer.echo(f"{'employer':<50} leads")
+    typer.echo("-" * 60)
+    for employer, leads in rows:
+        typer.echo(f"{(employer or '(no name)')[:48]:<50} {leads}")
+    typer.echo()
+    typer.echo("To classify: add high-volume rows to configs/sector_taxonomy.yaml")
+    typer.echo("Or run: prospero db classify-unknowns --commit  (LLM-based, ~$0.0001/firm)")
+
+
+@db_app.command("classify-unknowns")
+def classify_unknowns(
+    commit: bool = typer.Option(False, "--commit", help="Write changes. Default is dry-run."),
+    limit: int = typer.Option(50, "--limit", help="Max employers to classify per run."),
+    min_leads: int = typer.Option(2, "--min-leads", help="Skip employers with < N leads."),
+    min_confidence: float = typer.Option(0.6, "--min-confidence", help="Skip results with confidence below this."),
+    model: str = typer.Option("gpt-5-nano", "--model", help="LLM model to use."),
+) -> None:
+    """Use the LLM to classify the highest-volume unknown employers.
+
+    Pulls the top-N unknowns by lead volume, calls the LLM with the
+    employer name + sample job titles, applies the result to BOTH:
+
+      - ``sources.sector`` for any source rows whose employer matches
+      - ``enriched_jobs.employer_sector`` for every lead with a matching
+        resolved employer (team or source name)
+
+    Results below ``--min-confidence`` are skipped (logged only).
+
+    Default mode is dry-run; pass ``--commit`` to write.
+
+    Costs: roughly $0.0001 per firm at gpt-5-nano. The default --limit=50
+    keeps a single invocation under $0.01.
+    """
+    import asyncio
+    from sqlalchemy import func as _func, update as _update
+    from vacancysoft.source_registry.llm_sector_classifier import classify_employer
+
+    typer.echo(
+        f"Classifying up to {limit} unknown employers (min_leads={min_leads}, "
+        f"min_confidence={min_confidence}, model={model}, commit={commit})"
+    )
+
+    with SessionLocal() as session:
+        unknowns = session.execute(
+            select(
+                _func.coalesce(EnrichedJob.team, Source.employer_name).label("employer"),
+                _func.count().label("leads"),
+            )
+            .select_from(EnrichedJob)
+            .join(RawJob, RawJob.id == EnrichedJob.raw_job_id)
+            .join(Source, Source.id == RawJob.source_id)
+            .where(EnrichedJob.employer_sector == "unknown")
+            .group_by("employer")
+            .having(_func.count() >= min_leads)
+            .order_by(_func.count().desc())
+            .limit(limit)
+        ).all()
+
+    if not unknowns:
+        typer.echo("Nothing to classify.")
+        return
+
+    typer.echo(f"Targets: {len(unknowns)} employers")
+
+    async def _run() -> list[dict]:
+        results = []
+        for employer, leads in unknowns:
+            if not employer:
+                continue
+            # Pull a few sample titles per employer for richer context.
+            with SessionLocal() as s:
+                titles = list(s.execute(
+                    select(EnrichedJob.title)
+                    .select_from(EnrichedJob)
+                    .join(RawJob, RawJob.id == EnrichedJob.raw_job_id)
+                    .join(Source, Source.id == RawJob.source_id)
+                    .where(EnrichedJob.employer_sector == "unknown")
+                    .where(_func.coalesce(EnrichedJob.team, Source.employer_name) == employer)
+                    .limit(5)
+                ).scalars())
+            res = await classify_employer(employer, sample_titles=titles, model=model)
+            res["employer"] = employer
+            res["leads"] = leads
+            results.append(res)
+            typer.echo(
+                f"  {employer[:40]:<40}  → {res['sector']:<22} "
+                f"(conf {res['confidence']:.2f}, {leads} leads)"
+            )
+        return results
+
+    results = asyncio.run(_run())
+
+    # Apply: only rows where confidence >= min_confidence AND sector != 'unknown'.
+    applicable = [r for r in results if r["confidence"] >= min_confidence and r["sector"] != "unknown"]
+    typer.echo()
+    typer.echo(
+        f"Applicable: {len(applicable)} of {len(results)} "
+        f"(skipped {len(results) - len(applicable)} below threshold or unknown)"
+    )
+    if not applicable:
+        return
+
+    if not commit:
+        typer.echo("Dry run — pass --commit to apply.")
+        return
+
+    with SessionLocal() as session:
+        updates_sources = 0
+        updates_leads = 0
+        for r in applicable:
+            employer = r["employer"]
+            sector = r["sector"]
+            # Update every Source whose employer_name matches this name
+            # AND is currently unknown (don't clobber manual overrides).
+            res_src = session.execute(
+                _update(Source)
+                .where(Source.employer_name == employer)
+                .where(Source.sector == "unknown")
+                .values(sector=sector)
+            )
+            updates_sources += res_src.rowcount or 0
+            # Update every EnrichedJob whose resolved employer matches.
+            res_ej = session.execute(
+                _update(EnrichedJob)
+                .where(EnrichedJob.employer_sector == "unknown")
+                .where(_func.coalesce(EnrichedJob.team, Source.employer_name) == employer)
+                .where(EnrichedJob.raw_job_id == RawJob.id)
+                .where(RawJob.source_id == Source.id)
+            )
+            # Note: SQLAlchemy can't always express the JOIN-style WHERE on
+            # bulk update across all backends. Use a sub-select form.
+            sub = (
+                select(EnrichedJob.id)
+                .select_from(EnrichedJob)
+                .join(RawJob, RawJob.id == EnrichedJob.raw_job_id)
+                .join(Source, Source.id == RawJob.source_id)
+                .where(EnrichedJob.employer_sector == "unknown")
+                .where(_func.coalesce(EnrichedJob.team, Source.employer_name) == employer)
+            )
+            ids = [r[0] for r in session.execute(sub).all()]
+            if ids:
+                res_ej2 = session.execute(
+                    _update(EnrichedJob)
+                    .where(EnrichedJob.id.in_(ids))
+                    .values(employer_sector=sector)
+                )
+                updates_leads += res_ej2.rowcount or 0
+        session.commit()
+    typer.echo(f"Committed: {updates_sources} sources, {updates_leads} leads updated.")
+
+
 @db_app.command("stats")
 def db_stats() -> None:
     with SessionLocal() as session:
