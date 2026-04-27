@@ -1,13 +1,19 @@
 """LLM pricing tables for cost calculation.
 
-Public list pricing as of 2026-Q2. Update when providers change
-prices or when your contracted tier rates differ. Costs computed
-here are estimates — actual billed amounts can differ if you're on
-a custom enterprise tier.
+OpenAI rates verified against the developer-platform pricing
+dashboard 2026-04-27 (Standard tier, short-context). The table
+does not model the long-context tier (input/output ~2× short),
+the cached-input discount, the Batch / Flex / Priority lanes, or
+the +10% regional-residency uplift — these change pricing by
+~0.1×-2×, so per-call cost computed here is a list-price estimate
+rather than a billed-amount oracle. Update when the dashboard
+moves or when your contracted tier rates differ.
 
 Covers both OpenAI and DeepSeek models. Model-name prefix matching
 (see ``_resolve_rates``) disambiguates families so entries can be
-listed in one table without collisions.
+listed in one table without collisions. Longer keys win the prefix
+match so e.g. "gpt-5.4-mini-2026-04-XX" picks "gpt-5.4-mini" over
+"gpt-5.4".
 """
 
 from __future__ import annotations
@@ -16,20 +22,25 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# (input_per_1m_usd, output_per_1m_usd)
+# (input_per_1m_usd, output_per_1m_usd) — Standard tier, short context.
 PRICING: dict[str, tuple[float, float]] = {
-    # GPT-5 family
-    "gpt-5.4":     (2.50, 15.00),  # estimated — heavier sibling of gpt-5.2; verify against OpenAI dashboard
-    "gpt-5.2":     (1.25, 10.00),
-    "gpt-5":       (1.25, 10.00),
-    "gpt-5-mini":  (0.25,  2.00),
+    # GPT-5 family — flagship pricing
+    "gpt-5.5-pro":  (30.00, 180.00),
+    "gpt-5.5":      ( 5.00,  30.00),  # campaign default since 2026-04-27 (V3 + 5.5)
+    "gpt-5.4-pro":  (30.00, 180.00),
+    "gpt-5.4-mini": ( 0.75,   4.50),
+    "gpt-5.4-nano": ( 0.20,   1.25),
+    "gpt-5.4":      ( 2.50,  15.00),  # campaign default until 2026-04-27 (V2 + 5.4)
+    "gpt-5.2":      ( 1.25,  10.00),  # dossier default
+    "gpt-5":        ( 1.25,  10.00),
+    "gpt-5-mini":   ( 0.25,   2.00),
     # GPT-4o family
-    "gpt-4o":      (2.50, 10.00),
-    "gpt-4o-mini": (0.15,  0.60),
-    # GPT-4 / 4-turbo
+    "gpt-4o":      (2.50, 10.00),     # campaign fallback when reasoning model returns empty
+    "gpt-4o-mini": (0.15,  0.60),     # advert-extraction model
+    # GPT-4 / 4-turbo (legacy)
     "gpt-4-turbo": (10.00, 30.00),
     "gpt-4":       (30.00, 60.00),
-    # Reasoning models (o-series)
+    # Reasoning models (o-series, legacy)
     "o1":          (15.00, 60.00),
     "o1-mini":     ( 3.00, 12.00),
     "o3":          (15.00, 60.00),
