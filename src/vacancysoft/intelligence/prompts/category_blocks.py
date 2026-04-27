@@ -148,6 +148,9 @@ def render_hm_search_template_v2(
 
 CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
     "risk": {
+        # Short noun phrase used by V3's persona block ({recruiter_specialism}).
+        # Ignored by V1 / V2.
+        "recruiter_specialism": "risk recruitment specialist",
         "research_scope": (
             "wholesale credit context across buy-side and sell-side perspectives"
         ),
@@ -176,6 +179,7 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
         "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "quant": {
+        "recruiter_specialism": "quantitative-talent specialist",
         "research_scope": (
             "quantitative strategies, model infrastructure, and research culture"
         ),
@@ -205,6 +209,7 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
         "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "compliance": {
+        "recruiter_specialism": "compliance and financial-crime recruitment specialist",
         "research_scope": (
             "regulatory compliance landscape, enforcement trends, and financial crime frameworks"
         ),
@@ -233,6 +238,7 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
         "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "audit": {
+        "recruiter_specialism": "internal-audit and assurance recruitment specialist",
         "research_scope": (
             "internal control environment, audit committee priorities, and assurance frameworks"
         ),
@@ -260,6 +266,7 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
         "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "cyber": {
+        "recruiter_specialism": "cyber-security recruitment specialist",
         "research_scope": (
             "cyber security posture, threat landscape, and operational resilience"
         ),
@@ -287,6 +294,7 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
         "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "legal": {
+        "recruiter_specialism": "legal recruitment specialist",
         "research_scope": (
             "legal and governance landscape, litigation exposure, and regulatory investigations"
         ),
@@ -314,6 +322,7 @@ CATEGORY_BLOCKS: dict[str, dict[str, str]] = {
         "hm_search_queries_v2": _HM_SEARCHES_V2_TEMPLATE,
     },
     "front_office": {
+        "recruiter_specialism": "front-office recruitment specialist",
         "research_scope": (
             "trading desk structure, market-making capabilities, and client franchise"
         ),

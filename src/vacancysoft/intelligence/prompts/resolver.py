@@ -9,6 +9,7 @@ from vacancysoft.intelligence.prompts.base_campaign import (
     CAMPAIGN_SYSTEM,
     CAMPAIGN_TEMPLATE_V1,
     CAMPAIGN_TEMPLATE_V2,
+    CAMPAIGN_TEMPLATE_V3,
 )
 from vacancysoft.intelligence.prompts.base_dossier import DOSSIER_SYSTEM, DOSSIER_TEMPLATE
 from vacancysoft.intelligence.prompts.category_blocks import CATEGORY_BLOCKS, DEFAULT_CATEGORY
@@ -129,7 +130,7 @@ def resolve_campaign_prompt(
     category: str,
     job_data: dict[str, Any],
     dossier_sections: dict[str, Any],
-    template_version: str = "v2",
+    template_version: str = "v3",
     user_context: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Assemble the campaign prompt.
@@ -256,21 +257,41 @@ def resolve_campaign_prompt(
         )
     description_safe = description_raw.replace("{", "{{").replace("}", "}}") or "Not available"
 
-    # Template selection: v2 (default, 2026-04-20+) reshapes the prompt so
-    # tone determines content-source, not just register. v1 is the legacy
-    # "same message, different voice" shape and is kept behind the flag
-    # for hot-swap rollback. v2 ignores {outreach_angle} — .format() is
-    # permissive about unused kwargs so we pass it either way. v1 does
-    # not reference {description} or {voice_layer} so both are silently
-    # ignored there too.
-    tv = (template_version or "v2").lower()
-    template = CAMPAIGN_TEMPLATE_V1 if tv == "v1" else CAMPAIGN_TEMPLATE_V2
+    # Template selection: v3 (default, 2026-04-27+, GPT-5.5) is a
+    # persona-led aggressive rule-cut on V2; v2 (2026-04-20+) reshapes
+    # the prompt so tone determines content-source, not just register;
+    # v1 is the legacy "same message, different voice" shape. All three
+    # are kept behind the config flag so a hot-swap revert is one line
+    # of TOML and a restart. .format() is permissive about unused kwargs,
+    # so all four format keys ({outreach_angle}, {description},
+    # {voice_layer}, plus V3's {recruiter_specialism})
+    # are passed regardless of which template is selected; templates
+    # silently ignore the placeholders they don't reference.
+    tv = (template_version or "v3").lower()
+    if tv == "v1":
+        template = CAMPAIGN_TEMPLATE_V1
+    elif tv == "v2":
+        template = CAMPAIGN_TEMPLATE_V2
+    else:
+        template = CAMPAIGN_TEMPLATE_V3
 
     # Voice-layer block. Empty string when user_context is None OR when
     # the user has no authored overrides and no voice samples yet —
-    # either way the v2 template renders exactly as it did pre-voice-
-    # layer. v1 ignores the kwarg entirely.
+    # either way V2 / V3 render exactly as they did pre-voice-layer.
+    # V1 ignores the kwarg entirely.
     voice_layer = _render_voice_layer(user_context)
+
+    # V3 persona placeholder. V1 / V2 ignore it (str.format is
+    # permissive about unused kwargs).
+    #
+    # recruiter_specialism: short noun phrase that anchors the persona
+    # in the right domain. New per-category key in CATEGORY_BLOCKS;
+    # falls back to a generic phrase if a future category is added
+    # without one. The operator's name is deliberately NOT injected
+    # into the persona block — the voice layer carries personal voice
+    # when populated, and the persona block stays operator-agnostic so
+    # worker pre-gen and operator regenerations render identically.
+    recruiter_specialism = blocks.get("recruiter_specialism", "recruitment specialist")
 
     user_content = template.format(
         title=job_data.get("title", ""),
@@ -286,6 +307,7 @@ def resolve_campaign_prompt(
         description=description_safe,
         voice_layer=voice_layer,
         outreach_angle=blocks["outreach_angle"],
+        recruiter_specialism=recruiter_specialism,
     )
     return [
         {"role": "system", "content": CAMPAIGN_SYSTEM},

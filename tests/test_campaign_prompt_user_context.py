@@ -188,13 +188,18 @@ class TestVoiceSamples:
 
 class TestCombined:
 
-    def test_both_render_when_both_present(self) -> None:
+    def test_both_render_when_both_present_v2(self) -> None:
+        """V2 ordering: voice layer slots between # Global rules and # Output schema.
+        Pinned explicitly to v2 since V3 (default since 2026-04-27) uses
+        different section headings (# Style and # Output)."""
         ctx = _empty_user_context()
         ctx["tone_prompts"]["formal"] = "Always start with the company context."
         ctx["voice_samples_by_step"][2] = [
             {"subject": "Week 2 nudge", "body": "Short body.", "tone": "informal"},
         ]
-        messages = resolve_campaign_prompt("risk", _job(), _dossier(), user_context=ctx)
+        messages = resolve_campaign_prompt(
+            "risk", _job(), _dossier(), template_version="v2", user_context=ctx,
+        )
         user = messages[1]["content"]
         assert "Authored voice guidance" in user
         assert "How Antony B. actually writes" in user
@@ -202,6 +207,26 @@ class TestCombined:
         assert user.index("# Voice layer") < user.index("# Output schema")
         # Global rules still come before the voice layer
         assert user.index("# Global rules") < user.index("# Voice layer")
+
+    def test_both_render_when_both_present_v3(self) -> None:
+        """V3 ordering: voice layer slots between # Style and # Tone variants
+        (the V3 template restructured the surrounding sections; the voice
+        layer slot itself is unchanged in semantics)."""
+        ctx = _empty_user_context()
+        ctx["tone_prompts"]["formal"] = "Always start with the company context."
+        ctx["voice_samples_by_step"][2] = [
+            {"subject": "Week 2 nudge", "body": "Short body.", "tone": "informal"},
+        ]
+        messages = resolve_campaign_prompt(
+            "risk", _job(), _dossier(), template_version="v3", user_context=ctx,
+        )
+        user = messages[1]["content"]
+        assert "Authored voice guidance" in user
+        assert "How Antony B. actually writes" in user
+        # Voice layer slots after # Style and before # Tone variants in V3.
+        assert user.index("# Style") < user.index("# Voice layer")
+        assert user.index("# Voice layer") < user.index("# Tone variants")
+        assert user.index("# Tone variants") < user.index("# Output")
 
 
 # ── v1 rollback path ───────────────────────────────────────────────
