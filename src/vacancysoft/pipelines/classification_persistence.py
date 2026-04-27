@@ -22,7 +22,7 @@ def persist_classification_for_enriched_job(session: Session, enriched_job: Enri
 
     values = {
         "enriched_job_id": enriched_job.id,
-        "classifier_version": "rule_classifier_v2",
+        "classifier_version": "rule_classifier_v3",
         "taxonomy_version": payload.taxonomy_version,
         "target_function": payload.primary_taxonomy_key,
         "target_domain": None,
