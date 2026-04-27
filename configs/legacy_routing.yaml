@@ -38,7 +38,7 @@ sub_specialism_keywords:
     Quant Risk: [model risk, model risk quant, model review, model validation, model validation quant, quantitative model risk, quantitative validation, quantitative risk, risk quant, risk analytics quant, risk analytics, reverse stress, scenario analysis, stress testing, stress test, validation analyst, validation engineer]
     # Operational Risk before Prudential Risk so "non financial risk" wins over
     # Prudential's "financial risk" keyword on substring match.
-    Operational Risk: [enterprise risk, head of risk, non financial risk, op risk, operational risk, ops risk, risk controls, risk framework, risk governance, risk reporting]
+    Operational Risk: [enterprise risk, head of risk, non financial risk, op risk, operational risk, ops risk, risk controls, risk framework, risk governance, risk reporting, third party risk, 3rd party risk]
     Prudential Risk: [liquidity risk, capital planning risk, financial risk, icaap, ilaap, prudential risk, reserving risk, treasury risk, treasury analyst, treasury manager, liquidity management, prudential, alm, treasury]
     Risk Management: [insurance risk, risk management, risk advisory, risk assessment, risk associate, risk assurance, risk consultant, risk]
   Quant:
@@ -70,6 +70,9 @@ sub_specialism_keywords:
   Compliance:
     Financial Crime: [financial crime, aml, kyc, sanctions, transaction monitoring, fraud risk, mlro, money laundering]
     Governance: [governance]
+    # Conduct Risk — its own sub-spec on operator request 2026-04-27. Listed
+    # before Regulatory Compliance so substring matches land here first.
+    Conduct Risk: [head of conduct risk, conduct risk officer, conduct risk manager, conduct risk]
     Regulatory Compliance: [compliance, regulatory compliance, surveillance]
   Audit:
     # External Audit intentionally omitted — we do not recruit that market;
@@ -82,9 +85,13 @@ sub_specialism_keywords:
     Security Architecture: [security architecture]
     Threat Detection: [threat detection]
     Offensive Security: [offensive security, red team, penetration testing]
-    Cyber GRC: [cyber grc, grc]
+    # IT / Tech risk advisory + governance keywords routed into existing
+    # Cyber GRC sub-spec on operator request 2026-04-27.
+    Cyber GRC: [cyber grc, grc, it risk, tech risk, technology risk, information technology risk]
     Resilience: [resilience, operational resilience, business continuity, disaster recovery, crisis management]
-    Cyber Security: [cyber, cyber security, information security]
+    # Insider Risk / Insider Threat keywords routed into existing Cyber
+    # Security sub-spec on operator request 2026-04-27.
+    Cyber Security: [cyber, cyber security, information security, insider risk, insider threat]
   Legal:
     Contracts: [contracts, contract]
     Legal Counsel: [legal counsel, counsel]

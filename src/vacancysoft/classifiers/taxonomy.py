@@ -89,12 +89,32 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("operational risk", 1.0, "Operational Risk"), ("ops risk", 1.0, "Operational Risk"),
         ("risk controls", 0.9, "Operational Risk"), ("risk framework", 0.9, "Operational Risk"),
         ("risk governance", 0.9, "Operational Risk"), ("risk reporting", 0.9, "Operational Risk"),
+        # Third-Party Risk — operator request 2026-04-27. Was being absorbed
+        # by the Risk Management catch-all; sits more naturally under
+        # Operational Risk alongside vendor / outsourcing / NFR governance.
+        ("third party risk", 1.0, "Operational Risk"),
+        ("3rd party risk", 1.0, "Operational Risk"),
         # Risk Management (catch-all, lowest specificity last). 'risk
         # assurance' rolls up here per the 2026-04-20 retag.
         ("insurance risk", 1.0, "Risk Management"), ("risk management", 1.0, "Risk Management"),
         ("risk advisory", 0.9, "Risk Management"), ("risk assessment", 0.9, "Risk Management"),
         ("risk associate", 0.9, "Risk Management"), ("risk assurance", 0.9, "Risk Management"),
         ("risk consultant", 0.9, "Risk Management"),
+        # Risk-systems engineering protection — operator clarification
+        # 2026-04-27: titles whose role is "build the risk function's tooling"
+        # stay in Risk regardless of any IT / Tech keyword overlap. Weight
+        # ≥ 0.95 so these win against the new Cyber rules (0.9) on borderline
+        # titles like "IT Risk Engineer".
+        ("risk systems developer", 1.0, "Risk Management"),
+        ("risk system developer", 1.0, "Risk Management"),
+        ("risk technology developer", 1.0, "Risk Management"),
+        ("risk software developer", 1.0, "Risk Management"),
+        ("risk software engineer", 1.0, "Risk Management"),
+        ("risk systems engineer", 1.0, "Risk Management"),
+        ("risk system engineer", 1.0, "Risk Management"),
+        ("risk technology engineer", 1.0, "Risk Management"),
+        ("risk engineer", 0.95, "Risk Management"),
+        ("risk developer", 0.95, "Risk Management"),
         ("risk", 0.7, "Risk Management"),
     ],
     "quant": [
@@ -224,7 +244,16 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("compliance officer", 1.0, "Regulatory Compliance"), ("compliance manager", 1.0, "Regulatory Compliance"),
         ("compliance analyst", 1.0, "Regulatory Compliance"), ("compliance advisor", 0.9, "Regulatory Compliance"),
         ("head of compliance", 1.0, "Regulatory Compliance"), ("chief compliance", 1.0, "Regulatory Compliance"),
-        ("regulatory compliance", 1.0, "Regulatory Compliance"), ("conduct risk", 0.9, "Regulatory Compliance"),
+        ("regulatory compliance", 1.0, "Regulatory Compliance"),
+        # Conduct Risk — promoted from a Regulatory Compliance synonym to its
+        # own sub-spec on operator request 2026-04-27. Volume + commercial
+        # positioning warrants distinct tagging. Longer phrases first so the
+        # longest-match-first sort picks the most specific tag; "conduct risk"
+        # alone is the catch-all within Conduct Risk.
+        ("head of conduct risk", 1.0, "Conduct Risk"),
+        ("conduct risk officer", 1.0, "Conduct Risk"),
+        ("conduct risk manager", 1.0, "Conduct Risk"),
+        ("conduct risk", 1.0, "Conduct Risk"),
         ("smcr", 0.9, "Regulatory Compliance"), ("mifid", 0.9, "Regulatory Compliance"),
         ("dodd frank", 0.9, "Regulatory Compliance"), ("emir", 0.8, "Regulatory Compliance"),
         ("surveillance", 0.8, "Regulatory Compliance"), ("aml", 0.9, "Financial Crime"),
@@ -279,6 +308,13 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("security compliance", 0.8, "Cyber GRC"), ("security risk", 0.8, "Cyber GRC"),
         ("information risk", 0.8, "Cyber GRC"),
         ("infosec", 0.9, "Cyber GRC"),
+        # IT / Tech risk advisory + governance — operator request 2026-04-27.
+        # Weight ≥ 0.9 to beat Risk's 0.7 catch-all decisively. Routed into the
+        # existing Cyber GRC sub-spec so the Cyber structure stays unchanged.
+        ("information technology risk", 1.0, "Cyber GRC"),
+        ("technology risk", 0.9, "Cyber GRC"),
+        ("tech risk", 0.9, "Cyber GRC"),
+        ("it risk", 0.9, "Cyber GRC"),
         ("operational resilience", 0.9, "Resilience"), ("business continuity", 0.85, "Resilience"),
         ("disaster recovery", 0.8, "Resilience"), ("crisis management", 0.75, "Resilience"),
         ("resilience", 0.7, "Resilience"),
@@ -287,6 +323,11 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("security analyst", 0.85, "Cyber Security"),
         ("security manager", 0.85, "Cyber Security"),
         ("security consultant", 0.85, "Cyber Security"), ("ciso", 1.0, "Cyber Security"),
+        # Insider Risk / Insider Threat — operator request 2026-04-27. Routed
+        # into existing Cyber Security sub-spec so the Cyber structure stays
+        # unchanged. Weight 0.9 to beat Risk's 0.7 catch-all.
+        ("insider threat", 0.9, "Cyber Security"),
+        ("insider risk", 0.9, "Cyber Security"),
         ("cyber", 0.8, "Cyber Security"),
     ],
     "legal": [
