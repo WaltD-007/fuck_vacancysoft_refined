@@ -184,11 +184,20 @@ class TestTemplateVersions:
 
 class TestResolverVersionSelection:
 
-    def test_default_is_v2(self) -> None:
+    def test_default_is_v3(self) -> None:
+        """Default flipped to V3 on 2026-04-27 (GPT-5.5 + persona-led)."""
         messages = resolve_campaign_prompt("risk", _job(), _dossier())
         user = next(m["content"] for m in messages if m["role"] == "user")
-        assert "TONE CONTROLS CONTENT" in user
+        assert "Treat the tone keys as creative briefs" in user  # v3-only marker
+        assert "TONE CONTROLS CONTENT" not in user  # v2-only marker
         assert "Step 1 — Initial outreach" not in user  # v1-only header
+
+    def test_explicit_v3(self) -> None:
+        messages = resolve_campaign_prompt("risk", _job(), _dossier(), template_version="v3")
+        user = next(m["content"] for m in messages if m["role"] == "user")
+        assert "Treat the tone keys as creative briefs" in user
+        # category-driven persona block
+        assert "risk recruitment specialist at Barclay Simpson" in user
 
     def test_explicit_v2(self) -> None:
         messages = resolve_campaign_prompt("risk", _job(), _dossier(), template_version="v2")
@@ -210,11 +219,15 @@ class TestResolverVersionSelection:
         u2 = next(m["content"] for m in m2 if m["role"] == "user")
         assert "TONE CONTROLS CONTENT" in u2
 
-    def test_unknown_version_falls_back_to_v2(self) -> None:
-        """Guardrail: any value that isn't 'v1' picks v2 (fail-forward)."""
+        m3 = resolve_campaign_prompt("risk", _job(), _dossier(), template_version="V3")
+        u3 = next(m["content"] for m in m3 if m["role"] == "user")
+        assert "Treat the tone keys as creative briefs" in u3
+
+    def test_unknown_version_falls_back_to_v3(self) -> None:
+        """Guardrail: any value that isn't 'v1' or 'v2' picks v3 (default since 2026-04-27)."""
         messages = resolve_campaign_prompt("risk", _job(), _dossier(), template_version="nonsense")
         user = next(m["content"] for m in messages if m["role"] == "user")
-        assert "TONE CONTROLS CONTENT" in user
+        assert "Treat the tone keys as creative briefs" in user
 
 
 # ── Placeholder completeness (renders cleanly, no KeyError) ───────
