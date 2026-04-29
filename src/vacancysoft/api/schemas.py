@@ -363,3 +363,136 @@ class LaunchCampaignResponse(BaseModel):
 
 class CancelCampaignResponse(BaseModel):
     cancelled_count: int
+
+
+# ── Campaigns tracker (PR P8) ─────────────────────────────────────────
+
+
+class CampaignSenderInfo(BaseModel):
+    """Operator-facing info about who launched a campaign."""
+
+    sender_user_id: str
+    display_name: str | None
+    email: str | None
+
+
+class CampaignHmInfo(BaseModel):
+    """Hiring-manager identity surfaced on the list + detail views.
+
+    ``email`` is what was actually used as the recipient (from
+    ``sent_messages.recipient_email`` at launch time). ``name`` is the
+    best-match display name pulled from the dossier's ``hiring_managers``
+    JSON, or ``None`` if we couldn't resolve one.
+    """
+
+    email: str | None
+    name: str | None
+
+
+class CampaignStageInfo(BaseModel):
+    sent: int
+    pending: int
+    cancelled: int
+    failed: int
+    total: int
+
+
+class CampaignCounts(BaseModel):
+    """Aggregate engagement counts for the list view.
+
+    ``opens`` and ``clicks`` exclude scanner-prefetched events by default
+    (``likely_apple_mpp`` for opens, ``likely_scanner`` for clicks).
+    Operators wanting the full count can ask for the detail view, which
+    breaks events out individually.
+    """
+
+    opens: int
+    clicks: int
+    replies: int
+
+
+class CampaignListItem(BaseModel):
+    campaign_output_id: str
+    title: str | None
+    company: str | None
+    location_city: str | None
+    location_country: str | None
+    category: str | None
+    hiring_manager: CampaignHmInfo
+    sender: CampaignSenderInfo
+    stage: CampaignStageInfo
+    status: str  # replied | opened | sent | pending | cancelled | failed
+    counts: CampaignCounts
+    last_activity: str | None  # ISO-8601, MAX of sent / opened / clicked / replied
+    launched_at: str | None    # earliest sent_messages.created_at
+
+
+class CampaignListResponse(BaseModel):
+    items: list[CampaignListItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class CampaignLauncher(BaseModel):
+    """One row in the dropdown filter on the Campaigns page."""
+
+    sender_user_id: str
+    display_name: str | None
+    email: str | None
+    campaign_count: int
+
+
+class CampaignLaunchersResponse(BaseModel):
+    launchers: list[CampaignLauncher]
+
+
+# ── Detail view (slide-over) ──
+
+
+class CampaignOpenDetail(BaseModel):
+    opened_at: str
+    user_agent: str | None
+    likely_apple_mpp: bool
+
+
+class CampaignClickDetail(BaseModel):
+    clicked_at: str
+    original_url: str
+    user_agent: str | None
+    likely_scanner: bool
+
+
+class CampaignSequenceStep(BaseModel):
+    sequence_index: int
+    tone: str
+    status: str
+    scheduled_for: str | None
+    sent_at: str | None
+    subject: str | None
+    error_message: str | None
+    opens: list[CampaignOpenDetail]
+    clicks: list[CampaignClickDetail]
+
+
+class CampaignReply(BaseModel):
+    received_at: str
+    from_email: str
+    subject: str | None
+
+
+class CampaignDetailResponse(BaseModel):
+    campaign_output_id: str
+    title: str | None
+    company: str | None
+    location_city: str | None
+    location_country: str | None
+    category: str | None
+    hiring_manager: CampaignHmInfo
+    sender: CampaignSenderInfo
+    status: str
+    counts: CampaignCounts
+    launched_at: str | None
+    last_activity: str | None
+    steps: list[CampaignSequenceStep]
+    replies: list[CampaignReply]

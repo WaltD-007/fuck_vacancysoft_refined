@@ -1,151 +1,342 @@
 "use client";
+// Campaigns tracker — PR P8.
+//
+// Shows one row per launched campaign with stage / status / opens /
+// clicks / replies. Filters by status chip + sender-user dropdown.
+// Click a row → slide-over with the per-step timeline + reply log +
+// Stop button. URL state drives the slide-over (`?focus=<id>`) so the
+// Builder's post-launch redirect can deep-link in.
+
+import { Suspense, useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import useSWR from "swr";
 import Sidebar from "../components/Sidebar";
+import { API, fetcher } from "../lib/swr";
 import { FEATURES } from "../lib/features";
+import CampaignDetailPanel from "./CampaignDetailPanel";
 
-const catColors: Record<string, string> = { Risk: "#a29bfe", Quant: "#4dabf7", Compliance: "#00d2a0", Audit: "#ffd93d", Cyber: "#ff6b6b", Legal: "#fd79a8", "Quant Risk": "#4dabf7", "Front Office": "#ffa500" };
+const STATUS_FILTERS = [
+  { key: "", label: "All" },
+  { key: "sent", label: "In Sequence" },
+  { key: "opened", label: "Opened" },
+  { key: "replied", label: "Replied" },
+  { key: "no_response", label: "No Response" },
+  { key: "cancelled", label: "Cancelled" },
+  { key: "failed", label: "Failed" },
+] as const;
 
-const leads = [
-  { company: "Goldman Sachs", title: "VP, Market Risk Analytics", hm: "Sarah Chen", email: "sarah.chen@gs.com", cat: "Risk", step: "4 of 5", status: "Opened", statusColor: "#00d2a0", opens: "4/4", opensColor: "#00d2a0", time: "2h ago" },
-  { company: "Barclays", title: "Head of Compliance, EMEA", hm: "James Wright", email: "j.wright@barclays.com", cat: "Compliance", step: "3 of 5", status: "✉ Replied", statusColor: "#4dabf7", opens: "3/3", opensColor: "#00d2a0", time: "4h ago" },
-  { company: "Citadel", title: "Quantitative Analyst, Derivatives", hm: "David Kim", email: "d.kim@citadel.com", cat: "Quant", step: "2 of 5", status: "Opened", statusColor: "#00d2a0", opens: "2/2", opensColor: "#00d2a0", time: "6h ago" },
-  { company: "HSBC", title: "Senior Cyber Security Engineer", hm: "Rachel Patel", email: "rachel.patel@hsbc.com", cat: "Cyber", step: "5 of 5", status: "No response", statusColor: "#555570", opens: "0/5", opensColor: "#555570", time: "3d ago" },
-  { company: "Man Group", title: "Quantitative Risk Analyst", hm: "Tom Harding", email: "t.harding@man.com", cat: "Quant Risk", step: "1 of 5", status: "Sent", statusColor: "#00d2a0", opens: "0/1", opensColor: "#555570", time: "12m ago" },
-  { company: "Marathon AM", title: "Compliance Senior VP", hm: "Lisa Morgan", email: "l.morgan@marathonfund.com", cat: "Compliance", step: "3 of 5", status: "📅 Meeting", statusColor: "#ffd93d", opens: "3/3", opensColor: "#00d2a0", time: "1d ago" },
-  { company: "Deutsche Bank", title: "Internal Audit Manager, Tech", hm: "Klaus Weber", email: "klaus.weber@db.com", cat: "Audit", step: "2 of 5", status: "Opened", statusColor: "#00d2a0", opens: "1/2", opensColor: "#00d2a0", time: "8h ago" },
-  { company: "BNP Paribas", title: "Legal Counsel, Structured Finance", hm: "Marie Dupont", email: "m.dupont@bnpparibas.com", cat: "Legal", step: "3 of 5", status: "✉ Replied", statusColor: "#4dabf7", opens: "3/3", opensColor: "#00d2a0", time: "5h ago" },
-  { company: "Santander", title: "Credit Risk Modeller", hm: "Andrew Mills", email: "a.mills@santander.co.uk", cat: "Risk", step: "1 of 5", status: "Sent", statusColor: "#00d2a0", opens: "0/1", opensColor: "#555570", time: "25m ago" },
-];
+type CampaignListItem = {
+  campaign_output_id: string;
+  title: string | null;
+  company: string | null;
+  location_city: string | null;
+  location_country: string | null;
+  category: string | null;
+  hiring_manager: { email: string | null; name: string | null };
+  sender: { sender_user_id: string; display_name: string | null; email: string | null };
+  stage: { sent: number; pending: number; cancelled: number; failed: number; total: number };
+  status: string;
+  counts: { opens: number; clicks: number; replies: number };
+  last_activity: string | null;
+  launched_at: string | null;
+};
 
-const filters = ["All (47)", "In Sequence (32)", "Replied (8)", "Meeting Booked (4)", "No Response (3)"];
+type CampaignListResponse = {
+  items: CampaignListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+type Launcher = {
+  sender_user_id: string;
+  display_name: string | null;
+  email: string | null;
+  campaign_count: number;
+};
+
+const CAT_COLOR: Record<string, string> = {
+  Risk: "#a29bfe",
+  Quant: "#4dabf7",
+  Compliance: "#00d2a0",
+  Audit: "#ffd93d",
+  Cyber: "#ff6b6b",
+  Legal: "#fd79a8",
+  "Quant Risk": "#4dabf7",
+  "Front Office": "#ffa500",
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  replied: "#4dabf7",
+  opened: "#00d2a0",
+  sent: "#00d2a0",
+  pending: "#8888a0",
+  cancelled: "#ff6b6b",
+  failed: "#ff6b6b",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  replied: "✉ Replied",
+  opened: "Opened",
+  sent: "Sent",
+  pending: "Pending",
+  cancelled: "Cancelled",
+  failed: "Failed",
+};
+
+function relativeTime(iso: string | null): string {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "—";
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function locationText(item: CampaignListItem): string {
+  const parts = [item.location_city, item.location_country].filter(Boolean);
+  return parts.join(", ") || "—";
+}
 
 export default function CampaignsPage() {
-  // While FEATURES.campaignsManager is false, the rows below are static
-  // mock data — flag this loudly at the top of the page so colleagues
-  // don't mistake it for a live dashboard.
-  const isMock = !FEATURES.campaignsManager;
+  return (
+    <Suspense
+      fallback={
+        <div style={{ minHeight: "100vh", background: "#0a0a0f", color: "#8888a0", padding: 40 }}>
+          Loading Campaigns…
+        </div>
+      }
+    >
+      <CampaignsPageInner />
+    </Suspense>
+  );
+}
+
+function CampaignsPageInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const statusFilter = searchParams.get("status") || "";
+  const ownerFilter = searchParams.get("owner") || "";
+  const focusId = searchParams.get("focus") || "";
+
+  // List endpoint — re-fetches when filters change. SWR key includes the
+  // filter values so cache is per-filter-combo.
+  const listKey = `/campaigns?${new URLSearchParams({
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(ownerFilter ? { owner: ownerFilter } : {}),
+    limit: "50",
+  }).toString()}`;
+  const { data: list, error: listError, isLoading } = useSWR<CampaignListResponse>(
+    FEATURES.campaignsManager ? listKey : null,
+    fetcher,
+    { keepPreviousData: true, refreshInterval: 30_000 },
+  );
+
+  // Launchers — for the dropdown. Static-ish, refresh every 5 min.
+  const { data: launchersData } = useSWR<{ launchers: Launcher[] }>(
+    FEATURES.campaignsManager ? "/campaigns/launchers" : null,
+    fetcher,
+    { refreshInterval: 300_000 },
+  );
+  const launchers = launchersData?.launchers ?? [];
+
+  const items = list?.items ?? [];
+
+  // URL-state helpers
+  const setParam = (key: string, value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value) params.set(key, value);
+    else params.delete(key);
+    router.replace(`/campaigns${params.toString() ? `?${params.toString()}` : ""}`);
+  };
+
+  const onRowClick = (id: string) => setParam("focus", id);
+  const onClosePanel = () => setParam("focus", "");
+
   return (
     <div className="min-h-screen" style={{ background: "#0a0a0f", color: "#e8e8f0", fontFamily: "'Inter', sans-serif" }}>
       <Sidebar />
       <main className="ml-60">
         <div className="flex items-center justify-between px-8 h-14" style={{ background: "rgba(10,10,15,0.8)", borderBottom: "1px solid #1f1f2f" }}>
           <div className="font-bold text-base">Campaigns</div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm" style={{ background: "#16161f", border: "1px solid #2a2a3a", color: "#555570", minWidth: 240 }}>
-              <span style={{ fontSize: 14 }}>&#128269;</span>Search leads, sources, campaigns...
-              <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded" style={{ background: "#1e1e2a", border: "1px solid #2a2a3a" }}>⌘K</span>
-            </div>
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#16161f", border: "1px solid #2a2a3a", color: "#8888a0" }}>🔔</div>
-            <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "#16161f", border: "1px solid #2a2a3a", color: "#8888a0" }}>⚙</div>
-          </div>
         </div>
 
         <div className="p-7">
-          {/* Coming-soon banner — shown while the Campaign Manager is still */}
-          {/* a mock. Flip FEATURES.campaignsManager to true to hide. */}
-          {isMock && (
-            <div className="mb-6 px-5 py-3 rounded-xl flex items-center gap-3" style={{ background: "rgba(255,217,61,0.06)", border: "1px solid rgba(255,217,61,0.25)" }}>
-              <span className="text-[14px]">⚠</span>
-              <div>
-                <div className="text-[13px] font-semibold" style={{ color: "#ffd93d" }}>Preview only — not live data</div>
-                <div className="text-[11px]" style={{ color: "#8888a0" }}>Shows what the Campaigns page will look like. The rows, counts, and stats below are hardcoded placeholders. Real tracking ships with the email-send feature.</div>
-              </div>
-            </div>
-          )}
-
           {/* Header */}
           <div className="flex justify-between items-center mb-6">
             <div>
               <div className="text-xl font-bold">Campaigns</div>
               <div className="text-sm mt-1" style={{ color: "#555570" }}>
-                {isMock ? "Placeholder data — see banner above" : "5 campaigns · 1,247 contacts enrolled · 68% avg open rate"}
+                {list ? `${list.total} campaign${list.total === 1 ? "" : "s"}` : "—"}
               </div>
             </div>
-            <button
-              disabled={isMock}
-              title={isMock ? "Coming soon" : undefined}
-              className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white"
-              style={isMock
-                ? { background: "#1e1e2a", color: "#555570", border: "1px solid #2a2a3a", cursor: "not-allowed" }
-                : { background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)", boxShadow: "0 2px 12px rgba(108,92,231,0.3)" }
-              }
-            >+ New Campaign</button>
           </div>
 
-          {/* Stats */}
+          {/* Stats — placeholder per decision 5; live numbers come later */}
           <div className="grid grid-cols-5 gap-4 mb-6">
             {[
-              { label: "EMAILS SENT", value: "4,812", color: "#e8e8f0", sub: "▲ 342 today", subColor: "#00d2a0" },
-              { label: "OPEN RATE", value: "68.4%", color: "#00d2a0", sub: "▲ 2.1% vs last week", subColor: "#00d2a0" },
-              { label: "REPLY RATE", value: "14.2%", color: "#a29bfe", sub: "▲ 1.8% vs last week", subColor: "#00d2a0" },
-              { label: "MEETINGS BOOKED", value: "37", color: "#ffd93d", sub: "▲ 8 this week", subColor: "#00d2a0" },
-              { label: "BOUNCE RATE", value: "2.1%", color: "#8888a0", sub: "▼ 0.3%", subColor: "#00d2a0" },
+              { label: "EMAILS SENT" },
+              { label: "OPEN RATE" },
+              { label: "REPLY RATE" },
+              { label: "MEETINGS BOOKED" },
+              { label: "BOUNCE RATE" },
             ].map((s) => (
               <div key={s.label} className="p-5 rounded-xl" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
                 <div className="text-[11px] font-medium uppercase tracking-wider mb-2" style={{ color: "#555570", letterSpacing: "0.8px" }}>{s.label}</div>
-                <div className="text-[28px] font-extrabold tracking-tight" style={{ color: s.color }}>{s.value}</div>
-                <div className="text-xs mt-1.5" style={{ color: s.subColor }}>{s.sub}</div>
+                <div className="text-[28px] font-extrabold tracking-tight" style={{ color: "#3a3a4a" }}>—</div>
+                <div className="text-xs mt-1.5" style={{ color: "#3a3a4a" }}>coming soon</div>
               </div>
             ))}
           </div>
 
           {/* Table */}
           <div className="rounded-xl overflow-hidden" style={{ background: "#16161f", border: "1px solid #1f1f2f" }}>
-            <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: "1px solid #1f1f2f" }}>
-              <div className="flex gap-1.5">
-                {filters.map((f, i) => (
-                  <span key={f} className="px-3 py-1 rounded-full text-xs font-medium cursor-pointer" style={{
-                    background: i === 0 ? "rgba(108,92,231,0.15)" : "#1e1e2a",
-                    color: i === 0 ? "#a29bfe" : "#8888a0",
-                    border: `1px solid ${i === 0 ? "rgba(108,92,231,0.3)" : "#2a2a3a"}`,
-                  }}>{f}</span>
-                ))}
+            {/* Toolbar: status chips + owner dropdown */}
+            <div className="flex items-center gap-3 px-5 py-3 flex-wrap" style={{ borderBottom: "1px solid #1f1f2f" }}>
+              <div className="flex gap-1.5 flex-wrap">
+                {STATUS_FILTERS.map((f) => {
+                  const active = (statusFilter || "") === f.key;
+                  return (
+                    <button
+                      key={f.key || "all"}
+                      onClick={() => setParam("status", f.key)}
+                      className="px-3 py-1 rounded-full text-xs font-medium cursor-pointer"
+                      style={{
+                        background: active ? "rgba(108,92,231,0.15)" : "#1e1e2a",
+                        color: active ? "#a29bfe" : "#8888a0",
+                        border: `1px solid ${active ? "rgba(108,92,231,0.3)" : "#2a2a3a"}`,
+                      }}
+                    >{f.label}</button>
+                  );
+                })}
               </div>
-              <button className="px-3 py-1.5 rounded-lg text-xs font-semibold" style={{ background: "transparent", color: "#8888a0", border: "1px solid #2a2a3a" }}>↓ Export</button>
+              <div className="ml-auto flex items-center gap-2">
+                <label className="text-[11px] uppercase tracking-wider" style={{ color: "#555570", letterSpacing: "0.8px" }}>Operator</label>
+                <select
+                  value={ownerFilter}
+                  onChange={(e) => setParam("owner", e.target.value)}
+                  className="px-3 py-1.5 rounded-lg text-xs outline-none cursor-pointer"
+                  style={{ background: "#1e1e2a", border: "1px solid #2a2a3a", color: "#e8e8f0", minWidth: 180 }}
+                >
+                  <option value="">All operators</option>
+                  {launchers.map((l) => (
+                    <option key={l.sender_user_id} value={l.sender_user_id}>
+                      {(l.display_name || l.email || l.sender_user_id) + ` (${l.campaign_count})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
+
+            {/* Loading / error */}
+            {isLoading && (
+              <div className="px-5 py-3 text-xs" style={{ color: "#8888a0" }}>Loading…</div>
+            )}
+            {listError && (
+              <div className="px-5 py-3 text-xs" style={{ color: "#ff6b6b" }}>
+                Failed to load campaigns: {(listError as Error).message}
+              </div>
+            )}
 
             <table className="w-full">
               <thead>
                 <tr style={{ borderBottom: "1px solid #1f1f2f" }}>
-                  {["", "COMPANY", "JOB TITLE", "HIRING MANAGER", "CATEGORY", "STEP", "STATUS", "OPENS", "LAST ACTIVITY"].map((h) => (
+                  {[
+                    "JOB TITLE",
+                    "COMPANY",
+                    "LOCATION",
+                    "CATEGORY",
+                    "HIRING MANAGER",
+                    "OPERATOR",
+                    "STAGE",
+                    "STATUS",
+                    "OPENS",
+                    "CLICKS",
+                    "REPLIES",
+                    "LAST ACTIVITY",
+                  ].map((h) => (
                     <th key={h} className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider" style={{ color: "#555570", background: "#12121a", letterSpacing: "0.8px" }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {leads.map((l, i) => (
-                  <tr key={i} className="cursor-pointer" style={{ borderBottom: "1px solid #1f1f2f" }}
-                    onMouseOver={(e) => (e.currentTarget.style.background = "#1a1a25")}
-                    onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
-                  >
-                    <td className="px-4 py-3"><input type="checkbox" style={{ accentColor: "#6c5ce7" }} /></td>
-                    <td className="px-4 py-3 text-[13px] font-semibold">{l.company}</td>
-                    <td className="px-4 py-3 text-[13px] font-semibold">{l.title}</td>
-                    <td className="px-4 py-3">
-                      <div className="text-xs font-medium">{l.hm}</div>
-                      <div className="text-[11px]" style={{ color: "#555570" }}>{l.email}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide" style={{
-                        background: `${catColors[l.cat] || "#a29bfe"}15`,
-                        color: catColors[l.cat] || "#a29bfe",
-                      }}>{l.cat}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-[11px] px-2 py-0.5 rounded" style={{
-                        background: l.step === "5 of 5" ? "rgba(255,217,61,0.08)" : "#1e1e2a",
-                        color: l.step === "5 of 5" ? "#ffd93d" : "#8888a0",
-                      }}>{l.step}</span>
-                    </td>
-                    <td className="px-4 py-3 text-xs font-semibold" style={{ color: l.statusColor }}>{l.status}</td>
-                    <td className="px-4 py-3 text-xs font-bold" style={{ color: l.opensColor, fontFamily: "'JetBrains Mono', monospace" }}>{l.opens}</td>
-                    <td className="px-4 py-3 text-xs" style={{ color: "#555570" }}>{l.time}</td>
-                  </tr>
-                ))}
+                {items.map((item) => {
+                  const cat = item.category || "";
+                  const stageLabel = item.stage.total > 0
+                    ? `${item.stage.sent} of ${item.stage.total}`
+                    : "—";
+                  const stageWarn = item.stage.total > 0 && item.stage.sent === item.stage.total;
+                  return (
+                    <tr
+                      key={item.campaign_output_id}
+                      className="cursor-pointer"
+                      style={{ borderBottom: "1px solid #1f1f2f" }}
+                      onClick={() => onRowClick(item.campaign_output_id)}
+                      onMouseOver={(e) => (e.currentTarget.style.background = "#1a1a25")}
+                      onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <td className="px-4 py-3 text-[13px] font-semibold">{item.title || "—"}</td>
+                      <td className="px-4 py-3 text-[13px] font-semibold">{item.company || "—"}</td>
+                      <td className="px-4 py-3 text-xs" style={{ color: "#8888a0" }}>{locationText(item)}</td>
+                      <td className="px-4 py-3">
+                        {cat ? (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide" style={{
+                            background: `${CAT_COLOR[cat] || "#a29bfe"}15`,
+                            color: CAT_COLOR[cat] || "#a29bfe",
+                          }}>{cat}</span>
+                        ) : <span className="text-[11px]" style={{ color: "#555570" }}>—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-xs font-medium">{item.hiring_manager.name || "—"}</div>
+                        <div className="text-[11px]" style={{ color: "#555570" }}>{item.hiring_manager.email || ""}</div>
+                      </td>
+                      <td className="px-4 py-3 text-xs" style={{ color: "#8888a0" }}>
+                        {item.sender.display_name || item.sender.email || item.sender.sender_user_id || "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="text-[11px] px-2 py-0.5 rounded" style={{
+                          background: stageWarn ? "rgba(255,217,61,0.08)" : "#1e1e2a",
+                          color: stageWarn ? "#ffd93d" : "#8888a0",
+                        }}>{stageLabel}</span>
+                      </td>
+                      <td className="px-4 py-3 text-xs font-semibold" style={{ color: STATUS_COLOR[item.status] || "#8888a0" }}>
+                        {STATUS_LABEL[item.status] || item.status}
+                      </td>
+                      <td className="px-4 py-3 text-xs font-bold" style={{
+                        color: item.counts.opens > 0 ? "#00d2a0" : "#555570",
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}>{item.counts.opens}</td>
+                      <td className="px-4 py-3 text-xs font-bold" style={{
+                        color: item.counts.clicks > 0 ? "#00d2a0" : "#555570",
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}>{item.counts.clicks}</td>
+                      <td className="px-4 py-3 text-xs font-bold" style={{
+                        color: item.counts.replies > 0 ? "#4dabf7" : "#555570",
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}>{item.counts.replies}</td>
+                      <td className="px-4 py-3 text-xs" style={{ color: "#555570" }}>{relativeTime(item.last_activity)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
       </main>
+
+      {/* Slide-over detail panel — driven by ?focus=<id> in URL */}
+      {focusId && (
+        <CampaignDetailPanel
+          campaignId={focusId}
+          onClose={onClosePanel}
+        />
+      )}
     </div>
   );
 }

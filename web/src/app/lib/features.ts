@@ -24,10 +24,11 @@ export const FEATURES = {
   // status.
   voicePrompts: true,
 
-  // The /campaigns page is a hardcoded mock — no real data behind it yet.
-  // When the Campaign Manager feature is built, flip to true and the page
-  // link will light up.
-  campaignsManager: false,
+  // The /campaigns page wires to /api/campaigns + /detail + /launchers
+  // (PR P8). Flipped to true 2026-04-29 once the list/detail endpoints
+  // landed. Mock data is gone; an empty table renders if no campaigns
+  // have been launched yet.
+  campaignsManager: true,
 
   // The Campaign Builder has a Launch button but no backend to launch to.
   // Email send + multi-step scheduling tranche flips this on.

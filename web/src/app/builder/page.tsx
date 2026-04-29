@@ -278,6 +278,14 @@ function BuilderPageInner() {
           kind: "ok",
           text: `Scheduled ${n} sends · tone=${tone} · ${where}`,
         });
+        // Deep-link to the Campaigns tracker page with this campaign's
+        // slide-over auto-opened so the operator sees the sequence
+        // come to life. Small delay so the success banner registers.
+        if (FEATURES.campaignsManager) {
+          setTimeout(() => {
+            router.push(`/campaigns?focus=${campaignId}`);
+          }, 700);
+        }
       } else {
         const detail = await res.json().catch(() => null);
         setLaunchFeedback({

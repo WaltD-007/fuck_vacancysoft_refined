@@ -4,36 +4,47 @@ Covers the intelligence / outreach lifecycle:
 
   POST /api/agency                                    — mark a company as
                                                        a recruitment agency
-                                                       (exclusion + cascade
-                                                       delete of enriched
-                                                       jobs / dossiers /
-                                                       campaigns / queue
-                                                       items)
-  POST /api/leads/{item_id}/dossier                   — generate or return
-                                                       an existing dossier
-  GET  /api/leads/{item_id}/dossier                   — retrieve an
-                                                       existing dossier
-  POST /api/leads/{item_id}/campaign                  — generate outreach
-                                                       emails (cached or
-                                                       regenerated)
-  POST /api/campaigns/{campaign_output_id}/launch     — schedule the 5-email
-                                                       sequence for a tone
-                                                       via Graph
-  POST /api/campaigns/{campaign_output_id}/cancel     — cancel all pending
-                                                       sends in a sequence
+  POST /api/leads/{item_id}/dossier                   — generate dossier
+  GET  /api/leads/{item_id}/dossier                   — retrieve dossier
+  POST /api/leads/{item_id}/campaign                  — generate emails
+  POST /api/campaigns/{campaign_output_id}/launch     — schedule 5 sends
+  POST /api/campaigns/{campaign_output_id}/cancel     — cancel pending
+  GET  /api/campaigns                                 — paginated list
+                                                       (PR P8 tracker)
+  GET  /api/campaigns/launchers                       — distinct senders
+                                                       for the dropdown
+  GET  /api/campaigns/{id}/detail                     — per-step timeline
+                                                       + reply log
 
 Extracted from `api/server.py` during the Week 4 split. Launch and cancel
-are the canary delta — see .claude/plans/handoff-messaging-and-campaigns-
-phase1.md for how this fits the broader plan.
+are the canary delta. The list/detail/launchers endpoints are PR P8 —
+see .claude/plans/handoff-messaging-and-campaigns-phase1.md.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from collections import defaultdict
+from datetime import datetime
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 
 from vacancysoft.api.schemas import (
+    CampaignClickDetail,
+    CampaignCounts,
+    CampaignDetailResponse,
+    CampaignHmInfo,
+    CampaignLauncher,
+    CampaignLaunchersResponse,
+    CampaignListItem,
+    CampaignListResponse,
+    CampaignOpenDetail,
+    CampaignReply,
+    CampaignSenderInfo,
+    CampaignSequenceStep,
+    CampaignStageInfo,
     CancelCampaignResponse,
     LaunchCampaignRequest,
     LaunchCampaignResponse,
@@ -47,6 +58,16 @@ from vacancysoft.db.models import EnrichedJob, RawJob, ScoreResult, Source
 _VALID_TONES = frozenset(
     {"formal", "informal", "consultative", "direct", "candidate_spec", "technical"}
 )
+
+# Allowed values on the `?status=` query param of GET /api/campaigns. Any
+# other value is rejected with 422 — a hard fail rather than silent
+# pass-through so a typo doesn't return "no results, must be working".
+_VALID_LIST_STATUSES = frozenset(
+    {"replied", "opened", "sent", "pending", "cancelled", "failed", "no_response"}
+)
+
+_LIST_LIMIT_DEFAULT = 50
+_LIST_LIMIT_MAX = 200
 
 
 router = APIRouter(tags=["campaigns"])
@@ -573,3 +594,610 @@ async def cancel_campaign(campaign_output_id: str, request: Request):
         )
 
     return CancelCampaignResponse(cancelled_count=cancelled)
+
+
+# ── PR P8: Campaigns tracker ──────────────────────────────────────────
+
+
+def _hm_name_from_dossier(hiring_managers: Any, recipient_email: str | None) -> str | None:
+    """Best-match HM display name from the dossier's JSON column.
+
+    The dossier's ``hiring_managers`` is JSON — typed dict-or-None on
+    the model but in practice a list of dicts (occasionally a single
+    dict on legacy rows). Match by ``email`` first; fall back to the
+    first entry that has a usable name.
+    """
+    if not hiring_managers:
+        return None
+    if isinstance(hiring_managers, dict):
+        # Legacy single-HM shape — coerce to list-of-one.
+        hiring_managers = [hiring_managers]
+    if not isinstance(hiring_managers, list):
+        return None
+    needle = (recipient_email or "").strip().lower()
+    fallback: str | None = None
+    for hm in hiring_managers:
+        if not isinstance(hm, dict):
+            continue
+        hm_email = (hm.get("email") or "").strip().lower()
+        hm_name = (hm.get("name") or "").strip()
+        if not hm_name:
+            continue
+        if needle and hm_email == needle:
+            return hm_name
+        if fallback is None:
+            fallback = hm_name
+    return fallback
+
+
+def _derive_status(
+    *,
+    pending: int,
+    sent: int,
+    cancelled_manual: int,
+    cancelled_replied: int,
+    failed: int,
+    reply_count: int,
+    open_count: int,
+) -> str:
+    """Compute the single-status chip from per-status counts.
+
+    Priority (highest wins):
+      replied > opened > cancelled > failed > sent > pending
+
+    ``cancelled_replied`` collapses into ``replied`` because the user-
+    visible signal is "they replied", not "we cancelled".
+    """
+    if reply_count > 0 or cancelled_replied > 0:
+        return "replied"
+    if cancelled_manual > 0 and pending == 0:
+        return "cancelled"
+    if open_count > 0:
+        return "opened"
+    if failed > 0 and sent == 0:
+        return "failed"
+    if sent > 0:
+        return "sent"
+    return "pending"
+
+
+def _iso(dt: datetime | None) -> str | None:
+    if dt is None:
+        return None
+    return dt.isoformat()
+
+
+def _resolve_user(session, sender_user_id: str | None) -> tuple[str | None, str | None]:
+    """Look up display_name + email for a sender_user_id (OID or email).
+
+    Returns (display_name, email) — either or both may be None when the
+    user row doesn't exist (pre-SSO header path / deleted user).
+    """
+    from vacancysoft.db.models import User
+    if not sender_user_id:
+        return None, None
+    u = session.execute(
+        select(User).where(
+            or_(
+                User.entra_object_id == sender_user_id,
+                User.email == sender_user_id.lower(),
+            )
+        )
+    ).scalar_one_or_none()
+    if u is None:
+        return None, None
+    return (u.display_name or None), (u.email or None)
+
+
+@router.get("/api/campaigns/launchers", response_model=CampaignLaunchersResponse)
+def list_campaign_launchers():
+    """Distinct operators who have launched at least one campaign.
+
+    Drives the user-filter dropdown on the Campaigns page. Returns one
+    row per distinct ``sent_messages.sender_user_id``, joined to the
+    ``users`` table for display_name + email. Sender IDs with no
+    matching user row still appear (with ``display_name=None``) so the
+    operator can still filter to those campaigns — better than
+    silently dropping them.
+    """
+    from vacancysoft.db.models import SentMessage, User
+
+    with SessionLocal() as s:
+        rows = s.execute(
+            select(
+                SentMessage.sender_user_id,
+                func.count(func.distinct(SentMessage.campaign_output_id)).label("campaign_count"),
+            )
+            .group_by(SentMessage.sender_user_id)
+            .order_by(func.count(func.distinct(SentMessage.campaign_output_id)).desc())
+        ).all()
+
+        # Resolve each sender to a User row (may not exist yet).
+        sender_ids = [r.sender_user_id for r in rows if r.sender_user_id]
+        if sender_ids:
+            users = s.execute(
+                select(User).where(
+                    or_(
+                        User.entra_object_id.in_(sender_ids),
+                        User.email.in_([sid.lower() for sid in sender_ids]),
+                    )
+                )
+            ).scalars().all()
+        else:
+            users = []
+        # Build a map keyed by both possible matching values.
+        user_map: dict[str, User] = {}
+        for u in users:
+            if u.entra_object_id:
+                user_map[u.entra_object_id] = u
+            if u.email:
+                user_map[u.email.lower()] = u
+
+        launchers = []
+        for r in rows:
+            sid = r.sender_user_id or ""
+            u = user_map.get(sid) or user_map.get(sid.lower())
+            launchers.append(CampaignLauncher(
+                sender_user_id=sid,
+                display_name=(u.display_name if u else None),
+                email=(u.email if u else None),
+                campaign_count=int(r.campaign_count),
+            ))
+
+    return CampaignLaunchersResponse(launchers=launchers)
+
+
+@router.get("/api/campaigns", response_model=CampaignListResponse)
+def list_campaigns(
+    status: str | None = Query(default=None, description=f"One of: {sorted(_VALID_LIST_STATUSES)}"),
+    owner: str | None = Query(default=None, description="Filter to a specific sender_user_id (OID or email)"),
+    since: str | None = Query(default=None, description="ISO-8601; only campaigns with activity after this"),
+    limit: int = Query(default=_LIST_LIMIT_DEFAULT, ge=1, le=_LIST_LIMIT_MAX),
+    offset: int = Query(default=0, ge=0),
+):
+    """One row per ``CampaignOutput`` with at least one ``SentMessage``.
+
+    Aggregates opens / clicks / replies across all SentMessages in the
+    campaign. ``opens`` excludes ``likely_apple_mpp`` events;
+    ``clicks`` excludes ``likely_scanner`` events. Both are visible
+    individually on the detail view.
+
+    Status filter values:
+      * ``replied`` — at least one received_reply OR a cancelled_replied row
+      * ``opened`` — at least one open event, no reply
+      * ``sent`` — at least one sent, no opens / replies
+      * ``pending`` — only pending rows
+      * ``cancelled`` — manual cancel (no replies)
+      * ``failed`` — at least one failed, none sent
+      * ``no_response`` — all 5 sent and none of replies / opens / clicks
+
+    Sort: last_activity DESC NULLS LAST.
+    """
+    from vacancysoft.db.models import (
+        CampaignOutput,
+        ClassificationResult,
+        ClickEvent,
+        IntelligenceDossier,
+        OpenEvent,
+        ReceivedReply,
+        SentMessage,
+    )
+
+    if status is not None and status not in _VALID_LIST_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"invalid status {status!r}; expected one of {sorted(_VALID_LIST_STATUSES)}",
+        )
+
+    since_dt: datetime | None = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace("Z", "+00:00")).replace(tzinfo=None)
+        except ValueError:
+            raise HTTPException(
+                status_code=422, detail=f"invalid since timestamp: {since!r}",
+            )
+
+    with SessionLocal() as s:
+        # Step 1: per-campaign sent-status aggregates.
+        sm_stats = s.execute(
+            select(
+                SentMessage.campaign_output_id.label("co_id"),
+                func.min(SentMessage.recipient_email).label("recipient_email"),
+                func.min(SentMessage.sender_user_id).label("sender_user_id"),
+                func.min(SentMessage.created_at).label("launched_at"),
+                func.max(SentMessage.sent_at).label("last_sent"),
+                func.sum(case((SentMessage.status == "sent", 1), else_=0)).label("sent"),
+                func.sum(case((SentMessage.status == "pending", 1), else_=0)).label("pending"),
+                func.sum(case((SentMessage.status == "cancelled_manual", 1), else_=0)).label("cancelled_manual"),
+                func.sum(case((SentMessage.status == "cancelled_replied", 1), else_=0)).label("cancelled_replied"),
+                func.sum(case((SentMessage.status == "failed", 1), else_=0)).label("failed"),
+                func.count(SentMessage.id).label("total"),
+            )
+            .group_by(SentMessage.campaign_output_id)
+        ).all()
+
+        if not sm_stats:
+            return CampaignListResponse(items=[], total=0, limit=limit, offset=offset)
+
+        co_ids = [r.co_id for r in sm_stats]
+
+        # Step 2: per-campaign open + click + reply aggregates.
+        opens_by_co = dict(s.execute(
+            select(
+                SentMessage.campaign_output_id,
+                func.count(OpenEvent.id).label("c"),
+            )
+            .join(OpenEvent, OpenEvent.sent_message_id == SentMessage.id)
+            .where(SentMessage.campaign_output_id.in_(co_ids))
+            .where(OpenEvent.likely_apple_mpp.is_(False))
+            .group_by(SentMessage.campaign_output_id)
+        ).all())
+        last_open_by_co = dict(s.execute(
+            select(
+                SentMessage.campaign_output_id,
+                func.max(OpenEvent.opened_at).label("ts"),
+            )
+            .join(OpenEvent, OpenEvent.sent_message_id == SentMessage.id)
+            .where(SentMessage.campaign_output_id.in_(co_ids))
+            .group_by(SentMessage.campaign_output_id)
+        ).all())
+        clicks_by_co = dict(s.execute(
+            select(
+                SentMessage.campaign_output_id,
+                func.count(ClickEvent.id).label("c"),
+            )
+            .join(ClickEvent, ClickEvent.sent_message_id == SentMessage.id)
+            .where(SentMessage.campaign_output_id.in_(co_ids))
+            .where(ClickEvent.likely_scanner.is_(False))
+            .group_by(SentMessage.campaign_output_id)
+        ).all())
+        last_click_by_co = dict(s.execute(
+            select(
+                SentMessage.campaign_output_id,
+                func.max(ClickEvent.clicked_at).label("ts"),
+            )
+            .join(ClickEvent, ClickEvent.sent_message_id == SentMessage.id)
+            .where(SentMessage.campaign_output_id.in_(co_ids))
+            .group_by(SentMessage.campaign_output_id)
+        ).all())
+
+        # Replies: matched via conversation_id, not direct FK on
+        # campaign_output_id. Group via SentMessage join.
+        reply_rows = s.execute(
+            select(
+                SentMessage.campaign_output_id,
+                ReceivedReply.received_at,
+                ReceivedReply.id,
+            )
+            .join(ReceivedReply, ReceivedReply.conversation_id == SentMessage.conversation_id)
+            .where(SentMessage.campaign_output_id.in_(co_ids))
+            .where(SentMessage.conversation_id.is_not(None))
+        ).all()
+        reply_count_by_co: dict[str, int] = defaultdict(int)
+        last_reply_by_co: dict[str, datetime] = {}
+        seen: set[tuple[str, str]] = set()
+        for r in reply_rows:
+            key = (r.campaign_output_id, r.id)
+            if key in seen:
+                continue
+            seen.add(key)
+            reply_count_by_co[r.campaign_output_id] += 1
+            cur = last_reply_by_co.get(r.campaign_output_id)
+            if cur is None or (r.received_at and r.received_at > cur):
+                last_reply_by_co[r.campaign_output_id] = r.received_at
+
+        # Step 3: lead context (one query per chained join — small N).
+        co_rows = s.execute(
+            select(
+                CampaignOutput.id.label("co_id"),
+                CampaignOutput.dossier_id,
+                IntelligenceDossier.enriched_job_id,
+                IntelligenceDossier.hiring_managers,
+                EnrichedJob.title,
+                EnrichedJob.team,
+                EnrichedJob.location_city,
+                EnrichedJob.location_country,
+            )
+            .join(IntelligenceDossier, IntelligenceDossier.id == CampaignOutput.dossier_id)
+            .join(EnrichedJob, EnrichedJob.id == IntelligenceDossier.enriched_job_id)
+            .where(CampaignOutput.id.in_(co_ids))
+        ).all()
+        co_ctx = {r.co_id: r for r in co_rows}
+
+        # Step 4: category from classification (most-recent per enriched_job).
+        ej_ids = [r.enriched_job_id for r in co_rows]
+        cat_by_ej: dict[str, str | None] = {}
+        if ej_ids:
+            for cls in s.execute(
+                select(
+                    ClassificationResult.enriched_job_id,
+                    ClassificationResult.primary_taxonomy_key,
+                )
+                .where(ClassificationResult.enriched_job_id.in_(ej_ids))
+                .order_by(ClassificationResult.enriched_job_id, ClassificationResult.id.desc())
+            ).all():
+                if cls.enriched_job_id not in cat_by_ej:
+                    cat_by_ej[cls.enriched_job_id] = cls.primary_taxonomy_key
+
+        # Step 5: assemble + filter + sort + paginate in Python. Dataset
+        # is small (one row per campaign_output, bounded by operator
+        # activity) — no point pushing this into SQL for the canary.
+        items: list[CampaignListItem] = []
+        for r in sm_stats:
+            ctx = co_ctx.get(r.co_id)
+            if ctx is None:
+                # Orphan campaign_output (rare; defensive).
+                continue
+            opens = int(opens_by_co.get(r.co_id, 0))
+            clicks = int(clicks_by_co.get(r.co_id, 0))
+            replies = int(reply_count_by_co.get(r.co_id, 0))
+
+            # Owner filter
+            sender_id = r.sender_user_id or ""
+            if owner and owner.lower() != sender_id.lower():
+                continue
+
+            # Last activity = max across send/open/click/reply timestamps.
+            candidates: list[datetime] = [
+                t for t in [
+                    r.last_sent,
+                    last_open_by_co.get(r.co_id),
+                    last_click_by_co.get(r.co_id),
+                    last_reply_by_co.get(r.co_id),
+                ] if t is not None
+            ]
+            last_activity = max(candidates) if candidates else None
+
+            if since_dt is not None and (last_activity is None or last_activity < since_dt):
+                continue
+
+            derived = _derive_status(
+                pending=int(r.pending),
+                sent=int(r.sent),
+                cancelled_manual=int(r.cancelled_manual),
+                cancelled_replied=int(r.cancelled_replied),
+                failed=int(r.failed),
+                reply_count=replies,
+                open_count=opens,
+            )
+
+            # `no_response` is a synthesised filter — true when the
+            # whole sequence is sent (no pending, no failed, no replies,
+            # no opens, no clicks). Don't fold into _derive_status's
+            # priority; keep it as a filter-only label.
+            if status == "no_response":
+                if not (
+                    int(r.sent) >= 1
+                    and int(r.pending) == 0
+                    and int(r.failed) == 0
+                    and replies == 0
+                    and opens == 0
+                    and clicks == 0
+                ):
+                    continue
+            elif status is not None and derived != status:
+                continue
+
+            display_name, email = _resolve_user(s, r.sender_user_id)
+            hm_name = _hm_name_from_dossier(ctx.hiring_managers, r.recipient_email)
+
+            items.append(CampaignListItem(
+                campaign_output_id=r.co_id,
+                title=ctx.title,
+                company=ctx.team,
+                location_city=ctx.location_city,
+                location_country=ctx.location_country,
+                category=cat_by_ej.get(ctx.enriched_job_id),
+                hiring_manager=CampaignHmInfo(
+                    email=r.recipient_email, name=hm_name,
+                ),
+                sender=CampaignSenderInfo(
+                    sender_user_id=sender_id,
+                    display_name=display_name,
+                    email=email,
+                ),
+                stage=CampaignStageInfo(
+                    sent=int(r.sent),
+                    pending=int(r.pending),
+                    cancelled=int(r.cancelled_manual) + int(r.cancelled_replied),
+                    failed=int(r.failed),
+                    total=int(r.total),
+                ),
+                status=derived,
+                counts=CampaignCounts(opens=opens, clicks=clicks, replies=replies),
+                last_activity=_iso(last_activity),
+                launched_at=_iso(r.launched_at),
+            ))
+
+        # Sort + paginate.
+        items.sort(
+            key=lambda i: (i.last_activity or "", i.launched_at or ""),
+            reverse=True,
+        )
+        total = len(items)
+        page = items[offset : offset + limit]
+
+    return CampaignListResponse(items=page, total=total, limit=limit, offset=offset)
+
+
+@router.get(
+    "/api/campaigns/{campaign_output_id}/detail",
+    response_model=CampaignDetailResponse,
+)
+def get_campaign_detail(campaign_output_id: str):
+    """Per-step timeline + reply log for one campaign.
+
+    Used by the Campaigns slide-over. Returns every SentMessage with
+    its individual open + click events (including scanner-flagged ones —
+    UI greys them out) plus every ReceivedReply on the conversation.
+    """
+    from vacancysoft.db.models import (
+        CampaignOutput,
+        ClassificationResult,
+        ClickEvent,
+        IntelligenceDossier,
+        OpenEvent,
+        ReceivedReply,
+        SentMessage,
+    )
+
+    with SessionLocal() as s:
+        co = s.execute(
+            select(CampaignOutput).where(CampaignOutput.id == campaign_output_id)
+        ).scalar_one_or_none()
+        if co is None:
+            raise HTTPException(status_code=404, detail="campaign not found")
+
+        dossier = s.execute(
+            select(IntelligenceDossier).where(IntelligenceDossier.id == co.dossier_id)
+        ).scalar_one_or_none()
+        ej = None
+        if dossier is not None:
+            ej = s.execute(
+                select(EnrichedJob).where(EnrichedJob.id == dossier.enriched_job_id)
+            ).scalar_one_or_none()
+
+        category = None
+        if dossier is not None:
+            cls = s.execute(
+                select(ClassificationResult)
+                .where(ClassificationResult.enriched_job_id == dossier.enriched_job_id)
+                .order_by(ClassificationResult.id.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if cls is not None:
+                category = cls.primary_taxonomy_key
+
+        # All sent messages on this campaign, plus all events + replies.
+        sms = s.execute(
+            select(SentMessage)
+            .where(SentMessage.campaign_output_id == campaign_output_id)
+            .order_by(SentMessage.sequence_index)
+        ).scalars().all()
+        sm_ids = [sm.id for sm in sms]
+        conversation_ids = list({sm.conversation_id for sm in sms if sm.conversation_id})
+
+        opens_by_sm: dict[str, list[OpenEvent]] = defaultdict(list)
+        if sm_ids:
+            for ev in s.execute(
+                select(OpenEvent)
+                .where(OpenEvent.sent_message_id.in_(sm_ids))
+                .order_by(OpenEvent.opened_at)
+            ).scalars().all():
+                opens_by_sm[ev.sent_message_id].append(ev)
+
+        clicks_by_sm: dict[str, list[ClickEvent]] = defaultdict(list)
+        if sm_ids:
+            for ev in s.execute(
+                select(ClickEvent)
+                .where(ClickEvent.sent_message_id.in_(sm_ids))
+                .order_by(ClickEvent.clicked_at)
+            ).scalars().all():
+                clicks_by_sm[ev.sent_message_id].append(ev)
+
+        replies: list[ReceivedReply] = []
+        if conversation_ids:
+            replies = s.execute(
+                select(ReceivedReply)
+                .where(ReceivedReply.conversation_id.in_(conversation_ids))
+                .order_by(ReceivedReply.received_at)
+            ).scalars().all()
+
+        # Counts (for the header — match list endpoint's exclusions).
+        list_open_count = sum(
+            1 for evs in opens_by_sm.values() for e in evs if not e.likely_apple_mpp
+        )
+        list_click_count = sum(
+            1 for evs in clicks_by_sm.values() for e in evs if not e.likely_scanner
+        )
+        reply_count = len(replies)
+
+        # Build steps.
+        steps: list[CampaignSequenceStep] = []
+        for sm in sms:
+            steps.append(CampaignSequenceStep(
+                sequence_index=sm.sequence_index,
+                tone=sm.tone,
+                status=sm.status,
+                scheduled_for=_iso(sm.scheduled_for),
+                sent_at=_iso(sm.sent_at),
+                subject=sm.subject,
+                error_message=sm.error_message,
+                opens=[
+                    CampaignOpenDetail(
+                        opened_at=ev.opened_at.isoformat(),
+                        user_agent=ev.user_agent,
+                        likely_apple_mpp=bool(ev.likely_apple_mpp),
+                    )
+                    for ev in opens_by_sm.get(sm.id, [])
+                ],
+                clicks=[
+                    CampaignClickDetail(
+                        clicked_at=ev.clicked_at.isoformat(),
+                        original_url=ev.original_url,
+                        user_agent=ev.user_agent,
+                        likely_scanner=bool(ev.likely_scanner),
+                    )
+                    for ev in clicks_by_sm.get(sm.id, [])
+                ],
+            ))
+
+        # Aggregate sender + status for the header.
+        sender_id = sms[0].sender_user_id if sms else ""
+        recipient = sms[0].recipient_email if sms else None
+        display_name, email = _resolve_user(s, sender_id)
+        hm_name = _hm_name_from_dossier(
+            dossier.hiring_managers if dossier is not None else None,
+            recipient,
+        )
+
+        derived = _derive_status(
+            pending=sum(1 for sm in sms if sm.status == "pending"),
+            sent=sum(1 for sm in sms if sm.status == "sent"),
+            cancelled_manual=sum(1 for sm in sms if sm.status == "cancelled_manual"),
+            cancelled_replied=sum(1 for sm in sms if sm.status == "cancelled_replied"),
+            failed=sum(1 for sm in sms if sm.status == "failed"),
+            reply_count=reply_count,
+            open_count=list_open_count,
+        )
+
+        launched_at = min((sm.created_at for sm in sms), default=None)
+        candidates: list[datetime] = []
+        for sm in sms:
+            if sm.sent_at is not None:
+                candidates.append(sm.sent_at)
+        for evs in opens_by_sm.values():
+            candidates.extend(e.opened_at for e in evs)
+        for evs in clicks_by_sm.values():
+            candidates.extend(e.clicked_at for e in evs)
+        candidates.extend(r.received_at for r in replies if r.received_at is not None)
+        last_activity = max(candidates) if candidates else None
+
+    return CampaignDetailResponse(
+        campaign_output_id=campaign_output_id,
+        title=ej.title if ej is not None else None,
+        company=ej.team if ej is not None else None,
+        location_city=ej.location_city if ej is not None else None,
+        location_country=ej.location_country if ej is not None else None,
+        category=category,
+        hiring_manager=CampaignHmInfo(email=recipient, name=hm_name),
+        sender=CampaignSenderInfo(
+            sender_user_id=sender_id, display_name=display_name, email=email,
+        ),
+        status=derived,
+        counts=CampaignCounts(
+            opens=list_open_count, clicks=list_click_count, replies=reply_count,
+        ),
+        launched_at=_iso(launched_at),
+        last_activity=_iso(last_activity),
+        steps=steps,
+        replies=[
+            CampaignReply(
+                received_at=r.received_at.isoformat(),
+                from_email=r.from_email,
+                subject=r.subject,
+            )
+            for r in replies
+        ],
+    )
