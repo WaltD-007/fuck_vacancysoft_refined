@@ -31,7 +31,11 @@ export const FEATURES = {
 
   // The Campaign Builder has a Launch button but no backend to launch to.
   // Email send + multi-step scheduling tranche flips this on.
-  campaignLaunch: false,
+  // 2026-04-26: flipped to true once the canary delta landed
+  // (POST /api/campaigns/{id}/launch + cancel + Builder onClick). Live
+  // sends still gated on OUTREACH_DRY_RUN — set to "false" in .env to
+  // route through real Graph rather than the canned dry-run path.
+  campaignLaunch: true,
 
   // "Save Draft" next to Launch — same tranche, but a separate subswitch
   // so we can ship draft persistence without wiring send.

@@ -324,3 +324,42 @@ class VoiceSampleOut(BaseModel):
 # ``payload: dict`` on the handler. Shape is operator-owned ({tone: text})
 # and validation (allowed tone keys) lives in the handler. Empty string
 # means "clear this tone"; missing key means "leave this tone alone".
+
+
+# ── Outreach campaign launch / cancel ──────────────────────────────────
+# Minimal request/response models for the canary build. Schemas match
+# §0.3 of docs/outreach_email.md (the original PR D contract); the full
+# Phase 1 plan in .claude/plans/handoff-messaging-and-campaigns-phase1.md
+# layers tracking, admin, and tenancy on top.
+
+
+_VALID_TONES = (
+    "formal", "informal", "consultative", "direct", "candidate_spec", "technical",
+)
+
+
+class LaunchCampaignRequest(BaseModel):
+    """POST /api/campaigns/{campaign_output_id}/launch body.
+
+    All fields except ``tone`` are optional:
+
+    - ``cadence_days`` defaults to ``configs/app.toml [outreach]
+      default_cadence_days`` (today: ``[0, 7, 14, 21, 28]``). Must be a
+      length-5 list starting with 0 if supplied.
+    - ``recipient_email`` defaults to the first hiring-manager email on
+      the campaign's dossier; 422 if neither is supplied.
+    """
+
+    tone: str
+    cadence_days: list[int] | None = None
+    recipient_email: str | None = None
+
+
+class LaunchCampaignResponse(BaseModel):
+    status: str
+    sent_message_ids: list[str]
+    first_send_scheduled_for: str | None
+
+
+class CancelCampaignResponse(BaseModel):
+    cancelled_count: int

@@ -239,9 +239,15 @@ Persisted to `campaign_outputs`. Caching: returns cached row if `outreach_emails
 
 ### 3.9 Send
 
-> **Status**: code-complete and tested in dry-run. Keybridge approval received 2026-04-26; live-send now blocked on Entra app registration + PR D (`/launch` and `/cancel` API endpoints, ~50 LOC) + PR E (Bicep).
+> **Status**: code-complete and tested in dry-run end-to-end. Keybridge approval received 2026-04-26; PR D (canary delta — launch/cancel endpoints + Builder onClick + tracking infra) merged 2026-04-29 (commit `11256b1`). Remaining live-send blockers: Entra app registration + Application Access Policy + PR E (Bicep / Azure infra).
 
-Operator clicks "Launch Campaign" with one of six tones selected → `POST /api/campaigns/{id}/launch` (PR D, not yet wired).
+Operator clicks "Launch Campaign" in the Builder. Frontend POSTs to `/api/campaigns/{campaign_output_id}/launch` ([src/vacancysoft/api/routes/campaigns.py](src/vacancysoft/api/routes/campaigns.py)) with `{tone, cadence_days?, recipient_email?}`. The endpoint:
+
+1. Resolves operator identity via `get_current_user` ([src/vacancysoft/api/auth.py](src/vacancysoft/api/auth.py)) — header today, Easy Auth post-launch.
+2. Validates tone (one of six) and cadence (length-5 starting with 0).
+3. Loads `CampaignOutput.outreach_emails`, extracts the 5 `{subject, body}` pairs for the requested tone (handles both stored shapes — list-at-top-level and `{"emails": [...]}` wrapped).
+4. Resolves recipient: explicit override → highest-priority hiring-manager email from the dossier → 422.
+5. Returns 503 if `app.state.redis` is None — better than half-writing a sequence with no enqueue path.
 
 `schedule_outreach_sequence(redis, session, campaign_output_id, sender_user_id, recipient_email, tone, emails, cadence_days)` in [src/vacancysoft/worker/outreach_tasks.py:1](src/vacancysoft/worker/outreach_tasks.py):
 
@@ -253,9 +259,10 @@ Operator clicks "Launch Campaign" with one of six tones selected → `POST /api/
 
 ARQ fires `send_outreach_email(ctx, sent_message_id)` at scheduled time:
 1. Re-reads the row; exits early if `status != 'pending'` (idempotency).
-2. Calls `GraphClient.send_mail(...)` ([src/vacancysoft/outreach/graph_client.py:1](src/vacancysoft/outreach/graph_client.py)) — two-step: `POST /users/{id}/sendMail` (returns 202 empty body), then `GET /sentitems?$filter=...` to recover `id` + `conversationId`.
-3. Updates row to `status='sent'`, populates `sent_at`, `graph_message_id`, `conversation_id`.
-4. Enqueues first reply poll at `now + poll_interval_minutes` (default 10 min).
+2. **Tracking injection** (when `OUTREACH_TRACKING_ENABLED` is truthy — default): mutates `row.body` via `inject_pixel(...)` then `rewrite_links(...)` ([src/vacancysoft/outreach/tracking.py](src/vacancysoft/outreach/tracking.py)). The as-sent body is what gets persisted on the row — useful for "why does this email show 5 opens" debugging. See §7.7.
+3. Calls `GraphClient.send_mail(...)` ([src/vacancysoft/outreach/graph_client.py:1](src/vacancysoft/outreach/graph_client.py)) — two-step: `POST /users/{id}/sendMail` (returns 202 empty body), then `GET /sentitems?$filter=...` to recover `id` + `conversationId`.
+4. Updates row to `status='sent'`, populates `sent_at`, `graph_message_id`, `conversation_id`.
+5. Enqueues first reply poll at `now + poll_interval_minutes` (default 10 min).
 
 ### 3.10 Reply detection
 
@@ -264,7 +271,7 @@ ARQ fires `poll_replies_for_conversation(ctx, conversation_id, sender_user_id)` 
 1. Finds earliest `SentMessage` with this conversation_id.
 2. Bails if conversation older than `poll_max_days` (default 90).
 3. `GraphClient.list_replies(user_id, conversation_id, since)` → `GET /users/{id}/messages?$filter=conversationId eq '...'` (metadata only — Mail.ReadBasic scope).
-4. Filters out self-replies by email match. (**This will break post-Entra** — sender_user_id becomes a GUID; see §13.3 for the migration path.)
+4. Filters out self-replies. `_resolve_sender_email(session, sender_user_id)` looks up the operator's email in the `users` table by either `entra_object_id` match (for SSO-populated GUIDs) or `email` match (for the header-based dev path), then compares the resolved email to `from_email`. The pre-2026-04-29 version compared `sender_user_id` directly to `from_email` — fine when both happened to be emails, broken once SSO populated `sender_user_id` with an Entra OID. (See §13.3 for context.)
 5. If replies found:
    - Inserts `ReceivedReply` rows (deduped by `graph_message_id`).
    - Finds pending SentMessages in the same conversation, calls `redis.abort_job(arq_job_id)`, sets `status='cancelled_replied'`.
@@ -272,10 +279,29 @@ ARQ fires `poll_replies_for_conversation(ctx, conversation_id, sender_user_id)` 
 
 ### 3.11 Manual cancel
 
-`cancel_pending_sequence_manual(session, redis, campaign_output_id)`:
+`POST /api/campaigns/{campaign_output_id}/cancel` ([src/vacancysoft/api/routes/campaigns.py](src/vacancysoft/api/routes/campaigns.py)) wraps `cancel_pending_sequence_manual(session, redis, campaign_output_id)`:
+- 404 if the `CampaignOutput` doesn't exist.
 - SELECTs all pending SentMessages → `abort_job` each → `status='cancelled_manual'`.
 - Does NOT insert ReceivedReply.
-- Idempotent (re-running produces no extra effect).
+- Idempotent: re-running returns `{cancelled_count: 0}` rather than erroring. UI can retry safely on flaky networks.
+
+### 3.12 Tracking events (open + click)
+
+When the recipient opens the email or clicks a link, two anonymous endpoints log it. See §7.7 for the full subsystem; the lifecycle from a pipeline view:
+
+```
+recipient opens email
+  → mail client fetches the injected <img src="<tracking_domain>/t/o/<token>">
+  → GET /t/o/{token}: verify HMAC, dedupe within 60s window, insert open_events row
+  → return 200 image/gif (1×1 transparent pixel)
+
+recipient clicks a link
+  → mail client navigates to the rewritten <a href="<tracking_domain>/t/c/<token>">
+  → GET /t/c/{token}: verify HMAC, scanner heuristic, insert click_events row
+  → return 302 to the original URL encoded in the token
+```
+
+Both endpoints insert FK'd to `sent_messages.id`. Bad / forged tokens fail closed (open: 204; click: 302 to a benign fallback) without leaking which validity check failed.
 
 ---
 
@@ -760,11 +786,59 @@ Lazy imports of Azure SDKs.
 | File | Size | Covers |
 |---|---:|---|
 | `tests/test_outreach_graph_client.py` | ~13 KB | Token, send_mail, list_replies, retries |
-| `tests/test_outreach_tasks.py` | ~20 KB | schedule, send, poll, cancellation |
+| `tests/test_outreach_tasks.py` | ~22 KB | schedule, send, poll, cancellation, tracking-injection wire-up, kill switch |
 | `tests/test_outreach_secret_client.py` | ~7.5 KB | Dry-run, Key Vault, env var, missing secret |
 | `tests/test_outreach_dry_run.py` | ~4 KB | is_dry_run() rules, canned helpers |
+| `tests/test_outreach_tracking.py` | ~9 KB | Token sign/verify, pixel injection, link rewriting, IP hashing, scanner/MPP heuristics, kill switch |
+| `tests/test_tracking_endpoints.py` | ~7 KB | `/t/o`, `/t/c` happy-path, bad-token, dedupe, scanner detection, type mismatch |
+| `tests/test_campaigns_launch.py` | ~9 KB | `/api/campaigns/{id}/launch` and `/cancel` validation, recipient fallback, redis-503, idempotent cancel |
 
-All tests use in-memory SQLite + fake Redis + injectable fake GraphClient. No real Azure/Graph calls.
+All tests use in-memory SQLite + fake Redis + injectable fake GraphClient. No real Azure/Graph calls. Endpoint tests use `StaticPool` + `check_same_thread=False` so the schema is visible across the FastAPI TestClient's worker thread.
+
+### 7.7 Tracking subsystem (open + click)
+
+Added 2026-04-29 as part of the canary delta. Wire-protocol-agnostic — works identically with Microsoft Graph, future SMTP, or any other transport that delivers HTML mail.
+
+**Files:**
+
+- [src/vacancysoft/outreach/tracking.py](src/vacancysoft/outreach/tracking.py) — pure module, no I/O. HMAC token sign/verify, pixel injection, link rewriting, IP hashing, user-agent heuristics, kill switch helper.
+- [src/vacancysoft/api/routes/tracking.py](src/vacancysoft/api/routes/tracking.py) — two anonymous endpoints, `GET /t/o/{token}` and `GET /t/c/{token}`. Logs the event and returns the appropriate response (1×1 gif or 302 redirect).
+- [alembic/versions/0013_add_tracking_tables.py](alembic/versions/0013_add_tracking_tables.py) — `open_events` + `click_events` tables. Indexed on `sent_message_id` and the timestamp column. Both have a clean `downgrade()` for rollback.
+
+**Token format:**
+
+```
+<base64url(payload_json)>.<base64url(hmac_sha256(secret, payload)[:16])>
+```
+
+Payload: `{"m": "<sent_message_id>", "t": "o" | "c", "u": "<original_url>"?}`. No expiry — opens and clicks can legitimately happen months after the send. Secret in `PROSPERO_TRACKING_SECRET` env var (production); falls back to a fixed dev-only string with a startup warning when absent.
+
+**Pixel injection:** appends `<img src="<base>/t/o/<token>" width="1" height="1" style="display:none" alt="">` immediately before `</body>`. If no closing body tag (LLM output occasionally omits it), appends at end.
+
+**Link rewriting:** matches every `<a href="https?://..."` (with single or double quotes) and replaces the URL with `<base>/t/c/<token>`. Skips `mailto:`, `tel:`, anchor-only (`#...`), and any URL already pointing at the tracking base (idempotent across retries / re-rewrites).
+
+**Open dedupe:** within a 60-second window per `sent_message_id`. Outlook preview pane fires the pixel twice within seconds — collapsed to one row. Configurable via `[tracking].pixel_dedupe_window_seconds` in `configs/app.toml`.
+
+**Scanner detection:** clicks flagged `likely_scanner=True` when EITHER (a) `clicked_at - sent_at < 120s` (configurable as `scanner_pre_click_window_seconds`) OR (b) user-agent matches a known scanner pattern (proofpoint, mimecast, msoffice365, safelinks, barracuda, googleimageproxy, forcepoint, trustwave, symantec, cisco-ironport, ironport, fireeye). Events are stored regardless — flag lets aggregations choose to include or exclude. List in [tracking.py](src/vacancysoft/outreach/tracking.py); add patterns as we observe new ones in the wild.
+
+**IP storage:** raw IPs never persisted. Stored as `HMAC_SHA256(salt, ip)` truncated to 32 hex chars. Salt derived from `PROSPERO_TRACKING_SECRET` with a domain-separator label, so secret rotation rotates the salt. Old hashes stop correlating to new ones — fine; we don't need cross-era dedupe.
+
+**Kill switch:** `OUTREACH_TRACKING_ENABLED=false` skips injection entirely. Outbound mail goes through unmodified; existing pixels in already-sent mail keep firing. Useful for "is the issue tracking?" debugging without restart.
+
+**Defaults:**
+
+| Constant | Value | Where |
+|---|---:|---|
+| Pixel dedupe window | 60s | `configs/app.toml [tracking] pixel_dedupe_window_seconds` |
+| Scanner pre-click window | 120s | `configs/app.toml [tracking] scanner_pre_click_window_seconds` |
+| HMAC truncation | 16 bytes | tracking.py |
+| Bad-open response | `204 No Content` | tracking.py (no info leak about validity) |
+| Bad-click fallback | `302 → barclaysimpson.com` | `TRACKING_FALLBACK_URL` env or default |
+| Pixel size | 1×1 transparent GIF89a | tracking.py |
+
+**Rollback:**
+- *Soft*: `OUTREACH_TRACKING_ENABLED=false`, restart. New sends untouched, existing pixels still log.
+- *Full*: `alembic downgrade 0012`. Drops both tables.
 
 ---
 
@@ -1184,9 +1258,9 @@ Today: `X-Prospero-User-Email` header → lookup user by email.
 
 Post-Easy-Auth: Entra injects `X-MS-CLIENT-PRINCIPAL-NAME` (the user's UPN) into requests at the ingress. Lookup logic stays identical (email-shaped string, lookup by email). **Code change ≈ 1 line in `auth.py`.**
 
-But: `outreach_tasks.poll_replies_for_conversation` filters self-replies by **email match between `from_email` and `sender_user_id`** ([src/vacancysoft/worker/outreach_tasks.py:314-317](src/vacancysoft/worker/outreach_tasks.py)). Once `sender_user_id` becomes the Entra GUID (the user's `id` field, not their email), the email-match logic breaks. Fix: store `sender_email` separately on `SentMessage` rows, or look up the user by GUID at poll-time and compare against their email.
+~~But: `outreach_tasks.poll_replies_for_conversation` filters self-replies by **email match between `from_email` and `sender_user_id`** ... Once `sender_user_id` becomes the Entra GUID (the user's `id` field, not their email), the email-match logic breaks.~~
 
-This is small (~10 LOC) but it's a silent landmine — the email match would just stop matching and self-replies would start flowing through as real replies, cancelling pending sequences. Test before flipping DRY_RUN=false.
+**Fixed 2026-04-29** (commit `11256b1`). `_resolve_sender_email(session, sender_user_id)` looks up the user's email via either `entra_object_id` or `email` match in the `users` table, then compares against `from_email`. Falls back to a direct lowercase comparison when no User row exists, so missing-user cases degrade rather than crash. See [src/vacancysoft/worker/outreach_tasks.py](src/vacancysoft/worker/outreach_tasks.py) `_resolve_sender_email` and the new tests `test_self_reply_is_ignored_when_sender_user_id_is_oid` + `test_self_reply_filter_falls_back_when_no_user_row` in `tests/test_outreach_tasks.py`.
 
 ### 13.4 Pre-launch checklist (live-send)
 
@@ -1195,12 +1269,14 @@ This is small (~10 LOC) but it's a silent landmine — the email match would jus
 - [ ] Entra app registration with `Mail.Send` + `Mail.ReadBasic` application permissions.
 - [ ] Entra admin consent.
 - [ ] Application Access Policy scoped to `prospero-users` group.
-- [ ] PR D (backend) — `/api/campaigns/{id}/launch` and `/cancel` endpoints (~50 LOC, half-day).
-- [ ] PR D (frontend) — Builder UI launch button + sequence-status view (substantially larger; estimate 200-400 LOC of React + new hook plumbing, 1-2 days).
+- [x] PR D (backend) — `/api/campaigns/{id}/launch` and `/cancel` endpoints. ✅ Merged 2026-04-29 (`11256b1`).
+- [x] PR D (frontend) — Builder UI launch button. ✅ Merged 2026-04-29. Sequence-status view + dedicated Campaigns tracker page is PR P8, separate, post-canary.
+- [x] Self-reply filter refactored for Entra GUIDs (§13.3). ✅ Merged 2026-04-29.
+- [x] Tracking infrastructure (open + click pixels, §7.7). ✅ Merged 2026-04-29.
 - [ ] PR E — Bicep Key Vault + Container App env-var bindings.
 - [ ] Smoke test (real send + reply + cancellation) in production with `OUTREACH_DRY_RUN=true` first.
-- [ ] Self-reply filter refactored for Entra GUIDs (§13.3).
-- [ ] All four env vars set in production: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `KEY_VAULT_URI`, `GRAPH_CLIENT_SECRET_NAME`.
+- [ ] Tracking subdomain DNS + TLS cert (BS IT — see §7.7 + [docs/azure_deployment_delta.md](docs/azure_deployment_delta.md)).
+- [ ] All env vars set in production: `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `KEY_VAULT_URI`, `GRAPH_CLIENT_SECRET_NAME`, `PROSPERO_TRACKING_SECRET`, `TRACKING_DOMAIN`.
 - [ ] `OUTREACH_DRY_RUN=false` on launch day.
 
 **High-priority (do before scale-up)**:
@@ -1249,10 +1325,13 @@ There is **no immutability safeguard** — anyone with Container App config righ
 
 ### 14.1 Pre-launch (live-send blocked)
 
-- **PR D-backend** — `/api/campaigns/{id}/launch` + `/cancel` endpoints. ~50 LOC. Worker side (`schedule_outreach_sequence`) is complete; just needs the route layer.
-- **PR D-frontend** — Builder UI launch button + sequence-status view. Substantially bigger than the backend half; new components, status polling, error states.
+- ~~**PR D-backend** — `/api/campaigns/{id}/launch` + `/cancel` endpoints.~~ ✅ Merged 2026-04-29.
+- ~~**PR D-frontend** — Builder UI launch button.~~ ✅ Merged 2026-04-29. (Dedicated Campaigns tracker page with per-step status timeline is PR P8 — separate, post-canary, blocks BS rollout but not the canary smoke test.)
+- ~~**Self-reply filter Entra-safe**~~ ✅ Merged 2026-04-29.
+- ~~**Open + click tracking infra**~~ ✅ Merged 2026-04-29 (§7.7).
 - **PR E** — Bicep IaC module + ops runbook.
 - **Entra app registration** — external dependency, not code. (Keybridge approval received 2026-04-26.)
+- **Tracking subdomain** — BS IT to create CNAME for `link.barclaysimpson.com` (or chosen name) + TLS cert. See [docs/azure_deployment_delta.md](docs/azure_deployment_delta.md).
 
 ### 14.2 Active improvement threads
 
@@ -1285,7 +1364,7 @@ There is **no immutability safeguard** — anyone with Container App config righ
 
 - **Null-taxonomy accepted** (§5.3) — DB has logically inconsistent rows. Workaround: exporter filter. Real fix: tighten accept gate.
 - **Graph sendMail recovery race** (§7.1) — rare, sets empty IDs, row still marked sent. Acceptable today.
-- **Self-reply filter post-Entra** (§13.3) — will silently break when sender becomes GUID. Fix before launch.
+- ~~**Self-reply filter post-Entra** (§13.3) — will silently break when sender becomes GUID.~~ Fixed 2026-04-29 (`11256b1`); see §13.3.
 - **Filter stubs accumulate** (§3.4) — no retention policy. DB grows unbounded. Add archival or delete-after-90d.
 - **Location flags accumulate** — same job can be flagged 5 times. Review UI must dedup.
 - **Preferences shallow merge gotcha** — nested updates require sending whole top-level key. Documented in [routes/users.py](src/vacancysoft/api/routes/users.py).

@@ -103,24 +103,32 @@ function BuilderPageInner() {
   // loading/error so the save request doesn't block the preview.
   const [trainSaving, setTrainSaving] = useState(false);
   const [trainFeedback, setTrainFeedback] = useState<{kind: "ok" | "err"; text: string} | null>(null);
+  // Launch Campaign state. Captured from the campaign fetch response —
+  // we need the campaign_output id to POST /api/campaigns/{id}/launch.
+  const [campaignId, setCampaignId] = useState<string>("");
+  const [launching, setLaunching] = useState(false);
+  const [launchFeedback, setLaunchFeedback] = useState<{kind: "ok" | "err"; text: string} | null>(null);
 
   // When leadId changes, fetch the campaign and populate variants
   useEffect(() => {
     if (!leadId) {
       setSteps(defaultSteps());
+      setCampaignId("");
       setError(null);
       return;
     }
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setCampaignId("");
     fetch(`${API}/leads/${leadId}/campaign`, { method: "POST" })
       .then(async (r) => {
         if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
         return r.json();
       })
-      .then((data: { emails?: CampaignEmail[] }) => {
+      .then((data: { id?: string; emails?: CampaignEmail[] }) => {
         if (cancelled) return;
+        if (data.id) setCampaignId(data.id);
         const emails = Array.isArray(data.emails) ? data.emails : [];
         setSteps((prev) =>
           prev.map((step) => {
@@ -230,6 +238,66 @@ function BuilderPageInner() {
     setActiveStep(stepNum);
   };
 
+  // Launch the active step's tone variant as the live 5-email sequence.
+  // POSTs to /api/campaigns/{id}/launch which schedules deferred ARQ jobs
+  // — actual mail leaves the worker, not the API. In dry-run
+  // (OUTREACH_DRY_RUN=true) the worker still creates rows + transitions
+  // statuses but uses the canned Graph path; flip to false in .env to
+  // route through real Microsoft Graph. Cadence is the cumulative
+  // day-offset of each step, derived from the per-step "wait" defaults
+  // — controlled wait dropdowns are a separate piece of work, so today
+  // the user-picked dropdown values are NOT reflected in cadence.
+  const launchCampaign = async () => {
+    if (launching || !campaignId) return;
+    if (!current) return;
+    setLaunching(true);
+    setLaunchFeedback(null);
+    // Cumulative offsets: [0, w1, w1+w2, w1+w2+w3, w1+w2+w3+w4].
+    // schedule_outreach_sequence requires length-5 starting with 0.
+    const cadence: number[] = [0];
+    for (let i = 0; i < steps.length - 1; i++) {
+      cadence.push(cadence[i] + (steps[i].wait || 0));
+    }
+    const tone = current.tone;
+    const recipient = verifiedHmEmail.trim();
+    try {
+      const res = await fetch(`${API}/campaigns/${campaignId}/launch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tone,
+          cadence_days: cadence,
+          ...(recipient ? { recipient_email: recipient } : {}),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const n = Array.isArray(data.sent_message_ids) ? data.sent_message_ids.length : 0;
+        const where = recipient || "dossier hiring manager";
+        setLaunchFeedback({
+          kind: "ok",
+          text: `Scheduled ${n} sends · tone=${tone} · ${where}`,
+        });
+      } else {
+        const detail = await res.json().catch(() => null);
+        setLaunchFeedback({
+          kind: "err",
+          text: detail?.detail || `Launch failed (${res.status}).`,
+        });
+      }
+    } catch (e: unknown) {
+      setLaunchFeedback({
+        kind: "err",
+        text: e instanceof Error ? e.message : "Network error launching campaign.",
+      });
+    } finally {
+      setLaunching(false);
+      // Auto-clear after 8s — leaves enough time to read the count + tone
+      // without leaving stale state pinned across leads.
+      setTimeout(() => setLaunchFeedback(null), 8000);
+    }
+  };
+
   const onLeadChange = (id: string) => {
     const params = new URLSearchParams(searchParams.toString());
     if (id) params.set("lead", id);
@@ -287,14 +355,20 @@ function BuilderPageInner() {
                 }
               >Save Draft</button>
               <button
-                disabled={!FEATURES.campaignLaunch}
-                title={!FEATURES.campaignLaunch ? "Coming soon" : undefined}
-                className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white"
-                style={!FEATURES.campaignLaunch
-                  ? { background: "#1e1e2a", color: "#555570", border: "1px solid #2a2a3a", boxShadow: "none", cursor: "not-allowed" }
+                onClick={() => void launchCampaign()}
+                disabled={!FEATURES.campaignLaunch || launching || !campaignId}
+                title={
+                  !FEATURES.campaignLaunch ? "Coming soon"
+                  : !campaignId ? "Pick a lead with a generated campaign"
+                  : launching ? "Launch in progress…"
+                  : undefined
+                }
+                className="px-5 py-2.5 rounded-lg text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                style={!FEATURES.campaignLaunch || !campaignId
+                  ? { background: "#1e1e2a", color: "#555570", border: "1px solid #2a2a3a", boxShadow: "none" }
                   : { background: "linear-gradient(135deg, #6c5ce7, #8b7cf7)", boxShadow: "0 2px 12px rgba(108,92,231,0.3)" }
                 }
-              >Launch Campaign</button>
+              >{launching ? "Launching…" : "Launch Campaign"}</button>
             </div>
           </div>
 
@@ -306,6 +380,20 @@ function BuilderPageInner() {
               color: error ? "#ff6b6b" : "#a29bfe",
             }}>
               {error ? `Error loading campaign: ${error}` : "Loading campaign…"}
+            </div>
+          )}
+
+          {/* Launch feedback banner — separate from loading/error so a
+              successful launch isn't masked by a stale "loading" message
+              and an error from launch doesn't get attributed to the
+              campaign load. Auto-clears after 8s. */}
+          {launchFeedback && (
+            <div className="mb-4 px-4 py-2.5 rounded-lg text-xs" style={{
+              background: launchFeedback.kind === "ok" ? "rgba(0,210,160,0.08)" : "rgba(255,107,107,0.08)",
+              border: `1px solid ${launchFeedback.kind === "ok" ? "rgba(0,210,160,0.25)" : "rgba(255,107,107,0.25)"}`,
+              color: launchFeedback.kind === "ok" ? "#00d2a0" : "#ff6b6b",
+            }}>
+              {launchFeedback.kind === "ok" ? "✓ " : "✗ "}{launchFeedback.text}
             </div>
           )}
 

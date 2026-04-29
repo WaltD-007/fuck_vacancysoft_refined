@@ -383,6 +383,76 @@ class ReceivedReply(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+# ── Outreach tracking (open + click pixels) ──────────────────────────
+# One row per pixel-load (open) or link-click on a sent email. Logged by
+# the unauthenticated /t/* endpoints — recipients' mail clients hit
+# them as a side-effect of rendering the email.
+#
+# Both link to SentMessage via FK so aggregates can be computed per
+# campaign or per recipient. ip_hash stores HMAC_SHA256(salt, ip) for
+# privacy + dedupe; the salt is derived from PROSPERO_TRACKING_SECRET.
+#
+# Tenancy seam (organization_id) deferred to the tenancy migration —
+# when that lands, both tables get the column added alongside every
+# other outreach-relevant table.
+#
+# See docs/prospero_architecture.md §"Outreach tracking" for design.
+
+
+class OpenEvent(Base):
+    """One row per pixel-load on a sent email.
+
+    Deduped at write time within a 60-second window per
+    sent_message_id to absorb Outlook preview-pane double counts. The
+    deduper is in outreach/tracking.py, not enforced at the DB level
+    — we want to log every event we observe and let the writer decide.
+
+    likely_apple_mpp is set when the user-agent matches a known
+    pre-fetch pattern (Gmail's GoogleImageProxy, Apple Mail Privacy
+    Protection where detectable). Stored as a flag rather than
+    dropping the event so aggregations can choose whether to include.
+    """
+    __tablename__ = "open_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    sent_message_id: Mapped[str] = mapped_column(
+        ForeignKey("sent_messages.id"), index=True
+    )
+    opened_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    likely_apple_mpp: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ClickEvent(Base):
+    """One row per link-click on a sent email.
+
+    NOT deduped — repeat clicks are a real signal. Corporate scanner
+    pre-fetches (Mimecast, Microsoft Safe Links, Proofpoint) get
+    likely_scanner=True at write time. Detected via:
+      1. clicked_at - sent_at < 120s (humans don't click that fast), OR
+      2. user-agent matches a known scanner string
+    See outreach/tracking.py for the canonical list.
+
+    original_url is the URL the operator wrote in their email body —
+    stored separately from the rewritten /t/c/<token> URL so we know
+    where to redirect on click + what to attribute the event to.
+    """
+    __tablename__ = "click_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    sent_message_id: Mapped[str] = mapped_column(
+        ForeignKey("sent_messages.id"), index=True
+    )
+    original_url: Mapped[str] = mapped_column(Text)
+    clicked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    likely_scanner: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 # ── Users (operator identity + per-user settings) ────────────────────
 # First step of the multi-user story. See docs/outreach_email.md §2.6
 # for where this plugs into the eventual Entra Application Access
