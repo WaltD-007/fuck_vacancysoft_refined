@@ -348,11 +348,16 @@ class LaunchCampaignRequest(BaseModel):
       length-5 list starting with 0 if supplied.
     - ``recipient_email`` defaults to the first hiring-manager email on
       the campaign's dossier; 422 if neither is supplied.
+    - ``recipient_name`` is the operator-verified hiring-manager name
+      (the dossier's name is a guide, not source of truth). Stored on
+      every SentMessage in the sequence; the Campaigns tracker uses
+      it in preference to the dossier-derived name when present.
     """
 
     tone: str
     cadence_days: list[int] | None = None
     recipient_email: str | None = None
+    recipient_name: str | None = None
 
 
 class LaunchCampaignResponse(BaseModel):

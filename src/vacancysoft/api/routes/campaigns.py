@@ -540,6 +540,7 @@ async def launch_campaign(
             campaign_output_id=campaign.id,
             sender_user_id=sender_user_id,
             recipient_email=recipient,
+            recipient_name=payload.recipient_name,
             tone=tone,
             emails=sequence,
             cadence_days=cadence,
@@ -804,6 +805,10 @@ def list_campaigns(
             select(
                 SentMessage.campaign_output_id.label("co_id"),
                 func.min(SentMessage.recipient_email).label("recipient_email"),
+                # All 5 SentMessage rows in a sequence share the same
+                # recipient_name. MIN gives a deterministic value when
+                # all are equal, NULL when none are set.
+                func.min(SentMessage.recipient_name).label("recipient_name"),
                 func.min(SentMessage.sender_user_id).label("sender_user_id"),
                 func.min(SentMessage.created_at).label("launched_at"),
                 func.max(SentMessage.sent_at).label("last_sent"),
@@ -980,7 +985,13 @@ def list_campaigns(
                 continue
 
             display_name, email = _resolve_user(s, r.sender_user_id)
-            hm_name = _hm_name_from_dossier(ctx.hiring_managers, r.recipient_email)
+            # Operator-verified name (typed in Builder) wins over the
+            # dossier-derived guess. Fall back to the dossier when the
+            # verified name wasn't supplied at launch.
+            verified_name = (r.recipient_name or "").strip() if r.recipient_name else ""
+            hm_name = verified_name or _hm_name_from_dossier(
+                ctx.hiring_managers, r.recipient_email,
+            )
 
             items.append(CampaignListItem(
                 campaign_output_id=r.co_id,
@@ -1146,8 +1157,12 @@ def get_campaign_detail(campaign_output_id: str):
         # Aggregate sender + status for the header.
         sender_id = sms[0].sender_user_id if sms else ""
         recipient = sms[0].recipient_email if sms else None
+        recipient_name_raw = sms[0].recipient_name if sms else None
         display_name, email = _resolve_user(s, sender_id)
-        hm_name = _hm_name_from_dossier(
+        # Operator-verified name (typed at launch) wins over the
+        # dossier-derived guess. Fall back when not supplied.
+        verified_name = (recipient_name_raw or "").strip() if recipient_name_raw else ""
+        hm_name = verified_name or _hm_name_from_dossier(
             dossier.hiring_managers if dossier is not None else None,
             recipient,
         )

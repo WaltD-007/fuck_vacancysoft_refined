@@ -99,6 +99,11 @@ function BuilderPageInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verifiedHmEmail, setVerifiedHmEmail] = useState("");
+  // Operator-verified hiring-manager NAME — independent of the dossier's
+  // suggestion. The dossier sometimes picks the wrong person; this is
+  // what gets recorded against the SentMessage row and rendered on the
+  // Campaigns tracker.
+  const [verifiedHmName, setVerifiedHmName] = useState("");
   // "Save as training sample" button state. Separate from the main
   // loading/error so the save request doesn't block the preview.
   const [trainSaving, setTrainSaving] = useState(false);
@@ -260,6 +265,7 @@ function BuilderPageInner() {
     }
     const tone = current.tone;
     const recipient = verifiedHmEmail.trim();
+    const recipientName = verifiedHmName.trim();
     try {
       const res = await fetch(`${API}/campaigns/${campaignId}/launch`, {
         method: "POST",
@@ -268,6 +274,7 @@ function BuilderPageInner() {
           tone,
           cadence_days: cadence,
           ...(recipient ? { recipient_email: recipient } : {}),
+          ...(recipientName ? { recipient_name: recipientName } : {}),
         }),
       });
       if (res.ok) {
@@ -552,14 +559,27 @@ function BuilderPageInner() {
                 </div>
               </div>
 
-              {/* Verified Hiring Manager Email */}
-              <div className="p-4 rounded-xl" style={{ background: "#0a0a0f", border: "1px solid #1f1f2f" }}>
-                <div className="text-[11px] uppercase tracking-wider mb-3" style={{ color: "#555570", letterSpacing: "0.8px" }}>VERIFIED HIRING MANAGER EMAIL</div>
+              {/* Verified Hiring Manager — Name + Email */}
+              <div className="p-4 rounded-xl flex flex-col gap-3" style={{ background: "#0a0a0f", border: "1px solid #1f1f2f" }}>
+                <div className="text-[11px] uppercase tracking-wider" style={{ color: "#555570", letterSpacing: "0.8px" }}>
+                  VERIFIED HIRING MANAGER
+                  <span className="ml-2 text-[10px] normal-case" style={{ color: "#3a3a4a", letterSpacing: "0.4px" }}>
+                    overrides the dossier&apos;s suggestion when launching
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={verifiedHmName}
+                  onChange={(e) => setVerifiedHmName(e.target.value)}
+                  placeholder="full name"
+                  className="w-full px-3 py-2 rounded-lg text-sm outline-none"
+                  style={{ background: "#1e1e2a", border: "1px solid #2a2a3a", color: "#e8e8f0" }}
+                />
                 <input
                   type="email"
                   value={verifiedHmEmail}
                   onChange={(e) => setVerifiedHmEmail(e.target.value)}
-                  placeholder="enter verified hiring manager email here"
+                  placeholder="email address"
                   className="w-full px-3 py-2 rounded-lg text-sm outline-none"
                   style={{ background: "#1e1e2a", border: "1px solid #2a2a3a", color: "#e8e8f0" }}
                 />

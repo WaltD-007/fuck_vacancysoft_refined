@@ -342,6 +342,11 @@ class SentMessage(Base):
     )
     sender_user_id: Mapped[str] = mapped_column(String(255), index=True)
     recipient_email: Mapped[str] = mapped_column(String(320))
+    # Operator-verified hiring-manager name (typed into the Builder
+    # alongside the email). Nullable for back-compat with rows written
+    # before migration 0014; the Campaigns list/detail endpoints fall
+    # back to the dossier's hiring_managers[].name when this is NULL.
+    recipient_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     sequence_index: Mapped[int] = mapped_column(Integer)
     tone: Mapped[str] = mapped_column(String(32))
     scheduled_for: Mapped[datetime] = mapped_column(DateTime, index=True)

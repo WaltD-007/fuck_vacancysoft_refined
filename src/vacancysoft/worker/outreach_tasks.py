@@ -139,6 +139,7 @@ async def schedule_outreach_sequence(
     tone: str,
     emails: list[dict[str, str]],
     cadence_days: list[int] | None = None,
+    recipient_name: str | None = None,
 ) -> list[str]:
     """Create :class:`SentMessage` rows + deferred ARQ jobs for one arc.
 
@@ -150,6 +151,13 @@ async def schedule_outreach_sequence(
     ``cadence_days`` defaults to ``[0, 7, 14, 21, 28]`` (from
     configs/app.toml). First value must be 0; values after that are
     day-offsets from the first send.
+
+    ``recipient_name`` is the operator-verified hiring-manager name.
+    Stored alongside ``recipient_email`` on every SentMessage row so
+    the Campaigns tracker can display the verified value rather than
+    re-deriving from the dossier on every render. ``None`` is fine —
+    the tracker falls back to the dossier-derived name when this is
+    NULL.
 
     Returns the list of sent_message_ids in sequence order.
 
@@ -170,6 +178,8 @@ async def schedule_outreach_sequence(
     now = datetime.utcnow()
     sent_message_ids: list[str] = []
 
+    name_clean = (recipient_name or "").strip() or None
+
     for i, email in enumerate(emails, start=1):
         scheduled_for = now + timedelta(days=cadence[i - 1])
         sent_message_id = str(uuid4())
@@ -178,6 +188,7 @@ async def schedule_outreach_sequence(
             campaign_output_id=campaign_output_id,
             sender_user_id=sender_user_id,
             recipient_email=recipient_email,
+            recipient_name=name_clean,
             sequence_index=i,
             tone=tone,
             scheduled_for=scheduled_for,

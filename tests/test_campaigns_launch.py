@@ -287,6 +287,64 @@ class TestLaunchCampaign:
         assert {r.recipient_email for r in rows} == {"override@target.com"}
         s.close()
 
+    def test_recipient_name_persisted_on_all_rows(
+        self, client, session_factory, operator, campaign_with_dossier
+    ):
+        """Operator-verified name (typed in Builder) lands on every
+        SentMessage row in the sequence — not just the first one — so
+        the Campaigns tracker can pull it from any of them."""
+        co_id, _hm = campaign_with_dossier
+        res = client.post(
+            f"/api/campaigns/{co_id}/launch",
+            json={
+                "tone": "formal",
+                "recipient_email": "sarah@gs.com",
+                "recipient_name": "Sarah Chen",
+            },
+        )
+        assert res.status_code == 200, res.text
+
+        s = session_factory()
+        rows = s.execute(select(SentMessage)).scalars().all()
+        assert len(rows) == 5
+        assert {r.recipient_name for r in rows} == {"Sarah Chen"}
+        s.close()
+
+    def test_recipient_name_omitted_stores_null(
+        self, client, session_factory, operator, campaign_with_dossier
+    ):
+        """When the operator doesn't fill the name field, recipient_name
+        is NULL on all rows — list endpoint then falls back to the
+        dossier-derived name."""
+        co_id, _hm = campaign_with_dossier
+        res = client.post(
+            f"/api/campaigns/{co_id}/launch",
+            json={"tone": "formal"},
+        )
+        assert res.status_code == 200, res.text
+
+        s = session_factory()
+        rows = s.execute(select(SentMessage)).scalars().all()
+        assert {r.recipient_name for r in rows} == {None}
+        s.close()
+
+    def test_recipient_name_whitespace_stored_as_null(
+        self, client, session_factory, operator, campaign_with_dossier
+    ):
+        """A whitespace-only name input from the UI shouldn't shadow the
+        dossier-derived name. Treated as omitted."""
+        co_id, _hm = campaign_with_dossier
+        res = client.post(
+            f"/api/campaigns/{co_id}/launch",
+            json={"tone": "formal", "recipient_name": "   "},
+        )
+        assert res.status_code == 200, res.text
+
+        s = session_factory()
+        rows = s.execute(select(SentMessage)).scalars().all()
+        assert {r.recipient_name for r in rows} == {None}
+        s.close()
+
     def test_custom_cadence(
         self, client, session_factory, operator, campaign_with_dossier
     ):

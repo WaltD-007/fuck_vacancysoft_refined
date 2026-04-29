@@ -141,7 +141,7 @@ def _build_lead(s, *, employer="ExampleCorp", title="VP Eng",
 
 
 def _add_sequence(s, *, campaign_output_id, sender_user_id, recipient_email,
-                  statuses, conversation_id="conv-1"):
+                  statuses, conversation_id="conv-1", recipient_name=None):
     """Insert 5 SentMessage rows with the given statuses (length-5)."""
     assert len(statuses) == 5
     base = datetime.utcnow() - timedelta(hours=1)
@@ -150,6 +150,7 @@ def _add_sequence(s, *, campaign_output_id, sender_user_id, recipient_email,
             campaign_output_id=campaign_output_id,
             sender_user_id=sender_user_id,
             recipient_email=recipient_email,
+            recipient_name=recipient_name,
             sequence_index=i,
             tone="formal",
             scheduled_for=base + timedelta(days=i - 1),
@@ -205,12 +206,34 @@ class TestListCampaigns:
         assert item["category"] == "Risk"
         assert item["location_city"] == "London"
         assert item["location_country"] == "UK"
+        # No verified name → falls back to dossier-derived name
         assert item["hiring_manager"] == {"email": "sarah@gs.com", "name": "Sarah Chen"}
         assert item["sender"]["display_name"] == "Alice"
         assert item["sender"]["email"] == "alice@bs.com"
         assert item["status"] == "sent"
         assert item["stage"] == {"sent": 1, "pending": 4, "cancelled": 0, "failed": 0, "total": 5}
         assert item["counts"] == {"opens": 0, "clicks": 0, "replies": 0}
+
+    def test_verified_name_overrides_dossier(self, client, session_factory):
+        """When the operator typed a name in the Builder (stored on
+        sent_messages.recipient_name), that name wins on the list view
+        even when the dossier suggests something different."""
+        s = session_factory()
+        co = _build_lead(
+            s, employer="Goldman Sachs",
+            hm_email="sarah@gs.com", hm_name="Sarah Chen",  # dossier guess
+        )
+        _add_sequence(
+            s, campaign_output_id=co.id, sender_user_id="op",
+            recipient_email="sarah@gs.com",
+            recipient_name="Dr Sarah K. Chen",  # operator's verified name
+            statuses=["sent", "pending", "pending", "pending", "pending"],
+        )
+
+        res = client.get("/api/campaigns")
+        items = res.json()["items"]
+        assert len(items) == 1
+        assert items[0]["hiring_manager"]["name"] == "Dr Sarah K. Chen"
 
     def test_status_replied(self, client, session_factory):
         s = session_factory()
@@ -410,6 +433,22 @@ class TestCampaignDetail:
     def test_404_on_missing(self, client, session_factory):
         res = client.get("/api/campaigns/nope/detail")
         assert res.status_code == 404
+
+    def test_verified_name_overrides_dossier_in_detail(self, client, session_factory):
+        s = session_factory()
+        co = _build_lead(
+            s, employer="Goldman", hm_email="s@gs.com", hm_name="Sarah Chen",
+        )
+        _add_sequence(
+            s, campaign_output_id=co.id, sender_user_id="op",
+            recipient_email="s@gs.com",
+            recipient_name="Dr Sarah K. Chen",
+            statuses=["sent", "pending", "pending", "pending", "pending"],
+        )
+        res = client.get(f"/api/campaigns/{co.id}/detail")
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["hiring_manager"]["name"] == "Dr Sarah K. Chen"
 
     def test_full_detail_with_events(self, client, session_factory):
         s = session_factory()
