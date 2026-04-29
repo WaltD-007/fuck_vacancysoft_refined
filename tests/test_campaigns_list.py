@@ -502,3 +502,97 @@ class TestCampaignDetail:
         # Replies block
         assert len(body["replies"]) == 1
         assert body["replies"][0]["from_email"] == "sarah@gs.com"
+
+
+# ── /api/campaigns/{id}/archive + /unarchive ────────────────────────
+
+
+class TestArchiveCampaign:
+
+    def _make_campaign(self, session_factory, *, statuses=None):
+        statuses = statuses or ["sent", "sent", "sent", "sent", "sent"]
+        s = session_factory()
+        co = _build_lead(s)
+        _add_sequence(
+            s, campaign_output_id=co.id, sender_user_id="op",
+            recipient_email="hm@x", statuses=statuses,
+        )
+        s.close()
+        return co.id
+
+    def test_archive_terminal_campaign_succeeds(self, client, session_factory):
+        co_id = self._make_campaign(session_factory)
+        res = client.post(f"/api/campaigns/{co_id}/archive")
+        assert res.status_code == 200, res.text
+        assert res.json()["archived_at"] is not None
+
+    def test_archive_blocked_when_pending_sends_exist(self, client, session_factory):
+        co_id = self._make_campaign(
+            session_factory,
+            statuses=["sent", "pending", "pending", "pending", "pending"],
+        )
+        res = client.post(f"/api/campaigns/{co_id}/archive")
+        assert res.status_code == 422
+        assert "pending" in res.text.lower()
+
+    def test_archive_idempotent(self, client, session_factory):
+        co_id = self._make_campaign(session_factory)
+        first = client.post(f"/api/campaigns/{co_id}/archive").json()["archived_at"]
+        second = client.post(f"/api/campaigns/{co_id}/archive").json()["archived_at"]
+        # Second call must not bump the timestamp
+        assert first == second
+
+    def test_unarchive(self, client, session_factory):
+        co_id = self._make_campaign(session_factory)
+        client.post(f"/api/campaigns/{co_id}/archive")
+        res = client.post(f"/api/campaigns/{co_id}/unarchive")
+        assert res.status_code == 200, res.text
+        assert res.json()["archived_at"] is None
+
+    def test_archive_404_on_missing(self, client, session_factory):
+        # session_factory is needed even though we don't add rows — it's
+        # what patches SessionLocal away from the live Postgres.
+        res = client.post("/api/campaigns/nope/archive")
+        assert res.status_code == 404
+
+    def test_default_list_hides_archived(self, client, session_factory):
+        co_id = self._make_campaign(session_factory)
+        client.post(f"/api/campaigns/{co_id}/archive")
+        # Default ?archived=false hides it
+        items = client.get("/api/campaigns").json()["items"]
+        assert all(i["campaign_output_id"] != co_id for i in items)
+
+    def test_list_archived_only(self, client, session_factory):
+        co_id_a = self._make_campaign(session_factory)
+        co_id_b = self._make_campaign(session_factory)  # active
+        client.post(f"/api/campaigns/{co_id_a}/archive")
+        items = client.get("/api/campaigns?archived=true").json()["items"]
+        ids = {i["campaign_output_id"] for i in items}
+        assert co_id_a in ids
+        assert co_id_b not in ids
+
+    def test_list_archived_all(self, client, session_factory):
+        co_id_a = self._make_campaign(session_factory)
+        co_id_b = self._make_campaign(session_factory)
+        client.post(f"/api/campaigns/{co_id_a}/archive")
+        items = client.get("/api/campaigns?archived=all").json()["items"]
+        ids = {i["campaign_output_id"] for i in items}
+        assert co_id_a in ids
+        assert co_id_b in ids
+
+    def test_list_archived_at_field_populated(self, client, session_factory):
+        co_id = self._make_campaign(session_factory)
+        client.post(f"/api/campaigns/{co_id}/archive")
+        items = client.get("/api/campaigns?archived=true").json()["items"]
+        assert len(items) == 1
+        assert items[0]["archived_at"] is not None
+
+    def test_invalid_archived_query_value(self, client, session_factory):
+        res = client.get("/api/campaigns?archived=screamy")
+        assert res.status_code == 422
+
+    def test_detail_includes_archived_at(self, client, session_factory):
+        co_id = self._make_campaign(session_factory)
+        client.post(f"/api/campaigns/{co_id}/archive")
+        body = client.get(f"/api/campaigns/{co_id}/detail").json()
+        assert body["archived_at"] is not None

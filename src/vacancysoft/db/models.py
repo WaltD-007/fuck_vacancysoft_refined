@@ -282,6 +282,11 @@ class CampaignOutput(Base):
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    # Soft-archive flag for the Campaigns tracker. NULL = active (shown
+    # by default); set timestamp = archived (hidden unless ?archived=
+    # true|all on the list endpoint). Pending sends must be cancelled
+    # before archiving is allowed; see /api/campaigns/{id}/archive.
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
 
 
 class ReviewQueueItem(Base):

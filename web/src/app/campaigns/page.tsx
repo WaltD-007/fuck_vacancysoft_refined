@@ -39,6 +39,7 @@ type CampaignListItem = {
   counts: { opens: number; clicks: number; replies: number };
   last_activity: string | null;
   launched_at: string | null;
+  archived_at: string | null;
 };
 
 type CampaignListResponse = {
@@ -124,12 +125,17 @@ function CampaignsPageInner() {
   const statusFilter = searchParams.get("status") || "";
   const ownerFilter = searchParams.get("owner") || "";
   const focusId = searchParams.get("focus") || "";
+  // Archive view: `false` (default — hide archived), `true` (only archived),
+  // `all` (both). Three-state to match the backend; UI surfaces it as a
+  // toggle button "Show archived" / "Showing archived" / "Showing all".
+  const archivedView = searchParams.get("archived") || "false";
 
   // List endpoint — re-fetches when filters change. SWR key includes the
   // filter values so cache is per-filter-combo.
   const listKey = `/campaigns?${new URLSearchParams({
     ...(statusFilter ? { status: statusFilter } : {}),
     ...(ownerFilter ? { owner: ownerFilter } : {}),
+    archived: archivedView,
     limit: "50",
   }).toString()}`;
   const { data: list, error: listError, isLoading } = useSWR<CampaignListResponse>(
@@ -231,6 +237,21 @@ function CampaignsPageInner() {
                     </option>
                   ))}
                 </select>
+                <select
+                  value={archivedView}
+                  onChange={(e) => setParam("archived", e.target.value === "false" ? "" : e.target.value)}
+                  className="px-3 py-1.5 rounded-lg text-xs outline-none cursor-pointer"
+                  style={{
+                    background: archivedView !== "false" ? "rgba(255,217,61,0.08)" : "#1e1e2a",
+                    border: `1px solid ${archivedView !== "false" ? "rgba(255,217,61,0.25)" : "#2a2a3a"}`,
+                    color: archivedView !== "false" ? "#ffd93d" : "#e8e8f0",
+                  }}
+                  title="Archive view"
+                >
+                  <option value="false">Active only</option>
+                  <option value="true">Archived only</option>
+                  <option value="all">Active + archived</option>
+                </select>
               </div>
             </div>
 
@@ -272,16 +293,29 @@ function CampaignsPageInner() {
                     ? `${item.stage.sent} of ${item.stage.total}`
                     : "—";
                   const stageWarn = item.stage.total > 0 && item.stage.sent === item.stage.total;
+                  const isArchived = item.archived_at !== null;
                   return (
                     <tr
                       key={item.campaign_output_id}
                       className="cursor-pointer"
-                      style={{ borderBottom: "1px solid #1f1f2f" }}
+                      style={{
+                        borderBottom: "1px solid #1f1f2f",
+                        opacity: isArchived ? 0.55 : 1,
+                      }}
                       onClick={() => onRowClick(item.campaign_output_id)}
                       onMouseOver={(e) => (e.currentTarget.style.background = "#1a1a25")}
                       onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
                     >
-                      <td className="px-4 py-3 text-[13px] font-semibold">{item.title || "—"}</td>
+                      <td className="px-4 py-3 text-[13px] font-semibold">
+                        {item.title || "—"}
+                        {isArchived && (
+                          <span className="ml-2 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{
+                            background: "rgba(255,217,61,0.08)",
+                            color: "#ffd93d",
+                            border: "1px solid rgba(255,217,61,0.25)",
+                          }}>archived</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-[13px] font-semibold">{item.company || "—"}</td>
                       <td className="px-4 py-3 text-xs" style={{ color: "#8888a0" }}>{locationText(item)}</td>
                       <td className="px-4 py-3">

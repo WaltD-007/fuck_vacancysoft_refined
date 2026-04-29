@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import case, func, or_, select
 
 from vacancysoft.api.schemas import (
+    ArchiveCampaignResponse,
     CampaignClickDetail,
     CampaignCounts,
     CampaignDetailResponse,
@@ -783,6 +784,7 @@ def list_campaigns(
     status: str | None = Query(default=None, description=f"One of: {sorted(_VALID_LIST_STATUSES)}"),
     owner: str | None = Query(default=None, description="Filter to a specific sender_user_id (OID or email)"),
     since: str | None = Query(default=None, description="ISO-8601; only campaigns with activity after this"),
+    archived: str = Query(default="false", description="false (default — hide archived) | true (only archived) | all"),
     limit: int = Query(default=_LIST_LIMIT_DEFAULT, ge=1, le=_LIST_LIMIT_MAX),
     offset: int = Query(default=0, ge=0),
 ):
@@ -802,6 +804,11 @@ def list_campaigns(
       * ``failed`` — at least one failed, none sent
       * ``no_response`` — all 5 sent and none of replies / opens / clicks
 
+    Archive filter (``?archived=``):
+      * ``false`` (default) — hide archived rows
+      * ``true``            — show only archived rows
+      * ``all``             — show both
+
     Sort: last_activity DESC NULLS LAST.
     """
     from vacancysoft.db.models import (
@@ -818,6 +825,13 @@ def list_campaigns(
         raise HTTPException(
             status_code=422,
             detail=f"invalid status {status!r}; expected one of {sorted(_VALID_LIST_STATUSES)}",
+        )
+
+    archived_norm = (archived or "false").strip().lower()
+    if archived_norm not in {"false", "true", "all"}:
+        raise HTTPException(
+            status_code=422,
+            detail=f"invalid archived={archived!r}; expected false | true | all",
         )
 
     since_dt: datetime | None = None
@@ -923,10 +937,14 @@ def list_campaigns(
                 last_reply_by_co[r.campaign_output_id] = r.received_at
 
         # Step 3: lead context (one query per chained join — small N).
+        # Pull archived_at here too so the row-assembly loop can both
+        # apply the ?archived= filter and surface the timestamp on
+        # each list item.
         co_rows = s.execute(
             select(
                 CampaignOutput.id.label("co_id"),
                 CampaignOutput.dossier_id,
+                CampaignOutput.archived_at,
                 IntelligenceDossier.enriched_job_id,
                 IntelligenceDossier.hiring_managers,
                 EnrichedJob.title,
@@ -967,6 +985,13 @@ def list_campaigns(
             opens = int(opens_by_co.get(r.co_id, 0))
             clicks = int(clicks_by_co.get(r.co_id, 0))
             replies = int(reply_count_by_co.get(r.co_id, 0))
+
+            # Archive filter (default hides archived rows).
+            row_archived = ctx.archived_at is not None
+            if archived_norm == "false" and row_archived:
+                continue
+            if archived_norm == "true" and not row_archived:
+                continue
 
             # Owner filter
             sender_id = r.sender_user_id or ""
@@ -1049,6 +1074,7 @@ def list_campaigns(
                 counts=CampaignCounts(opens=opens, clicks=clicks, replies=replies),
                 last_activity=_iso(last_activity),
                 launched_at=_iso(r.launched_at),
+                archived_at=_iso(ctx.archived_at),
             ))
 
         # Sort + paginate.
@@ -1236,6 +1262,7 @@ def get_campaign_detail(campaign_output_id: str):
         ),
         launched_at=_iso(launched_at),
         last_activity=_iso(last_activity),
+        archived_at=_iso(co.archived_at),
         steps=steps,
         replies=[
             CampaignReply(
@@ -1246,3 +1273,74 @@ def get_campaign_detail(campaign_output_id: str):
             for r in replies
         ],
     )
+
+
+# ── Archive / unarchive ───────────────────────────────────────────
+
+
+@router.post(
+    "/api/campaigns/{campaign_output_id}/archive",
+    response_model=ArchiveCampaignResponse,
+)
+def archive_campaign(campaign_output_id: str):
+    """Soft-archive a campaign — hide it from the default list view.
+
+    Refuses with 422 when there are still pending sends, so an archived
+    campaign can never have deferred ARQ jobs firing in the background.
+    Operator must hit Stop first (which cancels pending rows), then
+    archive.
+
+    Idempotent — archiving an already-archived row leaves the
+    ``archived_at`` timestamp unchanged.
+    """
+    from vacancysoft.db.models import CampaignOutput, SentMessage
+
+    with SessionLocal() as s:
+        co = s.execute(
+            select(CampaignOutput).where(CampaignOutput.id == campaign_output_id)
+        ).scalar_one_or_none()
+        if co is None:
+            raise HTTPException(status_code=404, detail="campaign not found")
+
+        pending_count = s.execute(
+            select(func.count(SentMessage.id))
+            .where(SentMessage.campaign_output_id == campaign_output_id)
+            .where(SentMessage.status == "pending")
+        ).scalar() or 0
+        if pending_count > 0:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"cannot archive — {pending_count} pending send(s) "
+                    "still scheduled. Stop the campaign first."
+                ),
+            )
+
+        if co.archived_at is None:
+            co.archived_at = datetime.utcnow()
+            s.commit()
+        return ArchiveCampaignResponse(archived_at=_iso(co.archived_at))
+
+
+@router.post(
+    "/api/campaigns/{campaign_output_id}/unarchive",
+    response_model=ArchiveCampaignResponse,
+)
+def unarchive_campaign(campaign_output_id: str):
+    """Restore an archived campaign to the default list view.
+
+    Idempotent — unarchiving a non-archived row is a no-op (returns
+    ``archived_at: null``).
+    """
+    from vacancysoft.db.models import CampaignOutput
+
+    with SessionLocal() as s:
+        co = s.execute(
+            select(CampaignOutput).where(CampaignOutput.id == campaign_output_id)
+        ).scalar_one_or_none()
+        if co is None:
+            raise HTTPException(status_code=404, detail="campaign not found")
+        if co.archived_at is not None:
+            co.archived_at = None
+            s.commit()
+        return ArchiveCampaignResponse(archived_at=None)

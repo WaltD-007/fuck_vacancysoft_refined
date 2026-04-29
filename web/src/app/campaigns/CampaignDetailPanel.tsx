@@ -54,6 +54,7 @@ type CampaignDetail = {
   counts: { opens: number; clicks: number; replies: number };
   launched_at: string | null;
   last_activity: string | null;
+  archived_at: string | null;
   steps: SequenceStep[];
   replies: Reply[];
 };
@@ -109,6 +110,8 @@ export default function CampaignDetailPanel({
   const [stopping, setStopping] = useState(false);
   const [stopError, setStopError] = useState<string | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
 
   // Close on Escape — small affordance, big UX win
   useEffect(() => {
@@ -146,7 +149,36 @@ export default function CampaignDetailPanel({
     }
   };
 
+  // Archive / unarchive — single button that flips between the two
+  // depending on current state. Backend rejects archive while pending
+  // sends exist (422 with a clear message).
+  const onArchiveToggle = async () => {
+    if (!data || archiving) return;
+    setArchiving(true);
+    setArchiveError(null);
+    const action = data.archived_at ? "unarchive" : "archive";
+    try {
+      const res = await fetch(`${API}/campaigns/${campaignId}/${action}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "",
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        setArchiveError(detail?.detail || `${action} failed (${res.status}).`);
+        return;
+      }
+      await swrMutate(swrKey);
+      await swrMutate((key: string) => typeof key === "string" && key.startsWith("/campaigns?"));
+    } catch (e: unknown) {
+      setArchiveError(e instanceof Error ? e.message : "Network error");
+    } finally {
+      setArchiving(false);
+    }
+  };
+
   const anyPending = data?.steps.some((s) => s.status === "pending") ?? false;
+  const isArchived = data?.archived_at !== null && data?.archived_at !== undefined;
 
   return (
     <>
@@ -303,50 +335,90 @@ export default function CampaignDetailPanel({
               </section>
             )}
 
-            {/* Stop button */}
-            <section className="pt-4" style={{ borderTop: "1px solid #1f1f2f" }}>
+            {/* Action buttons — Stop + Archive */}
+            <section className="pt-4 flex flex-col gap-3" style={{ borderTop: "1px solid #1f1f2f" }}>
+              {isArchived && (
+                <div className="text-[11px] px-3 py-2 rounded-lg" style={{
+                  background: "rgba(255,217,61,0.06)",
+                  border: "1px solid rgba(255,217,61,0.25)",
+                  color: "#ffd93d",
+                }}>
+                  This campaign is archived. Hidden from the default list view.
+                </div>
+              )}
+
               {stopError && (
-                <div className="text-xs mb-3" style={{ color: "#ff6b6b" }}>
+                <div className="text-xs" style={{ color: "#ff6b6b" }}>
                   {stopError}
                 </div>
               )}
-              {!confirmStop ? (
-                <button
-                  onClick={() => setConfirmStop(true)}
-                  disabled={!anyPending}
-                  title={!anyPending ? "No pending sends to cancel" : undefined}
-                  className="px-4 py-2 rounded-lg text-sm font-semibold"
-                  style={{
-                    background: anyPending ? "rgba(255,107,107,0.12)" : "#1e1e2a",
-                    color: anyPending ? "#ff6b6b" : "#3a3a4a",
-                    border: `1px solid ${anyPending ? "rgba(255,107,107,0.3)" : "#2a2a3a"}`,
-                    cursor: anyPending ? "pointer" : "not-allowed",
-                  }}
-                >Stop campaign</button>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: "#ff6b6b" }}>Cancel all pending sends?</span>
-                  <button
-                    onClick={() => void onStop()}
-                    disabled={stopping}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                    style={{
-                      background: "#ff6b6b",
-                      color: "white",
-                      border: "1px solid rgba(255,107,107,0.3)",
-                    }}
-                  >{stopping ? "Cancelling…" : "Yes, stop"}</button>
-                  <button
-                    onClick={() => setConfirmStop(false)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-semibold"
-                    style={{
-                      background: "transparent",
-                      color: "#8888a0",
-                      border: "1px solid #2a2a3a",
-                    }}
-                  >No</button>
+              {archiveError && (
+                <div className="text-xs" style={{ color: "#ff6b6b" }}>
+                  {archiveError}
                 </div>
               )}
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {!confirmStop ? (
+                  <button
+                    onClick={() => setConfirmStop(true)}
+                    disabled={!anyPending}
+                    title={!anyPending ? "No pending sends to cancel" : undefined}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold"
+                    style={{
+                      background: anyPending ? "rgba(255,107,107,0.12)" : "#1e1e2a",
+                      color: anyPending ? "#ff6b6b" : "#3a3a4a",
+                      border: `1px solid ${anyPending ? "rgba(255,107,107,0.3)" : "#2a2a3a"}`,
+                      cursor: anyPending ? "pointer" : "not-allowed",
+                    }}
+                  >Stop campaign</button>
+                ) : (
+                  <>
+                    <span className="text-xs" style={{ color: "#ff6b6b" }}>Cancel all pending sends?</span>
+                    <button
+                      onClick={() => void onStop()}
+                      disabled={stopping}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                      style={{
+                        background: "#ff6b6b",
+                        color: "white",
+                        border: "1px solid rgba(255,107,107,0.3)",
+                      }}
+                    >{stopping ? "Cancelling…" : "Yes, stop"}</button>
+                    <button
+                      onClick={() => setConfirmStop(false)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                      style={{
+                        background: "transparent",
+                        color: "#8888a0",
+                        border: "1px solid #2a2a3a",
+                      }}
+                    >No</button>
+                  </>
+                )}
+
+                <button
+                  onClick={() => void onArchiveToggle()}
+                  disabled={archiving || (anyPending && !isArchived)}
+                  title={
+                    anyPending && !isArchived
+                      ? "Stop the campaign first — pending sends still scheduled"
+                      : undefined
+                  }
+                  className="px-4 py-2 rounded-lg text-sm font-semibold"
+                  style={{
+                    background: isArchived ? "rgba(108,92,231,0.12)" : "rgba(255,217,61,0.08)",
+                    color: isArchived ? "#a29bfe" : "#ffd93d",
+                    border: `1px solid ${isArchived ? "rgba(108,92,231,0.3)" : "rgba(255,217,61,0.25)"}`,
+                    cursor: (anyPending && !isArchived) || archiving ? "not-allowed" : "pointer",
+                    opacity: (anyPending && !isArchived) ? 0.6 : 1,
+                  }}
+                >
+                  {archiving
+                    ? (isArchived ? "Restoring…" : "Archiving…")
+                    : (isArchived ? "Restore" : "Archive")}
+                </button>
+              </div>
             </section>
           </div>
         )}

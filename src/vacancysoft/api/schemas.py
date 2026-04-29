@@ -378,6 +378,17 @@ class CancelCampaignResponse(BaseModel):
     cancelled_count: int
 
 
+class ArchiveCampaignResponse(BaseModel):
+    """Response from /archive and /unarchive.
+
+    ``archived_at`` is the ISO timestamp when the row entered archived
+    state, or ``None`` after /unarchive. The frontend uses this to
+    update its local cache without re-fetching the whole list.
+    """
+
+    archived_at: str | None
+
+
 # ── Campaigns tracker (PR P8) ─────────────────────────────────────────
 
 
@@ -438,6 +449,7 @@ class CampaignListItem(BaseModel):
     counts: CampaignCounts
     last_activity: str | None  # ISO-8601, MAX of sent / opened / clicked / replied
     launched_at: str | None    # earliest sent_messages.created_at
+    archived_at: str | None    # ISO-8601 when archived; null = active
 
 
 class CampaignListResponse(BaseModel):
@@ -507,5 +519,6 @@ class CampaignDetailResponse(BaseModel):
     counts: CampaignCounts
     launched_at: str | None
     last_activity: str | None
+    archived_at: str | None
     steps: list[CampaignSequenceStep]
     replies: list[CampaignReply]
