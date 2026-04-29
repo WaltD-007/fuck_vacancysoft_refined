@@ -197,6 +197,46 @@ class TestOpenEndpoint:
         assert s.execute(select(OpenEvent)).first() is None
         s.close()
 
+    def test_head_request_returns_200_no_event(
+        self, client, session_factory, sent_message,
+    ):
+        """HEAD must not have side effects per HTTP spec. Returns the
+        same headers as GET (200 image/gif) without inserting a row."""
+        token = tk.sign_token(sent_message.id, "o")
+        res = client.head(f"/t/o/{token}")
+        assert res.status_code == 200
+        assert res.headers["content-type"] == "image/gif"
+
+        s = session_factory()
+        assert s.execute(select(OpenEvent)).first() is None
+        s.close()
+
+    def test_head_bad_token_returns_204_no_event(
+        self, client, session_factory,
+    ):
+        res = client.head("/t/o/garbage-token")
+        assert res.status_code == 204
+
+        s = session_factory()
+        assert s.execute(select(OpenEvent)).first() is None
+        s.close()
+
+    def test_head_does_not_pre_warm_dedupe(
+        self, client, session_factory, sent_message,
+    ):
+        """A HEAD before a GET should NOT consume the dedupe slot —
+        the GET must still log because HEAD wrote nothing."""
+        token = tk.sign_token(sent_message.id, "o")
+        client.head(f"/t/o/{token}")
+        client.get(f"/t/o/{token}")
+
+        s = session_factory()
+        events = s.execute(select(OpenEvent)).scalars().all()
+        assert len(events) == 1, (
+            "HEAD must be a no-op: subsequent GET should still create the event"
+        )
+        s.close()
+
 
 # ── /t/c/{token} ────────────────────────────────────────────────────
 
@@ -311,6 +351,30 @@ class TestClickEndpoint:
         res = client.get(f"/t/c/{token}", follow_redirects=False)
         assert res.status_code == 302
         assert "barclaysimpson.com" in res.headers["location"]
+        s = session_factory()
+        assert s.execute(select(ClickEvent)).first() is None
+        s.close()
+
+    def test_head_request_returns_redirect_no_event(
+        self, client, session_factory, sent_message,
+    ):
+        """HEAD reports the same Location header GET would, no event."""
+        token = tk.sign_token(sent_message.id, "c", url="https://example.com/page")
+        res = client.head(f"/t/c/{token}", follow_redirects=False)
+        assert res.status_code == 302
+        assert res.headers["location"] == "https://example.com/page"
+
+        s = session_factory()
+        assert s.execute(select(ClickEvent)).first() is None
+        s.close()
+
+    def test_head_bad_token_redirects_to_fallback_no_event(
+        self, client, session_factory,
+    ):
+        res = client.head("/t/c/garbage", follow_redirects=False)
+        assert res.status_code == 302
+        assert "barclaysimpson.com" in res.headers["location"]
+
         s = session_factory()
         assert s.execute(select(ClickEvent)).first() is None
         s.close()

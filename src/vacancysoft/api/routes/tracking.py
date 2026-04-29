@@ -67,20 +67,32 @@ def _client_ip(request: Request) -> str:
     return ""
 
 
-@router.get("/t/o/{token}")
+@router.api_route("/t/o/{token}", methods=["GET", "HEAD"])
 async def track_open(token: str, request: Request) -> Response:
     """Log an open event and return a 1×1 transparent gif.
 
-    On bad token: return 204 (no content) — same shape as a successful
-    pixel hit from the recipient's perspective (mail clients don't
-    care about the response body for an <img>), no info leaked about
-    why the token failed.
+    Accepts both GET and HEAD. HEAD is a no-op per HTTP spec — same
+    headers as GET (200 image/gif on a valid token, 204 on bad) but
+    no event row is written. Useful for link-checkers and corporate
+    spam-filter pre-flights that probe URLs before letting the user
+    click them. Real mail clients fetching the <img> always send GET.
+
+    On bad token: 204 No Content — same shape as a successful pixel
+    hit from the recipient's perspective (mail clients don't care
+    about the response body for an <img>); no info leaked about why
+    the token failed.
     """
     payload = verify_token(token, expected_type="o")
     if payload is None or not payload.get("m"):
         return Response(status_code=204)
 
     sent_message_id: str = payload["m"]
+
+    if request.method == "HEAD":
+        # HEAD must not have side effects — no event insert. Return
+        # the same headers GET would (200 + image/gif) with empty body.
+        return Response(status_code=200, media_type="image/gif")
+
     user_agent = request.headers.get("user-agent")
     client_ip = _client_ip(request)
 
@@ -141,9 +153,14 @@ async def track_open(token: str, request: Request) -> Response:
     return Response(content=TRACKING_PIXEL_BYTES, media_type="image/gif")
 
 
-@router.get("/t/c/{token}")
+@router.api_route("/t/c/{token}", methods=["GET", "HEAD"])
 async def track_click(token: str, request: Request) -> Response:
     """Log a click event and 302 to the original URL.
+
+    Accepts both GET and HEAD. HEAD is a no-op per HTTP spec — same
+    302 + Location header GET would emit, but no click_event row is
+    written. Useful for link-checkers and corporate Safe-Links scanners
+    that probe redirect URLs before letting them through.
 
     On bad token: 302 to a safe fallback URL, no log row written.
     """
@@ -154,6 +171,11 @@ async def track_click(token: str, request: Request) -> Response:
 
     sent_message_id: str = payload["m"]
     original_url: str = payload["u"]
+
+    if request.method == "HEAD":
+        # HEAD: report the same redirect target a GET would, no event.
+        return RedirectResponse(original_url, status_code=302)
+
     user_agent = request.headers.get("user-agent")
     client_ip = _client_ip(request)
 
