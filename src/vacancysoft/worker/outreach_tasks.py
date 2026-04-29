@@ -58,11 +58,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from vacancysoft.db.engine import SessionLocal
-from vacancysoft.db.models import ReceivedReply, SentMessage
+from vacancysoft.db.models import ReceivedReply, SentMessage, User
 from vacancysoft.outreach import GraphClient, GraphError
+from vacancysoft.outreach.tracking import (
+    inject_pixel,
+    is_tracking_enabled,
+    rewrite_links,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +84,46 @@ def _load_outreach_config() -> dict[str, Any]:
             return tomllib.load(f).get("outreach", {})
     except Exception:
         return {}
+
+
+def _resolve_sender_email(session, sender_user_id: str) -> str:
+    """Map a ``sender_user_id`` to the operator's mailbox email.
+
+    ``sender_user_id`` in :class:`SentMessage` is whatever the launch
+    endpoint stamped — Entra object-id when SSO has populated it, else
+    UPN/email. Both forms are accepted on the launch path.
+
+    The reply poller needs the actual mailbox **email** to filter out
+    self-replies (Graph's ``conversationId`` returns both sides of the
+    thread, so the operator's own outbound copy can show up in the
+    poll). Comparing the raw ``sender_user_id`` (likely an OID) to a
+    ``from_email`` (always an email) never matches, which is the bug
+    this helper fixes.
+
+    Resolution order:
+      1. ``users.entra_object_id`` exact match → return ``users.email``
+      2. ``users.email`` exact match (lowercased) → return that email
+      3. No match → return the raw ``sender_user_id`` lowercased
+         (best-effort fallback so a missing user row degrades to the
+         pre-fix behaviour rather than crashing)
+
+    Always returns a lowercase string, ready to compare against
+    ``from_email.lower()``.
+    """
+    needle = (sender_user_id or "").strip()
+    if not needle:
+        return ""
+    user = session.execute(
+        select(User).where(
+            or_(
+                User.entra_object_id == needle,
+                func.lower(User.email) == needle.lower(),
+            )
+        )
+    ).scalar_one_or_none()
+    if user is not None and user.email:
+        return user.email.strip().lower()
+    return needle.lower()
 
 
 # ── Helper: schedule a 5-email sequence ───────────────────────────────
@@ -195,6 +240,22 @@ async def send_outreach_email(ctx: dict[str, Any], sent_message_id: str) -> None
             )
             return
 
+        # Open + click tracking. Inject the 1×1 pixel and rewrite any
+        # http(s) links to point at /t/c/<token> before handing the body
+        # to Graph. Both calls are no-ops when OUTREACH_TRACKING_ENABLED
+        # is set to a falsy value — kill switch for "is the issue
+        # tracking?" debugging without needing a code change.
+        #
+        # We mutate row.body so the as-sent body is what's stored on
+        # the SentMessage row. Useful for "why does this email show 5
+        # opens?" debugging — the stored body matches what arrived in
+        # the recipient's inbox.
+        if is_tracking_enabled():
+            base_url = os.environ.get("TRACKING_DOMAIN", "http://localhost:8000").rstrip("/")
+            row.body = inject_pixel(row.body, row.id, base_url)
+            row.body = rewrite_links(row.body, row.id, base_url)
+            s.flush()
+
         graph = GraphClient()
         try:
             result = await graph.send_mail(
@@ -292,6 +353,12 @@ async def poll_replies_for_conversation(
         # the exact send moment.
         since_dt = first_send.sent_at.replace(tzinfo=timezone.utc) - timedelta(minutes=1)
 
+        # Resolve sender_user_id (likely an Entra OID) → operator email
+        # so the self-reply filter below has something it can actually
+        # compare against from_email. Done inside the existing session
+        # so we don't open another DB connection.
+        sender_email = _resolve_sender_email(s, sender_user_id)
+
     graph = GraphClient()
     try:
         replies = await graph.list_replies(
@@ -308,12 +375,18 @@ async def poll_replies_for_conversation(
         await _reschedule_poll(ctx, conversation_id, sender_user_id, interval)
         return
 
-    # Filter out any replies that came from our own operator (auto-
-    # replies like the sent-items echo). Graph's conversationId spans
-    # both sides, so this is a safety filter.
+    # Filter out any replies that came from our own operator (Graph's
+    # conversationId spans both sides of the thread, so the operator's
+    # own outbound copy can show up in the poll).
+    #
+    # Compare against ``sender_email`` (resolved from the users table
+    # above). The previous version compared against ``sender_user_id``
+    # directly, which is broken once SSO populates that field with an
+    # Entra object-id — OID would never equal an email and self-replies
+    # would always trigger sequence cancellation.
     non_self_replies = [
         r for r in replies
-        if (r.get("from_email") or "").lower() != sender_user_id.lower()
+        if (r.get("from_email") or "").strip().lower() != sender_email
     ]
 
     if not non_self_replies:

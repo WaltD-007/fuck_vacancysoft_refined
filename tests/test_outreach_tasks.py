@@ -29,6 +29,7 @@ from vacancysoft.db.models import (
     CampaignOutput,
     ReceivedReply,
     SentMessage,
+    User,
 )
 from vacancysoft.worker import outreach_tasks
 
@@ -337,6 +338,83 @@ class TestSendOutreachEmail:
         )
         assert redis.enqueued == []
 
+    @pytest.mark.asyncio
+    async def test_tracking_pixel_injected_into_body(
+        self, session_factory, campaign_output, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """After send_outreach_email runs, the SentMessage.body row stores
+        the as-sent body — i.e. with the tracking pixel injected and
+        any links rewritten. This is the integration check that the
+        tracking hook in send_outreach_email is wired correctly."""
+        monkeypatch.delenv("OUTREACH_DRY_RUN", raising=False)  # default true
+        monkeypatch.setenv("PROSPERO_TRACKING_SECRET", "test-secret")
+        monkeypatch.setenv("TRACKING_DOMAIN", "https://t.example.com")
+
+        s = session_factory()
+        row = SentMessage(
+            campaign_output_id=campaign_output.id,
+            sender_user_id="op-1",
+            recipient_email="hm@corp.com",
+            sequence_index=1, tone="formal",
+            scheduled_for=datetime.utcnow(),
+            status="pending",
+            subject="Hi",
+            body='<html><body><p>Visit <a href="https://example.com/page">our site</a></p></body></html>',
+        )
+        s.add(row)
+        s.commit()
+        row_id = row.id
+        s.close()
+
+        await outreach_tasks.send_outreach_email({"redis": _FakeRedis()}, row_id)
+
+        s = session_factory()
+        reloaded = s.execute(
+            select(SentMessage).where(SentMessage.id == row_id)
+        ).scalar_one()
+        # Pixel injected before </body>
+        assert "<img" in reloaded.body
+        assert "/t/o/" in reloaded.body
+        assert "</body>" in reloaded.body
+        # Original link rewritten to /t/c/
+        assert "/t/c/" in reloaded.body
+        # Original URL no longer in body (the redirect domain replaces it)
+        assert 'href="https://example.com/page"' not in reloaded.body
+
+    @pytest.mark.asyncio
+    async def test_tracking_kill_switch_skips_injection(
+        self, session_factory, campaign_output, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """OUTREACH_TRACKING_ENABLED=false leaves the body untouched."""
+        monkeypatch.delenv("OUTREACH_DRY_RUN", raising=False)
+        monkeypatch.setenv("OUTREACH_TRACKING_ENABLED", "false")
+        monkeypatch.setenv("PROSPERO_TRACKING_SECRET", "x")
+        monkeypatch.setenv("TRACKING_DOMAIN", "https://t.example.com")
+
+        original_body = '<html><body><p>Hi <a href="https://example.com">x</a></p></body></html>'
+        s = session_factory()
+        row = SentMessage(
+            campaign_output_id=campaign_output.id,
+            sender_user_id="op-1",
+            recipient_email="hm@corp.com",
+            sequence_index=1, tone="formal",
+            scheduled_for=datetime.utcnow(),
+            status="pending",
+            subject="s", body=original_body,
+        )
+        s.add(row)
+        s.commit()
+        row_id = row.id
+        s.close()
+
+        await outreach_tasks.send_outreach_email({"redis": _FakeRedis()}, row_id)
+
+        s = session_factory()
+        reloaded = s.execute(
+            select(SentMessage).where(SentMessage.id == row_id)
+        ).scalar_one()
+        assert reloaded.body == original_body  # untouched
+
 
 # ── poll_replies_for_conversation ──────────────────────────────────
 
@@ -451,20 +529,99 @@ class TestPollReplies:
         assert all(e["fn"] != "poll_replies_for_conversation" for e in redis.enqueued)
 
     @pytest.mark.asyncio
-    async def test_self_reply_is_ignored(
+    async def test_self_reply_is_ignored_when_sender_user_id_is_oid(
         self, session_factory, campaign_output, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A 'reply' from the sender's own address (e.g. sent-items
-        echo) should be filtered out, not trigger cancellation."""
+        """A 'reply' from the operator's own mailbox should be filtered out
+        even when sender_user_id is an Entra object-id rather than an
+        email address.
+
+        Pre-fix this test passed only because the fixture happened to set
+        sender_user_id == from_email == "op-1". With SSO populating
+        sender_user_id with a UUID-shaped OID, the broken filter would
+        let self-replies through, which would auto-cancel a sequence
+        the moment our own outbound message landed in the conversation.
+
+        This test seeds a real User row mapping the OID to the email
+        and confirms the filter resolves OID → email before comparing.
+        """
         monkeypatch.setenv("OUTREACH_DRY_RUN", "false")
         monkeypatch.setenv("GRAPH_TENANT_ID", "t")
         monkeypatch.setenv("GRAPH_CLIENT_ID", "c")
 
+        # Seed sequence with sender_user_id = OID (realistic post-SSO).
+        OID = "e3a5d0e2-7c92-4cab-aaaa-1111111111aa"
+        EMAIL = "alice@example.com"
+        s = session_factory()
+        s.add(User(
+            entra_object_id=OID,
+            email=EMAIL,
+            display_name="Alice Operator",
+            role="operator",
+            active=True,
+        ))
+        for i in range(1, 6):
+            status = "sent" if i == 1 else "pending"
+            s.add(SentMessage(
+                campaign_output_id=campaign_output.id,
+                sender_user_id=OID,                       # <<< OID, not email
+                recipient_email="hm@corp.com",
+                sequence_index=i,
+                tone="formal",
+                scheduled_for=datetime.utcnow() + timedelta(days=(i - 1) * 7),
+                conversation_id="CONV-1",
+                status=status,
+                sent_at=datetime.utcnow() - timedelta(hours=1) if i == 1 else None,
+                graph_message_id=f"out-{i}" if i == 1 else None,
+                subject=f"Seq {i}", body="b",
+                arq_job_id=f"send-arq-{i}",
+            ))
+        s.commit()
+        s.close()
+
+        self_reply = {
+            "graph_message_id": "self-1",
+            "conversation_id": "CONV-1",
+            "from_email": EMAIL,                          # <<< email, not OID
+            "received_at": "2026-04-21T14:32:00Z",
+            "subject": "Re: Hello",
+        }
+        fake_graph = _FakeGraphClient(list_result=[self_reply])
+        monkeypatch.setattr(outreach_tasks, "GraphClient", lambda **_: fake_graph)
+
+        redis = _FakeRedis()
+        await outreach_tasks.poll_replies_for_conversation(
+            {"redis": redis}, "CONV-1", OID
+        )
+
+        s = session_factory()
+        # No replies stored, no aborts, sequence still pending
+        assert s.execute(select(ReceivedReply)).first() is None
+        assert redis.aborted == []
+        # Poll re-enqueued
+        assert any(
+            e["fn"] == "poll_replies_for_conversation" for e in redis.enqueued
+        )
+
+    @pytest.mark.asyncio
+    async def test_self_reply_filter_falls_back_when_no_user_row(
+        self, session_factory, campaign_output, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If no User row exists for sender_user_id, the filter falls back
+        to direct comparison (best-effort) so missing user records
+        degrade gracefully rather than crashing."""
+        monkeypatch.setenv("OUTREACH_DRY_RUN", "false")
+        monkeypatch.setenv("GRAPH_TENANT_ID", "t")
+        monkeypatch.setenv("GRAPH_CLIENT_ID", "c")
+
+        # NB: NO user row. Pre-SSO bootstrap state.
         self._seed_sequence(
             session_factory, campaign_output,
             first_sent_at=datetime.utcnow() - timedelta(hours=1),
         )
 
+        # from_email == sender_user_id → falls into the legacy direct-
+        # match path and is correctly filtered out.
         self_reply = {
             "graph_message_id": "self-1",
             "conversation_id": "CONV-1",
@@ -481,13 +638,8 @@ class TestPollReplies:
         )
 
         s = session_factory()
-        # No replies stored, no aborts, sequence still pending
         assert s.execute(select(ReceivedReply)).first() is None
         assert redis.aborted == []
-        # Poll re-enqueued
-        assert any(
-            e["fn"] == "poll_replies_for_conversation" for e in redis.enqueued
-        )
 
     @pytest.mark.asyncio
     async def test_stops_polling_after_max_days(
