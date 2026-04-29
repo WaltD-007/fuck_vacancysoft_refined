@@ -146,7 +146,7 @@ class TestScheduleSequence:
             campaign_output_id=campaign_output.id,
             sender_user_id="op-1",
             recipient_email="hm@corp.com",
-            tone="formal",
+            tones=["formal"] * 5,
             emails=emails,
             cadence_days=[0, 7, 14, 21, 28],
         )
@@ -159,7 +159,9 @@ class TestScheduleSequence:
         assert [r.status for r in rows] == ["pending"] * 5
         assert [r.tone for r in rows] == ["formal"] * 5
         assert [r.sequence_index for r in rows] == [1, 2, 3, 4, 5]
-        # Cadence correctness: row 2 is +7d after row 1, etc.
+        # Cadence DELTAS unchanged: row 2 is +7d after row 1, etc.
+        # The whole sequence is offset by launch_grace_minutes (default
+        # 10) ahead of "now"; that doesn't affect inter-row deltas.
         deltas = [rows[i].scheduled_for - rows[0].scheduled_for for i in range(5)]
         expected = [timedelta(days=d) for d in [0, 7, 14, 21, 28]]
         for got, want in zip(deltas, expected):
@@ -184,7 +186,7 @@ class TestScheduleSequence:
                 campaign_output_id=campaign_output.id,
                 sender_user_id="op",
                 recipient_email="h@c",
-                tone="formal",
+                tones=["formal"] * 5,
                 emails=[{"subject": "s", "body": "b"}],
             )
 
@@ -200,9 +202,91 @@ class TestScheduleSequence:
                 redis=redis, session=s,
                 campaign_output_id=campaign_output.id,
                 sender_user_id="op", recipient_email="h@c",
-                tone="formal", emails=emails,
+                tones=["formal"] * 5, emails=emails,
                 cadence_days=[1, 8, 15, 22, 29],  # doesn't start at 0
             )
+
+    @pytest.mark.asyncio
+    async def test_rejects_wrong_tones_count(
+        self, session_factory, campaign_output
+    ) -> None:
+        redis = _FakeRedis()
+        s = session_factory()
+        emails = [{"subject": f"s{i}", "body": "b"} for i in range(5)]
+        with pytest.raises(ValueError, match="expected 5 tones"):
+            await outreach_tasks.schedule_outreach_sequence(
+                redis=redis, session=s,
+                campaign_output_id=campaign_output.id,
+                sender_user_id="op", recipient_email="h@c",
+                tones=["formal", "informal"],   # only 2
+                emails=emails,
+            )
+
+    @pytest.mark.asyncio
+    async def test_per_step_tones_stamped_on_rows(
+        self, session_factory, campaign_output
+    ) -> None:
+        """Each step's row records its own tone — no broadcast."""
+        redis = _FakeRedis()
+        s = session_factory()
+        emails = [
+            {"subject": f"Seq {i}", "body": f"b{i}"} for i in range(1, 6)
+        ]
+        per_step_tones = ["formal", "candidate_spec", "technical",
+                          "consultative", "informal"]
+
+        await outreach_tasks.schedule_outreach_sequence(
+            redis=redis,
+            session=s,
+            campaign_output_id=campaign_output.id,
+            sender_user_id="op",
+            recipient_email="hm@x.com",
+            tones=per_step_tones,
+            emails=emails,
+        )
+
+        rows = s.execute(
+            select(SentMessage).order_by(SentMessage.sequence_index)
+        ).scalars().all()
+        assert [r.tone for r in rows] == per_step_tones
+
+    @pytest.mark.asyncio
+    async def test_launch_grace_period_offsets_first_send(
+        self, session_factory, campaign_output, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Step 1's scheduled_for is launch_grace_minutes ahead of `now`,
+        not equal to it. Cadence offsets stack on top of the grace base."""
+        # Force a known grace window via a custom config file.
+        monkeypatch.setattr(
+            outreach_tasks, "_load_outreach_config",
+            lambda: {"launch_grace_minutes": 10,
+                     "default_cadence_days": [0, 7, 14, 21, 28]},
+        )
+        redis = _FakeRedis()
+        s = session_factory()
+        emails = [{"subject": f"s{i}", "body": "b"} for i in range(5)]
+
+        before = datetime.utcnow()
+        await outreach_tasks.schedule_outreach_sequence(
+            redis=redis, session=s,
+            campaign_output_id=campaign_output.id,
+            sender_user_id="op", recipient_email="r@x",
+            tones=["formal"] * 5, emails=emails,
+        )
+        after = datetime.utcnow()
+
+        rows = s.execute(
+            select(SentMessage).order_by(SentMessage.sequence_index)
+        ).scalars().all()
+        # Step 1: between (before + 10min - 2s) and (after + 10min + 2s)
+        first = rows[0].scheduled_for
+        lower = before + timedelta(minutes=10) - timedelta(seconds=2)
+        upper = after + timedelta(minutes=10) + timedelta(seconds=2)
+        assert lower <= first <= upper, (
+            f"first send {first} not within grace window [{lower}, {upper}]"
+        )
+        # Step 2 is exactly 7 days after step 1 (cadence delta unchanged)
+        assert abs((rows[1].scheduled_for - rows[0].scheduled_for) - timedelta(days=7)).total_seconds() < 2
 
 
 # ── send_outreach_email ─────────────────────────────────────────────

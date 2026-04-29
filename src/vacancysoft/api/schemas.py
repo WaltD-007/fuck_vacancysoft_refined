@@ -341,11 +341,18 @@ _VALID_TONES = (
 class LaunchCampaignRequest(BaseModel):
     """POST /api/campaigns/{campaign_output_id}/launch body.
 
-    All fields except ``tone`` are optional:
+    Tone resolution: ``tones`` (preferred) carries the per-step tone the
+    operator picked in the Builder for each of the 5 sequence steps.
+    ``tone`` (legacy) is a single string that's broadcast to all 5
+    steps when ``tones`` isn't supplied. At least one must be present.
+
+    Other fields:
 
     - ``cadence_days`` defaults to ``configs/app.toml [outreach]
-      default_cadence_days`` (today: ``[0, 7, 14, 21, 28]``). Must be a
-      length-5 list starting with 0 if supplied.
+      default_cadence_days`` (today: ``[0, 7, 14, 21, 28]``). Length-5
+      starting with 0. The whole sequence is offset by
+      ``launch_grace_minutes`` (default 10) before the day-offsets
+      stack on top, so step 1 fires at +grace_min not instantly.
     - ``recipient_email`` defaults to the first hiring-manager email on
       the campaign's dossier; 422 if neither is supplied.
     - ``recipient_name`` is the operator-verified hiring-manager name
@@ -354,7 +361,8 @@ class LaunchCampaignRequest(BaseModel):
       it in preference to the dossier-derived name when present.
     """
 
-    tone: str
+    tone: str | None = None
+    tones: list[str] | None = None
     cadence_days: list[int] | None = None
     recipient_email: str | None = None
     recipient_name: str | None = None

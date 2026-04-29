@@ -136,7 +136,7 @@ async def schedule_outreach_sequence(
     campaign_output_id: str,
     sender_user_id: str,
     recipient_email: str,
-    tone: str,
+    tones: list[str],
     emails: list[dict[str, str]],
     cadence_days: list[int] | None = None,
     recipient_name: str | None = None,
@@ -144,9 +144,17 @@ async def schedule_outreach_sequence(
     """Create :class:`SentMessage` rows + deferred ARQ jobs for one arc.
 
     ``emails`` must be a list of 5 dicts each with ``subject`` + ``body``
-    keys (e.g. ``campaign_output.outreach_emails[tone][i]`` for i in
-    0..4). This function does NOT generate content — that's already
-    done at campaign-creation time.
+    keys, ordered step 1..5. Caller is responsible for picking the
+    right variant per step from
+    ``campaign_output.outreach_emails[i].variants[tones[i]]``.
+
+    ``tones`` must be a length-5 list of tone identifiers (one per step,
+    matching ``emails`` index-for-index). The Builder lets each step
+    pick its own tone, so each SentMessage row stamps its own value.
+    Pre-2026-04-29 callers passing a single ``tone`` string and
+    expecting it to broadcast across all 5 steps must update — the
+    launch endpoint does the broadcast for legacy clients but worker-
+    side helpers no longer accept that shape.
 
     ``cadence_days`` defaults to ``[0, 7, 14, 21, 28]`` (from
     configs/app.toml). First value must be 0; values after that are
@@ -159,6 +167,12 @@ async def schedule_outreach_sequence(
     the tracker falls back to the dossier-derived name when this is
     NULL.
 
+    Launch-grace period: ``[outreach] launch_grace_minutes`` (default
+    10) is applied as a base offset before the cadence day-offsets,
+    so step 1 fires at +grace_min from now rather than instantly. This
+    gives the operator a window to spot an obvious mistake (wrong
+    tone, wrong recipient) and hit Stop before any mail leaves.
+
     Returns the list of sent_message_ids in sequence order.
 
     Safe to call in dry-run — rows are created and ARQ jobs are
@@ -167,6 +181,8 @@ async def schedule_outreach_sequence(
     """
     if len(emails) != 5:
         raise ValueError(f"expected 5 emails in sequence, got {len(emails)}")
+    if len(tones) != 5:
+        raise ValueError(f"expected 5 tones (one per step), got {len(tones)}")
 
     cfg = _load_outreach_config()
     cadence = cadence_days or cfg.get("default_cadence_days", [0, 7, 14, 21, 28])
@@ -175,13 +191,14 @@ async def schedule_outreach_sequence(
             f"cadence_days must be length-5 starting with 0, got {cadence!r}"
         )
 
-    now = datetime.utcnow()
+    grace_minutes = int(cfg.get("launch_grace_minutes", 10))
+    base_time = datetime.utcnow() + timedelta(minutes=grace_minutes)
     sent_message_ids: list[str] = []
 
     name_clean = (recipient_name or "").strip() or None
 
     for i, email in enumerate(emails, start=1):
-        scheduled_for = now + timedelta(days=cadence[i - 1])
+        scheduled_for = base_time + timedelta(days=cadence[i - 1])
         sent_message_id = str(uuid4())
         row = SentMessage(
             id=sent_message_id,
@@ -190,7 +207,7 @@ async def schedule_outreach_sequence(
             recipient_email=recipient_email,
             recipient_name=name_clean,
             sequence_index=i,
-            tone=tone,
+            tone=tones[i - 1],
             scheduled_for=scheduled_for,
             status="pending",
             subject=email.get("subject", ""),
@@ -213,8 +230,8 @@ async def schedule_outreach_sequence(
 
     session.commit()
     logger.info(
-        "outreach.schedule_outreach_sequence campaign=%s tone=%s scheduled %d rows",
-        campaign_output_id, tone, len(sent_message_ids),
+        "outreach.schedule_outreach_sequence campaign=%s tones=%s scheduled %d rows grace_min=%d",
+        campaign_output_id, ",".join(tones), len(sent_message_ids), grace_minutes,
     )
     return sent_message_ids
 

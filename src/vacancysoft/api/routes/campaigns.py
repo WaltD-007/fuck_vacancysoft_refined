@@ -361,11 +361,11 @@ async def generate_lead_campaign(
 # ── Outreach: launch + cancel ──────────────────────────────────────────
 
 
-def _extract_sequence_for_tone(
-    outreach_emails_blob, tone: str
+def _extract_sequence_for_tones(
+    outreach_emails_blob, tones: list[str],
 ) -> list[dict[str, str]]:
-    """Pull the 5 ``{subject, body}`` pairs for ``tone`` out of a
-    CampaignOutput.outreach_emails JSON blob.
+    """Pull 5 ``{subject, body}`` pairs from ``outreach_emails``, one per
+    step, each from its own selected tone (``tones[i]`` for step i).
 
     The stored shape has drifted across PRs — sometimes the JSON is the
     ``[{sequence, variants:{...}}, ...]`` list directly, sometimes wrapped
@@ -380,8 +380,12 @@ def _extract_sequence_for_tone(
         emails_list = []
 
     out: list[dict[str, str]] = []
-    for item in emails_list:
+    for i, item in enumerate(emails_list):
+        if i >= len(tones):
+            break
+        tone = tones[i]
         if not isinstance(item, dict):
+            out.append({"subject": "", "body": ""})
             continue
         variants = item.get("variants") or {}
         v = variants.get(tone) if isinstance(variants, dict) else None
@@ -390,8 +394,7 @@ def _extract_sequence_for_tone(
                         "body": str(v.get("body") or "")})
         elif item.get("subject") or item.get("body"):
             # Legacy single-tone shape (pre-2026-04-17 prompt rewrite).
-            # Use it only if the requested tone is the step's stored tone,
-            # else surface as empty so validation fails downstream.
+            # Use it only if the requested tone is the step's stored tone.
             if (item.get("tone") or "").lower() == tone.lower():
                 out.append({"subject": str(item.get("subject") or ""),
                             "body": str(item.get("body") or "")})
@@ -462,12 +465,39 @@ async def launch_campaign(
             detail="background queue unavailable; start the ARQ worker",
         )
 
-    tone = (payload.tone or "").strip().lower()
-    if tone not in _VALID_TONES:
+    # Tone resolution: per-step ``tones`` is the canonical input from
+    # the Builder (each step has its own dropdown). ``tone`` is the
+    # legacy broadcast shape — applied to all 5 steps when present
+    # alone. At least one form must be supplied.
+    tones_list: list[str]
+    if payload.tones is not None:
+        if len(payload.tones) != 5:
+            raise HTTPException(
+                status_code=422,
+                detail=f"tones must be a length-5 list (got {len(payload.tones)})",
+            )
+        normalised = [str(t or "").strip().lower() for t in payload.tones]
+        for t in normalised:
+            if t not in _VALID_TONES:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"invalid tone {t!r} in tones list; expected one of "
+                           f"{sorted(_VALID_TONES)}",
+                )
+        tones_list = normalised
+    elif payload.tone is not None:
+        tone = payload.tone.strip().lower()
+        if tone not in _VALID_TONES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"invalid tone {payload.tone!r}; expected one of "
+                       f"{sorted(_VALID_TONES)}",
+            )
+        tones_list = [tone] * 5
+    else:
         raise HTTPException(
             status_code=422,
-            detail=f"invalid tone {payload.tone!r}; expected one of "
-                   f"{sorted(_VALID_TONES)}",
+            detail="either `tones` (per-step) or `tone` (broadcast) must be supplied",
         )
 
     cadence = payload.cadence_days
@@ -503,15 +533,15 @@ async def launch_campaign(
                 detail="resolved user has no entra_object_id or email",
             )
 
-        # 5 {subject, body} for the requested tone
-        sequence = _extract_sequence_for_tone(campaign.outreach_emails, tone)
+        # 5 {subject, body} pairs, one per step, each from its own tone.
+        sequence = _extract_sequence_for_tones(campaign.outreach_emails, tones_list)
         if len(sequence) != 5:
             raise HTTPException(
                 status_code=422,
-                detail=f"campaign has {len(sequence)} emails for tone "
-                       f"{tone!r}, expected 5 — regenerate the campaign",
+                detail=f"campaign has {len(sequence)} emails (expected 5) — "
+                       "regenerate the campaign",
             )
-        for i, em in enumerate(sequence, start=1):
+        for i, (em, tone) in enumerate(zip(sequence, tones_list), start=1):
             if not em["subject"].strip() or not em["body"].strip():
                 raise HTTPException(
                     status_code=422,
@@ -541,7 +571,7 @@ async def launch_campaign(
             sender_user_id=sender_user_id,
             recipient_email=recipient,
             recipient_name=payload.recipient_name,
-            tone=tone,
+            tones=tones_list,
             emails=sequence,
             cadence_days=cadence,
         )

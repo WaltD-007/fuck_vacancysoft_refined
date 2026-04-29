@@ -388,6 +388,89 @@ class TestLaunchCampaign:
         assert res.status_code == 422
         assert "invalid tone" in res.text
 
+    def test_per_step_tones_supplied(
+        self, client, session_factory, operator, campaign_with_dossier
+    ):
+        """When the Builder sends a per-step ``tones`` array, each
+        SentMessage row stamps its own tone — not a single broadcast."""
+        co_id, _ = campaign_with_dossier
+        per_step = ["formal", "candidate_spec", "technical",
+                    "consultative", "informal"]
+        res = client.post(
+            f"/api/campaigns/{co_id}/launch",
+            json={"tones": per_step},
+        )
+        assert res.status_code == 200, res.text
+
+        s = session_factory()
+        rows = s.execute(
+            select(SentMessage).order_by(SentMessage.sequence_index)
+        ).scalars().all()
+        assert [r.tone for r in rows] == per_step
+        s.close()
+
+    def test_422_on_wrong_length_tones(
+        self, client, operator, campaign_with_dossier
+    ):
+        co_id, _ = campaign_with_dossier
+        res = client.post(
+            f"/api/campaigns/{co_id}/launch",
+            json={"tones": ["formal", "informal"]},  # only 2
+        )
+        assert res.status_code == 422
+        assert "length-5" in res.text
+
+    def test_422_on_invalid_tone_in_tones_list(
+        self, client, operator, campaign_with_dossier
+    ):
+        co_id, _ = campaign_with_dossier
+        res = client.post(
+            f"/api/campaigns/{co_id}/launch",
+            json={"tones": ["formal", "screamy", "formal", "formal", "formal"]},
+        )
+        assert res.status_code == 422
+        assert "invalid tone" in res.text
+
+    def test_422_when_neither_tone_nor_tones_supplied(
+        self, client, operator, campaign_with_dossier
+    ):
+        co_id, _ = campaign_with_dossier
+        res = client.post(
+            f"/api/campaigns/{co_id}/launch",
+            json={"recipient_email": "x@y.com"},  # no tone / tones
+        )
+        assert res.status_code == 422
+
+    def test_grace_period_offsets_first_send(
+        self, client, session_factory, operator, campaign_with_dossier
+    ):
+        """First send is at least ~10 minutes ahead of "now" — not
+        instantly. Stops mistakes from leaving the building before the
+        operator can hit Stop."""
+        co_id, _ = campaign_with_dossier
+        before = datetime.utcnow()
+        res = client.post(
+            f"/api/campaigns/{co_id}/launch",
+            json={"tone": "formal"},
+        )
+        assert res.status_code == 200, res.text
+
+        s = session_factory()
+        first = s.execute(
+            select(SentMessage)
+            .where(SentMessage.sequence_index == 1)
+            .order_by(SentMessage.created_at.desc())
+            .limit(1)
+        ).scalar_one()
+        # Default launch_grace_minutes is 10. Allow ±2s test drift, plus
+        # a small floor below 10min to catch wall-clock skew on slow CI.
+        delta = (first.scheduled_for - before).total_seconds()
+        assert delta >= 9 * 60, (
+            f"first send only {delta:.1f}s after click; "
+            "expected at least 9 minutes (grace window)"
+        )
+        s.close()
+
     def test_422_on_invalid_cadence(
         self, client, operator, campaign_with_dossier
     ):

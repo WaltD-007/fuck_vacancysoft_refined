@@ -263,7 +263,11 @@ function BuilderPageInner() {
     for (let i = 0; i < steps.length - 1; i++) {
       cadence.push(cadence[i] + (steps[i].wait || 0));
     }
-    const tone = current.tone;
+    // Per-step tones: each step's tone-dropdown selection drives the
+    // corresponding email's variant. Sent as an array so the backend
+    // pulls outreach_emails[i].variants[tones[i]] step-by-step rather
+    // than broadcasting a single tone across all 5.
+    const tones = steps.map((s) => s.tone);
     const recipient = verifiedHmEmail.trim();
     const recipientName = verifiedHmName.trim();
     try {
@@ -271,7 +275,7 @@ function BuilderPageInner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tone,
+          tones,
           cadence_days: cadence,
           ...(recipient ? { recipient_email: recipient } : {}),
           ...(recipientName ? { recipient_name: recipientName } : {}),
@@ -283,7 +287,7 @@ function BuilderPageInner() {
         const where = recipient || "dossier hiring manager";
         setLaunchFeedback({
           kind: "ok",
-          text: `Scheduled ${n} sends · tone=${tone} · ${where}`,
+          text: `Scheduled ${n} sends · first fires in ~10 min · ${where}`,
         });
         // Deep-link to the Campaigns tracker page with this campaign's
         // slide-over auto-opened so the operator sees the sequence

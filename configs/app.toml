@@ -254,6 +254,13 @@ poll_max_days = 90
 # send. UI overrides per-campaign when PR D lands.
 default_cadence_days = [0, 7, 14, 21, 28]
 
+# Minutes between the operator clicking "Launch Campaign" and step 1
+# actually firing. Grace window so an obvious mistake (wrong tone,
+# wrong recipient, fat-finger) can be caught by hitting Stop before
+# any mail leaves. Applied as a base offset; the cadence_days
+# day-offsets stack on top.
+launch_grace_minutes = 10
+
 
 # ─── Outreach tracking (open + click pixels) ──────────────────────
 # See docs/prospero_architecture.md §"Outreach tracking" and
