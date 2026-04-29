@@ -125,6 +125,7 @@ class RawJob(Base):
     completeness_score: Mapped[float] = mapped_column(Float, default=0.0)
     extraction_confidence: Mapped[float] = mapped_column(Float, default=0.0)
     is_deleted_at_source: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at_source_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     provenance_blob: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

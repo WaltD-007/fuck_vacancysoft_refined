@@ -281,3 +281,28 @@ pixel_dedupe_window_seconds = 60
 # heuristically flagged as likely_scanner=true. Corporate scanners
 # pre-fetch links seconds after delivery; humans don't.
 scanner_pre_click_window_seconds = 120
+
+
+# ─── Pipeline behaviour ────────────────────────────────────────────
+# Auto-mark-dead: at the end of a successful scrape run, mark any
+# RawJob that wasn't seen in this run (via ``last_seen_at <
+# run_started_at``) as ``is_deleted_at_source=True`` so it disappears
+# from the Dashboard / Sources / Leads UIs. Reversible — re-discovery
+# clears the flag automatically; operators can also undelete via the
+# CLI or the "Recently deleted" Dashboard panel.
+#
+# Gated by:
+#   1. ``auto_mark_dead_enabled`` (this flag, default false) — master
+#      switch. Default off until the operator has eyeballed the first
+#      few sweeps and confirmed the false-positive rate is acceptable.
+#   2. ``AdapterCapabilities.complete_coverage_per_run = True`` —
+#      adapter-level opt-in. Aggregators (Adzuna, Reed, etc.) and
+#      most browser adapters stay opted-out (False).
+#   3. ``records_seen >= auto_mark_dead_threshold * last_run.records_seen``
+#      — safety guard against partial-fetch runs.
+#
+# See ``pipelines/persistence.py::_maybe_sweep_dead_jobs`` for the
+# full decision logic.
+[pipeline]
+auto_mark_dead_enabled = false
+auto_mark_dead_threshold = 0.75

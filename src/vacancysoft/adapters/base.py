@@ -33,6 +33,16 @@ class AdapterCapabilities:
     supports_html: bool = False
     supports_browser: bool = False
     supports_site_rescue: bool = False
+    # When True, a successful discovery run returns the *complete current
+    # set* of open jobs for the source — i.e. any RawJob not seen this
+    # run is genuinely no longer posted, not just paginated past.
+    # API adapters (Workday, Greenhouse, Lever, Ashby, etc.) opt in.
+    # Aggregators (Adzuna, Reed, Google Jobs, CoreSignal, eFC) and
+    # browser adapters that can silently fail mid-walk MUST stay False.
+    # Used by the auto-mark-dead end-of-run sweep
+    # (see ``pipelines/persistence.py::finalise_source_run``). False is
+    # the safe default — the sweep only runs for opted-in adapters.
+    complete_coverage_per_run: bool = False
 
 
 @dataclass(slots=True)

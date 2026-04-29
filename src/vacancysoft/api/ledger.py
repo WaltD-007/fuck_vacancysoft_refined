@@ -69,6 +69,7 @@ def _category_counts(s, source_id: int | None = None, country: str | None = None
         .join(Source, RawJob.source_id == Source.id)
         .where(ClassificationResult.primary_taxonomy_key.in_(_CORE_MARKETS))
         .where(Source.active.is_(True))
+        .where(RawJob.is_deleted_at_source.is_(False))
         .group_by(ClassificationResult.primary_taxonomy_key)
     )
     if source_id is not None:
@@ -152,6 +153,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
         .outerjoin(ScoreResult, ScoreResult.enriched_job_id == EnrichedJob.id)
         .where(ClassificationResult.primary_taxonomy_key.in_(_CORE_MARKETS))
         .where(Source.active.is_(True))
+        .where(RawJob.is_deleted_at_source.is_(False))
     )
     if country:
         q = q.where(EnrichedJob.location_country == country)
@@ -279,6 +281,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
         raw_counts = dict(session.execute(
             select(RawJob.source_id, func.count())
             .where(RawJob.source_id.in_([s.id for s in direct_sources]))
+            .where(RawJob.is_deleted_at_source.is_(False))
             .group_by(RawJob.source_id)
         ).all())
 
@@ -388,6 +391,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
                 select(RawJob.listing_payload)
                 .where(RawJob.source_id.in_(fresh_agg_ids))
                 .where(RawJob.first_seen_at >= cutoff)
+                .where(RawJob.is_deleted_at_source.is_(False))
             ):
                 name = _extract_employer_from_payload(payload)
                 if name:

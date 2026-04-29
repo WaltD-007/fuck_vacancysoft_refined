@@ -100,7 +100,7 @@ def _parse_job(job: dict[str, Any], board: dict[str, Any]) -> DiscoveredJobRecor
 
 class GreenhouseAdapter(SourceAdapter):
     adapter_name = "greenhouse"
-    capabilities = AdapterCapabilities(supports_discovery=True, supports_detail_fetch=False, supports_healthcheck=False, supports_pagination=False, supports_incremental_sync=False, supports_api=True, supports_html=False, supports_browser=False, supports_site_rescue=False)
+    capabilities = AdapterCapabilities(supports_discovery=True, supports_detail_fetch=False, supports_healthcheck=False, supports_pagination=False, supports_incremental_sync=False, supports_api=True, supports_html=False, supports_browser=False, supports_site_rescue=False, complete_coverage_per_run=True)
 
     async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:
         slug = str(source_config.get("slug") or "").strip()

@@ -73,12 +73,14 @@ def get_stats(country: str | None = None):
             select(func.count()).select_from(RawJob)
             .join(Source, RawJob.source_id == Source.id)
             .where(Source.active.is_(True))
+            .where(RawJob.is_deleted_at_source.is_(False))
         ).scalar() or 0
         enriched = s.execute(
             select(func.count()).select_from(EnrichedJob)
             .join(RawJob, EnrichedJob.raw_job_id == RawJob.id)
             .join(Source, RawJob.source_id == Source.id)
             .where(Source.active.is_(True))
+            .where(RawJob.is_deleted_at_source.is_(False))
         ).scalar() or 0
         cats = _category_counts(s, country=country)
         scored = sum(cats.values())
@@ -152,6 +154,7 @@ def get_dashboard():
             select(func.count()).select_from(RawJob)
             .join(Source, RawJob.source_id == Source.id)
             .where(Source.active.is_(True))
+            .where(RawJob.is_deleted_at_source.is_(False))
         ).scalar() or 0
         active = s.execute(
             select(func.count(func.distinct(Source.employer_name)))
@@ -182,6 +185,7 @@ def get_dashboard():
             .join(Source, RawJob.source_id == Source.id)
             .where(ClassificationResult.primary_taxonomy_key.in_(_CORE_MARKETS))
             .where(Source.active.is_(True))
+            .where(RawJob.is_deleted_at_source.is_(False))
             .where(EnrichedJob.created_at >= now - timedelta(hours=24))
         ).scalar() or 0
         leads_yesterday = s.execute(
@@ -191,6 +195,7 @@ def get_dashboard():
             .join(Source, RawJob.source_id == Source.id)
             .where(ClassificationResult.primary_taxonomy_key.in_(_CORE_MARKETS))
             .where(Source.active.is_(True))
+            .where(RawJob.is_deleted_at_source.is_(False))
             .where(EnrichedJob.created_at >= now - timedelta(hours=48))
             .where(EnrichedJob.created_at < now - timedelta(hours=24))
         ).scalar() or 0
@@ -204,6 +209,7 @@ def get_dashboard():
             .join(Source, RawJob.source_id == Source.id)
             .where(ClassificationResult.primary_taxonomy_key.in_(_CORE_MARKETS))
             .where(Source.active.is_(True))
+            .where(RawJob.is_deleted_at_source.is_(False))
         ).scalar()
         avg_score = round(float(avg_raw) * 10, 1) if avg_raw is not None else 0.0
         avg_prev = s.execute(
@@ -214,6 +220,7 @@ def get_dashboard():
             .join(Source, RawJob.source_id == Source.id)
             .where(ClassificationResult.primary_taxonomy_key.in_(_CORE_MARKETS))
             .where(Source.active.is_(True))
+            .where(RawJob.is_deleted_at_source.is_(False))
             .where(EnrichedJob.created_at >= now - timedelta(days=14))
             .where(EnrichedJob.created_at < now - timedelta(days=7))
         ).scalar()
@@ -297,6 +304,7 @@ def get_dashboard():
             .outerjoin(ScoreResult, ScoreResult.enriched_job_id == EnrichedJob.id)
             .where(ClassificationResult.primary_taxonomy_key.in_(_CORE_MARKETS))
             .where(Source.active.is_(True))
+            .where(RawJob.is_deleted_at_source.is_(False))
             .where(EnrichedJob.created_at >= cutoff)
             .order_by(EnrichedJob.created_at.desc())
             .limit(10000)
@@ -394,6 +402,7 @@ def list_countries():
             .join(Source, RawJob.source_id == Source.id)
             .where(ClassificationResult.primary_taxonomy_key.in_(_CORE_MARKETS))
             .where(Source.active.is_(True))
+            .where(RawJob.is_deleted_at_source.is_(False))
             .where(EnrichedJob.location_country.isnot(None))
             .where(EnrichedJob.location_country != "")
             .where(EnrichedJob.location_country != "N/A")
@@ -1200,4 +1209,115 @@ def flag_location(enriched_job_id: str, payload: dict | None = None):
         "status": "queued",
         "flag_id": flag_id,
         "enriched_job_id": enriched_job_id,
+    }
+
+
+# ── Recently-deleted Dashboard panel ─────────────────────────────────
+
+
+@router.get("/api/leads/recently-deleted")
+def list_recently_deleted(days: int = 7, limit: int = 200):
+    """Jobs marked dead by the auto-sweep within the last ``days`` days.
+
+    Powers the "Recently deleted" panel on the Dashboard so operators
+    can spot-check the sweep and undo false positives. Ordered newest
+    first.
+
+    Returns each row with the underlying ``raw_job_id`` (for undelete),
+    its ``enriched_job_id`` if one exists (for the "View" link), the
+    employer/title/discovered_url to identify the role, and the source
+    + run that marked it dead so the operator can trace the sweep
+    decision back to a specific scrape.
+    """
+    from datetime import timedelta as _td
+
+    cutoff = datetime.utcnow() - _td(days=max(1, int(days)))
+    capped = max(1, min(int(limit), 500))
+
+    with SessionLocal() as s:
+        rows = s.execute(
+            select(
+                RawJob.id,
+                RawJob.title_raw,
+                RawJob.discovered_url,
+                RawJob.deleted_at_source_at,
+                RawJob.source_id,
+                RawJob.source_run_id,
+                Source.employer_name,
+                Source.adapter_name,
+                EnrichedJob.id,
+            )
+            .select_from(RawJob)
+            .join(Source, RawJob.source_id == Source.id)
+            .outerjoin(EnrichedJob, EnrichedJob.raw_job_id == RawJob.id)
+            .where(RawJob.is_deleted_at_source.is_(True))
+            .where(RawJob.deleted_at_source_at.isnot(None))
+            .where(RawJob.deleted_at_source_at >= cutoff)
+            .order_by(RawJob.deleted_at_source_at.desc())
+            .limit(capped)
+        ).all()
+
+    items = [
+        {
+            "raw_job_id": r[0],
+            "title": r[1] or "",
+            "discovered_url": r[2] or "",
+            "deleted_at_source_at": r[3].isoformat() if r[3] else None,
+            "source_id": r[4],
+            "source_run_id": r[5],
+            "employer": r[6] or "",
+            "adapter_name": r[7] or "",
+            "enriched_job_id": r[8],
+        }
+        for r in rows
+    ]
+    return {"items": items, "days": days, "count": len(items)}
+
+
+@router.post("/api/leads/{enriched_job_id}/undelete")
+def undelete_lead(enriched_job_id: str):
+    """Operator override: clear ``is_deleted_at_source`` on the underlying
+    RawJob.
+
+    Use cases:
+      - Auto-sweep produced a false positive (the operator spotted the
+        job is still live on the source).
+      - The "Dead" UI button was clicked accidentally.
+
+    Idempotent: undeleting an already-undeleted row is a no-op. Returns
+    the raw_job_id and the prior ``deleted_at_source_at`` (so the
+    frontend can show "restored from a 2026-04-29 sweep" if useful).
+
+    Note: clears ``is_deleted_at_source`` on the RawJob, not on any
+    descendant rows (EnrichedJob doesn't carry the flag — visibility
+    in the ledger flows from the RawJob filter).
+    """
+    with SessionLocal() as s:
+        ej = s.execute(
+            select(EnrichedJob).where(EnrichedJob.id == enriched_job_id)
+        ).scalar_one_or_none()
+        if ej is None:
+            raise HTTPException(status_code=404, detail="enriched job not found")
+        raw = s.execute(
+            select(RawJob).where(RawJob.id == ej.raw_job_id)
+        ).scalar_one_or_none()
+        if raw is None:
+            raise HTTPException(status_code=404, detail="raw job not found")
+
+        prior_deleted_at = raw.deleted_at_source_at
+        raw.is_deleted_at_source = False
+        raw.deleted_at_source_at = None
+        s.commit()
+
+    # Drop caches so the dashboard / sources counts include the row again.
+    from vacancysoft.api.ledger import clear_ledger_caches
+    clear_ledger_caches()
+    clear_dashboard_cache()
+    return {
+        "status": "undeleted",
+        "enriched_job_id": enriched_job_id,
+        "raw_job_id": raw.id,
+        "prior_deleted_at_source_at": (
+            prior_deleted_at.isoformat() if prior_deleted_at else None
+        ),
     }

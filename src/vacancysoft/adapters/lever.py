@@ -102,6 +102,7 @@ class LeverAdapter(SourceAdapter):
         supports_html=False,
         supports_browser=False,
         supports_site_rescue=False,
+        complete_coverage_per_run=True,
     )
 
     async def discover(self, source_config: dict[str, Any], cursor: str | None = None, since: datetime | None = None, on_page_scraped: PageCallback = None) -> DiscoveryPage:

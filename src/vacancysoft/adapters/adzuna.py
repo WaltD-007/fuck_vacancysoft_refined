@@ -100,6 +100,10 @@ class AdzunaAdapter(SourceAdapter):
         supports_html=False,
         supports_browser=False,
         supports_site_rescue=False,
+        # Aggregator: per-run coverage is paginated by search params, not
+        # the complete current set. MUST stay False — auto-mark-dead would
+        # nuke jobs that just paginated past this run's window.
+        complete_coverage_per_run=False,
     )
 
     async def discover(

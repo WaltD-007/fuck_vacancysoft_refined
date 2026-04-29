@@ -661,8 +661,223 @@ export default function DashboardPage() {
 
             </div>{/* end right column */}
           </div>
+
+          {/* Recently deleted panel — operators can spot-check the auto-sweep
+              and undo false positives. Default-collapsed so it doesn't dominate
+              the dashboard; collapsed state survives a refresh via localStorage. */}
+          <RecentlyDeletedPanel />
         </div>
       </main>
+    </div>
+  );
+}
+
+
+// ── Recently deleted Dashboard panel ────────────────────────────────
+//
+// Lists RawJobs marked dead by the auto-sweep within the last 7 days.
+// Powers the "spot-check + undo" loop for the auto-mark-dead feature.
+//
+// Default-collapsed; expands to show up to 200 most-recent deletions
+// with an Undelete button per row. Each undelete optimistically
+// removes the row from the panel and triggers a /dashboard revalidate
+// so counts pick the lead back up within the 30s server cache window.
+
+type RecentlyDeletedItem = {
+  raw_job_id: string;
+  enriched_job_id: string | null;
+  title: string;
+  employer: string;
+  discovered_url: string;
+  deleted_at_source_at: string | null;
+  source_id: number;
+  source_run_id: string;
+  adapter_name: string;
+};
+
+type RecentlyDeletedResponse = {
+  items: RecentlyDeletedItem[];
+  days: number;
+  count: number;
+};
+
+function RecentlyDeletedPanel() {
+  // Collapsed by default; remember user's preference across refreshes.
+  const [expanded, setExpanded] = useState<boolean>(false);
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("recently_deleted_expanded");
+      if (v === "true") setExpanded(true);
+    } catch {
+      // localStorage may be unavailable (private browsing, SSR-like
+      // environments). Fail closed — stay collapsed.
+    }
+  }, []);
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    try {
+      localStorage.setItem("recently_deleted_expanded", String(next));
+    } catch {
+      // ignore storage errors
+    }
+  };
+
+  const { data, mutate: mutateRecent } = useSWR<RecentlyDeletedResponse>(
+    "/leads/recently-deleted?days=7&limit=200",
+    fetcher,
+    { revalidateOnFocus: true, dedupingInterval: 5000, keepPreviousData: true }
+  );
+  const { mutate: globalMutate } = useSWRConfig();
+
+  const items = data?.items || [];
+  const count = data?.count ?? 0;
+
+  // Track per-row undelete state so the button shows feedback while
+  // the request is in flight (and locks out double-clicks).
+  const [pending, setPending] = useState<Set<string>>(new Set());
+
+  async function handleUndelete(item: RecentlyDeletedItem) {
+    if (!item.enriched_job_id) {
+      // Recently-deleted RawJobs without an EnrichedJob can't be
+      // undeleted via the API endpoint (which is keyed on
+      // enriched_job_id). These are rare — usually pre-enrichment
+      // dead-marks. CLI fallback: `prospero db undelete-job <id>`.
+      alert(
+        "This row has no enriched_job_id (rare). Use:\n  prospero db undelete-job " +
+          item.raw_job_id
+      );
+      return;
+    }
+    setPending((p) => new Set(p).add(item.raw_job_id));
+    try {
+      const res = await fetch(
+        `${API}/leads/${encodeURIComponent(item.enriched_job_id)}/undelete`,
+        { method: "POST" }
+      );
+      if (!res.ok) {
+        throw new Error(`${res.status} ${res.statusText}`);
+      }
+      // Optimistic removal from panel; SWR will reconcile on next fetch.
+      await mutateRecent(
+        (current) =>
+          current
+            ? {
+                ...current,
+                items: current.items.filter((it) => it.raw_job_id !== item.raw_job_id),
+                count: Math.max(0, current.count - 1),
+              }
+            : current,
+        { revalidate: false }
+      );
+      // Drop dashboard cache so counts reflect the restoration.
+      globalMutate("/dashboard");
+      globalMutate("/sources");
+    } catch (e) {
+      alert(`Undelete failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPending((p) => {
+        const next = new Set(p);
+        next.delete(item.raw_job_id);
+        return next;
+      });
+    }
+  }
+
+  return (
+    <div
+      className="mt-6 rounded-lg"
+      style={{ background: "#11111c", border: "1px solid #1f1f2f" }}
+    >
+      <button
+        type="button"
+        onClick={toggle}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left"
+        style={{ background: "transparent", color: "#e5e7eb" }}
+      >
+        <span style={{ fontSize: 13, opacity: 0.7 }}>{expanded ? "▾" : "▸"}</span>
+        <span className="text-[13px] font-medium">Recently deleted</span>
+        <span className="text-[11px]" style={{ color: "#7a7a8a" }}>
+          (last 7 days)
+        </span>
+        <span
+          className="ml-auto text-[12px] px-2 py-0.5 rounded"
+          style={{
+            background: count > 0 ? "#2a1f1f" : "#1a1a26",
+            color: count > 0 ? "#ff6b6b" : "#7a7a8a",
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          {count}
+        </span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4">
+          {count === 0 ? (
+            <div
+              className="text-[12px] py-3"
+              style={{ color: "#7a7a8a" }}
+            >
+              No jobs marked dead in the last 7 days.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2 max-h-[420px] overflow-y-auto">
+              {items.map((item) => {
+                const isPending = pending.has(item.raw_job_id);
+                return (
+                  <div
+                    key={item.raw_job_id}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded"
+                    style={{ background: "#0a0a0f", border: "1px solid #1f1f2f" }}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium truncate">
+                        {item.employer || "(unknown employer)"} •{" "}
+                        <span style={{ color: "#aaa" }}>{item.title || "(no title)"}</span>
+                      </div>
+                      <div
+                        className="text-[11px] mt-0.5"
+                        style={{ color: "#7a7a8a" }}
+                      >
+                        Marked dead {relativeTime(item.deleted_at_source_at)} via{" "}
+                        {item.adapter_name || "?"} scrape
+                        {item.discovered_url && (
+                          <>
+                            {" · "}
+                            <a
+                              href={safeHref(item.discovered_url) ?? "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ color: "#7a7a8a", textDecoration: "underline" }}
+                            >
+                              link
+                            </a>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleUndelete(item)}
+                      disabled={isPending}
+                      className="text-[12px] px-3 py-1 rounded"
+                      style={{
+                        background: isPending ? "#1a1a26" : "#1f1f2f",
+                        color: isPending ? "#7a7a8a" : "#e5e7eb",
+                        border: "1px solid #2a2a3a",
+                        cursor: isPending ? "default" : "pointer",
+                      }}
+                      title="Restore this job (clears is_deleted_at_source on the underlying RawJob)"
+                    >
+                      {isPending ? "…" : "↺ Undelete"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -373,6 +373,8 @@ class CoresignalAdapter(SourceAdapter):
         supports_html=False,
         supports_browser=False,
         supports_site_rescue=False,
+        # Aggregator — see adzuna.py for rationale.
+        complete_coverage_per_run=False,
     )
 
     async def discover(

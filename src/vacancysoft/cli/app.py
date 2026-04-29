@@ -449,6 +449,39 @@ def add_source(
         typer.echo("Will be included in next pipeline run")
 
 
+@db_app.command("undelete-job")
+def undelete_job(
+    raw_job_id: str = typer.Argument(..., help="RawJob.id (UUID) to undelete"),
+) -> None:
+    """Operator override: clear ``is_deleted_at_source`` on a RawJob.
+
+    Use when the auto-mark-dead sweep produced a false positive, or
+    when a job was manually marked dead and needs to be restored.
+    Idempotent — running it on an already-undeleted row is a no-op.
+    """
+    from sqlalchemy import select as _sel
+    from vacancysoft.db.models import RawJob
+
+    with SessionLocal() as session:
+        raw = session.execute(
+            _sel(RawJob).where(RawJob.id == raw_job_id)
+        ).scalar_one_or_none()
+        if raw is None:
+            typer.echo(f"raw_job not found: {raw_job_id}", err=True)
+            raise typer.Exit(code=1)
+        if not raw.is_deleted_at_source:
+            typer.echo(f"raw_job {raw_job_id} is already not deleted (no-op)")
+            return
+        prior = raw.deleted_at_source_at
+        raw.is_deleted_at_source = False
+        raw.deleted_at_source_at = None
+        session.commit()
+        typer.echo(
+            f"Undeleted raw_job {raw_job_id} (was marked dead at "
+            f"{prior.isoformat() if prior else 'unknown'})"
+        )
+
+
 @pipeline_app.command("discover")
 def discover(
     adapter: str | None = typer.Option(None, "--adapter", help="Only run sources for this adapter"),
