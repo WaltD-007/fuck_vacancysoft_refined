@@ -1,6 +1,6 @@
 """add recipient_name column to sent_messages
 
-Revision ID: 0014_add_recipient_name_to_sent_messages
+Revision ID: 0014_add_recipient_name
 Revises: 0013_add_tracking_tables
 Create Date: 2026-04-29
 
@@ -29,7 +29,7 @@ from __future__ import annotations
 from alembic import op
 import sqlalchemy as sa
 
-revision = "0014_add_recipient_name_to_sent_messages"
+revision = "0014_add_recipient_name"
 down_revision = "0013_add_tracking_tables"
 branch_labels = None
 depends_on = None
