@@ -569,44 +569,60 @@ def delete_source(source_id: int):
     return {"message": f"Removed {name}", "id": source_id}
 
 
-@router.post("/api/sources/{source_id}/psl")
-def add_to_psl(source_id: int):
-    """Mark a source as being on the Preferred Supplier List.
+@router.post("/api/psl")
+def add_to_psl(payload: dict):
+    """Add an employer to the Preferred Supplier List.
 
-    PSL is an operator-curated flag for BD-targeting purposes — separate
-    from the lead-state buckets (With Leads / No Jobs Found / etc). A
-    PSL-flagged card stays in its native bucket and additionally appears
-    when the operator selects the PSL view on the Sources page.
+    Body: ``{"employer": "Look Ahead Care and Support"}`` — the cased
+    string from the source card. The endpoint normalises (lower + strip)
+    for the unique key, but stores the cased form for display.
+
+    PSL is keyed on the employer name (not source_id) so the flag
+    applies to aggregator-only cards too — the rationale operator
+    raised right after #107 shipped. See migration 0018.
     """
+    employer = (payload.get("employer") or "").strip()
+    if not employer:
+        raise HTTPException(status_code=400, detail="employer is required")
+    norm = employer.lower()
+    from vacancysoft.db.models import PslEmployer
     with SessionLocal() as s:
-        src = s.execute(select(Source).where(Source.id == source_id)).scalar_one_or_none()
-        if not src:
-            raise HTTPException(status_code=404, detail="Source not found")
-        if not src.is_psl:
-            src.is_psl = True
+        existing = s.execute(
+            select(PslEmployer).where(PslEmployer.employer_norm == norm)
+        ).scalar_one_or_none()
+        if existing is None:
+            s.add(PslEmployer(employer_norm=norm, employer_display=employer))
             s.commit()
     # Drop the ledger + dashboard caches so the next /api/sources rebuild
-    # reflects the new flag immediately (the source-card payload includes
-    # is_psl per ledger.py).
+    # reflects the new flag immediately. The card-card payload's is_psl
+    # is computed from psl_employers in ledger.py.
     from vacancysoft.api.ledger import clear_ledger_caches
     from vacancysoft.api.routes.leads import clear_dashboard_cache
     clear_ledger_caches()
     clear_dashboard_cache()
-    return {"id": source_id, "is_psl": True}
+    return {"employer": employer, "is_psl": True}
 
 
-@router.delete("/api/sources/{source_id}/psl")
-def remove_from_psl(source_id: int):
-    """Remove a source from the Preferred Supplier List."""
+@router.delete("/api/psl")
+def remove_from_psl(payload: dict):
+    """Remove an employer from the Preferred Supplier List.
+
+    Uses POST-style body (rather than path param) so employer names
+    with slashes / unicode / etc. don't need URL encoding gymnastics.
+    DELETE-with-body is unusual but FastAPI / httpx / fetch all
+    handle it cleanly.
+    """
+    employer = (payload.get("employer") or "").strip()
+    if not employer:
+        raise HTTPException(status_code=400, detail="employer is required")
+    norm = employer.lower()
+    from vacancysoft.db.models import PslEmployer
+    from sqlalchemy import delete as sa_delete
     with SessionLocal() as s:
-        src = s.execute(select(Source).where(Source.id == source_id)).scalar_one_or_none()
-        if not src:
-            raise HTTPException(status_code=404, detail="Source not found")
-        if src.is_psl:
-            src.is_psl = False
-            s.commit()
+        s.execute(sa_delete(PslEmployer).where(PslEmployer.employer_norm == norm))
+        s.commit()
     from vacancysoft.api.ledger import clear_ledger_caches
     from vacancysoft.api.routes.leads import clear_dashboard_cache
     clear_ledger_caches()
     clear_dashboard_cache()
-    return {"id": source_id, "is_psl": False}
+    return {"employer": employer, "is_psl": False}

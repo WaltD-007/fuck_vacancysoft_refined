@@ -38,12 +38,6 @@ class Source(Base):
     ats_family: Mapped[str | None] = mapped_column(String(64), nullable=True)
     adapter_name: Mapped[str] = mapped_column(String(100))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
-    # Preferred Supplier List flag. Operator-curated: marked via the
-    # 'Add PSL' button on the Sources page card. Orthogonal to the
-    # lead-state buckets (With Leads / No Jobs Found / etc.) — a card
-    # stays in its native bucket and additionally appears when the
-    # operator selects the PSL view. See migration 0017.
-    is_psl: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     seed_type: Mapped[str] = mapped_column(String(64), default="manual_seed")
     discovery_method: Mapped[str | None] = mapped_column(String(128), nullable=True)
     fingerprint: Mapped[str] = mapped_column(String(255), index=True)
@@ -56,6 +50,20 @@ class Source(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class PslEmployer(Base):
+    """Operator-curated Preferred Supplier List entry — keyed on the
+    normalised employer name (same dedup key the source-card ledger
+    uses) so PSL applies regardless of which scrape adapter found the
+    employer. Replaces the per-source ``Source.is_psl`` flag from
+    migration 0017 — see migration 0018 for the rationale."""
+    __tablename__ = "psl_employers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    employer_norm: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
+    employer_display: Mapped[str] = mapped_column(Text, nullable=False)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
 
 
 class SourceRun(Base):

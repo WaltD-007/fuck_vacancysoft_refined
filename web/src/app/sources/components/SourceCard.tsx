@@ -111,13 +111,17 @@ export default function SourceCard({
 
   const handleTogglePsl = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (pslPending || src.id <= 0) return;
+    if (pslPending) return;
     const next = !isPsl;
     setPslPending(true);
     setOptimisticPsl(next);
     try {
-      const res = await fetch(`${apiBase}/sources/${src.id}/psl`, {
+      // PSL is keyed on employer name, not source id (migration 0018) —
+      // so the toggle works on aggregator-only cards too.
+      const res = await fetch(`${apiBase}/psl`, {
         method: next ? "POST" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employer: src.employer_name }),
       });
       if (!res.ok) {
         // Revert optimistic state on server error so the button reflects
@@ -199,25 +203,21 @@ export default function SourceCard({
                   </button>
                 )
               )}
-              {/* PSL toggle — only meaningful for cards with a real
-                  Source row backing them. Aggregator-only cards
-                  (card_id<=0) can't be flagged because the endpoint
-                  needs a source_id. Hidden in that case. */}
-              {src.id > 0 && (
-                <button
-                  onClick={handleTogglePsl}
-                  disabled={pslPending}
-                  className="text-[10px] font-semibold px-2 py-0.5 rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                  style={
-                    isPsl
-                      ? { background: "rgba(162,155,254,0.15)", color: "#a29bfe", border: "1px solid rgba(162,155,254,0.5)" }
-                      : { background: "transparent", color: "#a29bfe", border: "1px dashed rgba(162,155,254,0.4)" }
-                  }
-                  title={isPsl ? "Remove from Preferred Supplier List" : "Add to Preferred Supplier List for BD targeting"}
-                >
-                  {isPsl ? "★ On PSL" : "+ Add PSL"}
-                </button>
-              )}
+              {/* PSL toggle — keyed on employer name (migration 0018)
+                  so aggregator-only cards work too. Always rendered. */}
+              <button
+                onClick={handleTogglePsl}
+                disabled={pslPending}
+                className="text-[10px] font-semibold px-2 py-0.5 rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                style={
+                  isPsl
+                    ? { background: "rgba(162,155,254,0.15)", color: "#a29bfe", border: "1px solid rgba(162,155,254,0.5)" }
+                    : { background: "transparent", color: "#a29bfe", border: "1px dashed rgba(162,155,254,0.4)" }
+                }
+                title={isPsl ? "Remove from Preferred Supplier List" : "Add to Preferred Supplier List for BD targeting"}
+              >
+                {isPsl ? "★ On PSL" : "+ Add PSL"}
+              </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onScrape(src.id); }}
                 className="text-[10px] font-medium px-2 py-0.5 rounded cursor-pointer"
