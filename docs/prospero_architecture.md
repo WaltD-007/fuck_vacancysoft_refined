@@ -902,11 +902,11 @@ Payload: `{"m": "<sent_message_id>", "t": "o" | "c", "u": "<original_url>"?}`. N
 
 | Page | File | LOC | Hooks | Primary flows |
 |---|---|---:|---|---|
-| Dashboard | [web/src/app/page.tsx](web/src/app/page.tsx) | 668 | `useSWR("/dashboard")`, `useCurrentUser()` | 5 stat cards, live feed (filterable), 90-day chart (click-to-filter), By-Category breakdown |
-| Sources | [web/src/app/sources/page.tsx](web/src/app/sources/page.tsx) | ~793 | `useSWR("/sources")`, `useVoicePrompts()` | Source cards, 6-dim filters, scrape/diagnose/delete actions, Add Source modal, CoreSignal Add Company flow |
-| Leads | [web/src/app/leads/page.tsx](web/src/app/leads/page.tsx) | ~675 | SWR for /leads | Advanced search & filters, paste-advert, queue-for-campaign |
-| Campaigns | [web/src/app/campaigns/page.tsx](web/src/app/campaigns/page.tsx) | ~151 | Queue state, dossier triggers | Queued leads, launch campaigns (button wired but PR D endpoint missing) |
-| Builder | [web/src/app/builder/page.tsx](web/src/app/builder/page.tsx) | ~477 | Campaign template editor | Edit per-tone voice; "Save as training sample" button |
+| Dashboard | [web/src/app/page.tsx](web/src/app/page.tsx) | 883 | `useSWR("/dashboard")`, `useCurrentUser()` | 5 stat cards, live feed (filterable), 90-day chart (click-to-filter), By-Category breakdown, Recently-deleted panel |
+| Sources | [web/src/app/sources/page.tsx](web/src/app/sources/page.tsx) | 613 | `useSWR("/sources")`, `useVoicePrompts()` | Source cards, 6-dim filters, scrape/diagnose/delete actions, Add Source modal, CoreSignal Add Company flow |
+| Leads | [web/src/app/leads/page.tsx](web/src/app/leads/page.tsx) | 679 | SWR for /leads | Advanced search & filters, paste-advert, queue-for-campaign |
+| Campaigns | [web/src/app/campaigns/page.tsx](web/src/app/campaigns/page.tsx) (+ [CampaignDetailPanel.tsx](web/src/app/campaigns/CampaignDetailPanel.tsx)) | 376 + 439 | `useSWR("/campaigns")`, `useSWR("/campaigns/launchers")`, `useSWR("/campaigns/{id}/detail")` | PR P8 tracker — one row per launched campaign with stage / opens / clicks / replies; status-chip + sender filters; click-row → slide-over with per-step timeline + reply log + Stop; URL `?focus=<id>` for deep-linking from Builder post-launch |
+| Builder | [web/src/app/builder/page.tsx](web/src/app/builder/page.tsx) | 597 | Campaign template editor | Edit per-tone voice; "Save as training sample" button; Launch / Cancel wired to `/api/campaigns/{id}/launch` and `/cancel` (merged 2026-04-29) |
 | Settings/Voice | [web/src/app/settings/voice/page.tsx](web/src/app/settings/voice/page.tsx) | 303 | `useVoicePrompts()` | Per-user voice training samples |
 
 ### 8.2 Global chrome
@@ -916,10 +916,13 @@ Payload: `{"m": "<sent_message_id>", "t": "o" | "c", "u": "<original_url>"?}`. N
 
 ### 8.3 Shared hooks
 
-- `lib/swr.ts` — exports `API = "http://localhost:8000/api"` ⚠️ **hardcoded** — needs `process.env.NEXT_PUBLIC_API_URL ?? "/api"` for Container App same-origin.
-- `lib/useCurrentUser.ts` (138 LOC) — `/api/users/me` + debounced PATCH preferences (1s window, optimistic updates).
-- `lib/useVoicePrompts.ts` (163 LOC) — voice CRUD; six tones; debounced sync per tone.
-- `lib/features.ts` — feature flags.
+All under [web/src/app/lib/](web/src/app/lib/):
+
+- `swr.ts` (29 LOC) — module-cached `fetcher` and `API = process.env.NEXT_PUBLIC_API_BASE || "/api"`. Same-origin relative path; Next.js rewrites `/api/*` to FastAPI in dev and prod (see `web/next.config.ts`). Override `NEXT_PUBLIC_API_BASE` at build time only for a standalone frontend talking to a remote API.
+- `useCurrentUser.ts` (137 LOC) — `/api/users/me` + debounced PATCH preferences (1s window, optimistic updates).
+- `useVoicePrompts.ts` (163 LOC) — voice CRUD; six tones; debounced sync per tone.
+- `features.ts` (71 LOC) — feature flags (gate UI surfaces that aren't ready).
+- `safe.ts` (22 LOC) — defensive helpers for parsing optional API fields.
 
 ### 8.4 State management pattern
 
@@ -929,9 +932,10 @@ All pages use **client-side SWR** with module-cached fetcher. No Next.js SSR or 
 
 | Hardcoded value | File | Fix |
 |---|---|---|
-| API base URL | `lib/swr.ts:8` | `process.env.NEXT_PUBLIC_API_URL ?? "/api"` |
 | User badge | `Sidebar.tsx` | Fetch from Entra `/.auth/me` post-Easy-Auth |
 | CORS expectation | server.py | `allow_origins=["*"]` → env-driven origin list |
+
+(API base URL was previously hardcoded; now read from `NEXT_PUBLIC_API_BASE` with a same-origin `/api` default — see §8.3.)
 
 No pagination on dashboard recent-leads or sources list — current scale (~1500 sources) renders fine; revisit at 5k+.
 
@@ -955,7 +959,7 @@ Startup sequence:
 | leads | [routes/leads.py](src/vacancysoft/api/routes/leads.py) | 1320 | `/api/stats`, `/api/dashboard`, `/api/countries`, `/api/queue` (POST/GET), `/api/queue/{id}/send`, `/api/queue/{id}` (DELETE), `/api/leads/paste`, `/api/leads/{id}` (DELETE), `/api/leads/{id}/flag-location`, `/api/leads/{id}/undelete` (POST), `/api/leads/recently-deleted` (GET) |
 | sources | [routes/sources.py](src/vacancysoft/api/routes/sources.py) | 491 | `/api/sources`, `/api/sources/{id}/jobs`, `/api/sources/detect`, `/api/sources` (POST), `/api/sources/{id}/scrape`, `/api/sources/{id}/diagnose`, `/api/sources/{id}` (DELETE) |
 | add_company | [routes/add_company.py](src/vacancysoft/api/routes/add_company.py) | 928 | CoreSignal reverse-sourcing (search/preview/confirm phases) |
-| campaigns | [routes/campaigns.py](src/vacancysoft/api/routes/campaigns.py) | 316 | `/api/agency` (POST), `/api/leads/{id}/dossier` (POST/GET), `/api/leads/{id}/campaign` (POST). **MISSING: `/launch`, `/cancel`** — PR D adds them; final paths TBD. |
+| campaigns | [routes/campaigns.py](src/vacancysoft/api/routes/campaigns.py) | 1346 | `/api/agency` (POST), `/api/leads/{id}/dossier` (POST/GET), `/api/leads/{id}/campaign` (POST), `/api/campaigns/{id}/launch` (POST), `/api/campaigns/{id}/cancel` (POST), `/api/campaigns/launchers` (GET), `/api/campaigns` (GET — tracker list), `/api/campaigns/{id}/detail` (GET — slide-over), `/api/campaigns/{id}/archive` (POST), `/api/campaigns/{id}/unarchive` (POST). |
 | users | [routes/users.py](src/vacancysoft/api/routes/users.py) | 107 | `/api/users/me`, `/api/users/me/preferences` (PATCH), `/api/users` (admin), `/api/users` (POST admin) |
 | voice | [routes/voice.py](src/vacancysoft/api/routes/voice.py) | 203 | `/api/voice/prompts` (GET/POST/DELETE) |
 
@@ -1332,7 +1336,8 @@ Post-Easy-Auth: Entra injects `X-MS-CLIENT-PRINCIPAL-NAME` (the user's UPN) into
 - [ ] Entra admin consent.
 - [ ] Application Access Policy scoped to `prospero-users` group.
 - [x] PR D (backend) — `/api/campaigns/{id}/launch` and `/cancel` endpoints. ✅ Merged 2026-04-29 (`11256b1`).
-- [x] PR D (frontend) — Builder UI launch button. ✅ Merged 2026-04-29. Sequence-status view + dedicated Campaigns tracker page is PR P8, separate, post-canary.
+- [x] PR D (frontend) — Builder UI launch button. ✅ Merged 2026-04-29.
+- [x] PR P8 — dedicated Campaigns tracker page with per-step status timeline + detail slide-over. ✅ Merged (commit `2683f1e`).
 - [x] Self-reply filter refactored for Entra GUIDs (§13.3). ✅ Merged 2026-04-29.
 - [x] Tracking infrastructure (open + click pixels, §7.7). ✅ Merged 2026-04-29.
 - [ ] PR E — Bicep Key Vault + Container App env-var bindings.
@@ -1388,7 +1393,8 @@ There is **no immutability safeguard** — anyone with Container App config righ
 ### 14.1 Pre-launch (live-send blocked)
 
 - ~~**PR D-backend** — `/api/campaigns/{id}/launch` + `/cancel` endpoints.~~ ✅ Merged 2026-04-29.
-- ~~**PR D-frontend** — Builder UI launch button.~~ ✅ Merged 2026-04-29. (Dedicated Campaigns tracker page with per-step status timeline is PR P8 — separate, post-canary, blocks BS rollout but not the canary smoke test.)
+- ~~**PR D-frontend** — Builder UI launch button.~~ ✅ Merged 2026-04-29.
+- ~~**PR P8** — Campaigns tracker page (per-step status timeline + detail slide-over).~~ ✅ Merged (commit `2683f1e`).
 - ~~**Self-reply filter Entra-safe**~~ ✅ Merged 2026-04-29.
 - ~~**Open + click tracking infra**~~ ✅ Merged 2026-04-29 (§7.7).
 - **PR E** — Bicep IaC module + ops runbook.
