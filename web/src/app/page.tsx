@@ -510,9 +510,28 @@ export default function DashboardPage() {
                                 <button
                                   className="px-2 py-1 rounded text-[10px] font-semibold cursor-pointer"
                                   style={{ background: "rgba(255,107,107,0.08)", color: "#ff6b6b", border: "1px solid rgba(255,107,107,0.25)" }}
-                                  title="Mark this company as a recruitment agency"
-                                  onClick={() => {
-                                    setPendingUndo((prev) => ({ ...prev, [lead.company]: Date.now() + 5000 }));
+                                  title="Mark this company as a recruitment agency — fires immediately"
+                                  onClick={async () => {
+                                    // Fire POST immediately so refresh / nav can't
+                                    // cancel it (the 5s undo window was the
+                                    // 2026-04-30 foot-gun: operator clicked,
+                                    // refreshed before the timer fired, no DB
+                                    // change ever happened, agency reappeared
+                                    // every reboot). Optimistic-hide on success.
+                                    try {
+                                      const res = await fetch(`${API}/agency`, {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ company: lead.company }),
+                                      });
+                                      if (res.ok) {
+                                        setExcludedCompanies((prev) => new Set(prev).add(lead.company));
+                                        void swrMutate((key) => typeof key === "string" && key.startsWith("/dashboard"));
+                                      }
+                                    } catch {
+                                      // network error — leave row visible so the
+                                      // operator notices the click didn't take.
+                                    }
                                   }}
                                 >agy job</button>
                               </>
