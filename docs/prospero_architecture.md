@@ -535,7 +535,59 @@ return min(score, 1.0)
 
 Already covered in §3.6. Source: [src/vacancysoft/scoring/engine.py](src/vacancysoft/scoring/engine.py).
 
-### 5.5 Exporters
+### 5.5 Auto-mark-dead end-of-run sweep
+
+**Status**: Shipped to main 2026-04-29 (commit `1652586`). Behind feature flag `[pipeline] auto_mark_dead_enabled` in `configs/app.toml` — default **off**. Operator handoff guide: [docs/auto_mark_dead_handoff.md](auto_mark_dead_handoff.md).
+
+When a successful scrape returns the complete current set of open jobs, any RawJob whose `last_seen_at` predates the run's `started_at` is flagged `is_deleted_at_source=True` with an audit timestamp `deleted_at_source_at`. The Dashboard / Sources / Leads / `/api/dashboard` / `/api/stats` queries all filter the flag, so dead jobs disappear from operator view automatically.
+
+Implemented in [pipelines/persistence.py::finalise_source_run](src/vacancysoft/pipelines/persistence.py) → calls `_maybe_sweep_dead_jobs(...)`.
+
+**Safety guards** (all must pass before sweep runs):
+
+1. `[pipeline] auto_mark_dead_enabled = true` in app.toml.
+2. `source_run.status == 'success'` — failed runs never sweep.
+3. `records_seen > 0` — zero-record runs are always suspicious (transient anti-bot, JS render failure, partial fetch).
+4. Adapter has `AdapterCapabilities.complete_coverage_per_run = True` — i.e. opted in.
+5. `records_seen >= auto_mark_dead_threshold * last_successful_run.records_seen` (default `0.75`). Catches partial-fetch hiccups that would otherwise nuke jobs based on a transient.
+
+Outcome (sweep ran or skipped, with reason) appended to `source_run.diagnostics_blob` for post-hoc audit.
+
+**Adapter opt-ins** (set `complete_coverage_per_run=True`):
+| Tier-1 API adapter | Tier-1 API adapter |
+|---|---|
+| Workday | SmartRecruiters |
+| Greenhouse | Teamtailor |
+| Lever | Workable |
+| Ashby | |
+
+**Adapters explicitly opted out** (aggregators — pagination doesn't guarantee complete coverage per run):
+- Adzuna, Reed, CoreSignal, Google Jobs, eFinancialcareers.
+
+**Adapters at default `False`** (browser adapters that can silently fail mid-walk; opt them in individually after monitoring): iCIMS, Oracle Cloud, SuccessFactors, Eightfold, hibob, ADP, Avature, Phenom, Salesforce Recruit, Pinpoint, Personio, BambooHR, JazzHR, Recruitee, SilkRoad, Beamery, ClearCompany, Selectminds, Infor, Taleo, generic_site.
+
+### Reversibility
+
+- **Re-discovery clears the flag automatically**. The upsert path in `persist_record_for_source` resets `is_deleted_at_source=False` and `deleted_at_source_at=None` on every match — if an employer re-posts a previously-killed job, the next scrape brings it back. No operator action needed.
+- **Per-row operator override**:
+  - Dashboard "Recently deleted" panel → "↺ Undelete" button (default-collapsed, last 7 days, max 200 rows).
+  - `POST /api/leads/{enriched_job_id}/undelete`
+  - `prospero db undelete-job <raw_job_id>`
+- **Bulk reset**: `UPDATE raw_jobs SET is_deleted_at_source=FALSE, deleted_at_source_at=NULL WHERE deleted_at_source_at IS NOT NULL;` clears every sweep-marked row in one shot.
+
+### Behavioural notes
+
+- The threshold compares to the **most recent successful** prior run, not against a fixed expectation. If yesterday's run was anomalously low, today's is compared to that.
+- First-ever run for a source has no prior to compare against — sweep proceeds (since `records_seen > 0`); marked_dead = 0 since nothing exists.
+- The flag-reset on rediscovery clears the flag for **any** reason it was set, including operator-set "Dead" UI clicks. If an operator marks a job dead and the scraper finds it again, it returns. There's no `deleted_by` column today.
+
+### What's NOT in this work (deferred)
+
+- **Aggregator 30-day age sweep** — separate follow-up. For Adzuna/Reed/etc., a periodic cron that marks any RawJob unrefreshed in 30+ days. Different semantics; warrants its own PR.
+- **Email/Slack notification of high-volume sweeps** — no operator alerting today.
+- **Per-source sweep override** — currently one global flag + per-adapter flag; can't disable for one specific Workday source without affecting all Workday sources.
+
+### 5.6 Exporters
 
 [src/vacancysoft/exporters/views.py](src/vacancysoft/exporters/views.py) (93 LOC) — view query builders.
 
@@ -900,7 +952,7 @@ Startup sequence:
 
 | Router | File | LOC | Endpoints |
 |---|---|---:|---|
-| leads | [routes/leads.py](src/vacancysoft/api/routes/leads.py) | 1203 | `/api/stats`, `/api/dashboard`, `/api/countries`, `/api/queue` (POST/GET), `/api/queue/{id}/send`, `/api/queue/{id}` (DELETE), `/api/leads/paste`, `/api/leads/{id}` (DELETE), `/api/leads/{id}/flag-location` |
+| leads | [routes/leads.py](src/vacancysoft/api/routes/leads.py) | 1320 | `/api/stats`, `/api/dashboard`, `/api/countries`, `/api/queue` (POST/GET), `/api/queue/{id}/send`, `/api/queue/{id}` (DELETE), `/api/leads/paste`, `/api/leads/{id}` (DELETE), `/api/leads/{id}/flag-location`, `/api/leads/{id}/undelete` (POST), `/api/leads/recently-deleted` (GET) |
 | sources | [routes/sources.py](src/vacancysoft/api/routes/sources.py) | 491 | `/api/sources`, `/api/sources/{id}/jobs`, `/api/sources/detect`, `/api/sources` (POST), `/api/sources/{id}/scrape`, `/api/sources/{id}/diagnose`, `/api/sources/{id}` (DELETE) |
 | add_company | [routes/add_company.py](src/vacancysoft/api/routes/add_company.py) | 928 | CoreSignal reverse-sourcing (search/preview/confirm phases) |
 | campaigns | [routes/campaigns.py](src/vacancysoft/api/routes/campaigns.py) | 316 | `/api/agency` (POST), `/api/leads/{id}/dossier` (POST/GET), `/api/leads/{id}/campaign` (POST). **MISSING: `/launch`, `/cancel`** — PR D adds them; final paths TBD. |
@@ -954,7 +1006,7 @@ Last-seen tracking debounced to 1 write/user/min.
 |---|---|---|
 | `sources` | Job-board source registry | `source_key` (unique), `employer_name`, `adapter_name`, `ats_family`, `active`, `fingerprint` (unique), `canonical_company_key`, `capability_blob` (JSON), `config_blob` (JSON), `seed_type` |
 | `source_runs` | Per-scrape diagnostics | `source_id`, `started_at`, `finished_at`, `status`, `diagnostics_blob` (JSON) |
-| `raw_jobs` | Scraped listings | `source_id`, `external_job_id`, `title_raw`, `location_raw`, `posted_at_raw`, `summary_raw`, `discovered_url`, `apply_url`, `listing_payload` (JSON), `detail_payload` (JSON), `content_hash` (global dedup) |
+| `raw_jobs` | Scraped listings | `source_id`, `external_job_id`, `title_raw`, `location_raw`, `posted_at_raw`, `summary_raw`, `discovered_url`, `apply_url`, `listing_payload` (JSON), `detail_payload` (JSON), `content_hash` (global dedup), `last_seen_at` (refreshed on every upsert), `is_deleted_at_source` (auto-sweep + operator UI), `deleted_at_source_at` (audit timestamp) |
 | `enriched_jobs` | Normalised | `raw_job_id` (unique), `canonical_job_key`, `location_country`, `location_city`, `location_region`, `location_type`, `location_text`, `posted_at`, `freshness_bucket`, `team` (extracted employer), `employment_type`, `seniority_level`, `detail_fetch_status` |
 | `classification_results` | Taxonomy match | `enriched_job_id`, `primary_taxonomy_key`, `sub_specialism`, `classifier_version`, `decision`, `confidence`, `matched_terms` (JSON) |
 | `score_results` | Composite score | `enriched_job_id` (unique), 6 component scores, `export_eligibility_score`, `export_decision`, `scoring_version` |
@@ -994,7 +1046,7 @@ Source ──┬─ SourceRun (1:many)
 
 ### 10.4 Migrations
 
-[alembic/versions/](alembic/versions/) — 12 sequential migrations. Most recent: `0012_add_voice_training_samples`. Initial schema in 0001 (~11 tables); intelligence + outreach added incrementally (0003, 0008). Sector tagging migrations 0013 + 0014 were merged then reverted in PR #86.
+[alembic/versions/](alembic/versions/) — 16 sequential migrations. Most recent: `0016_add_deleted_at_source_at` (auto-mark-dead audit timestamp + index, see §5.5). Initial schema in 0001 (~11 tables); intelligence + outreach added incrementally (0003, 0008). Earlier sector-tagging migrations were reverted in PR #86; later additions: 0013 tracking tables (open/click pixels), 0014 recipient_name on SentMessage, 0015 archived_at on CampaignOutput, 0016 deleted_at_source_at on RawJob.
 
 Migrate forward: `alembic upgrade head`. Migrate down: `alembic downgrade -1`. Always back up Postgres before downgrade beyond one revision.
 
@@ -1074,6 +1126,15 @@ timeout_seconds = 450
 poll_interval_minutes = 10
 poll_max_days = 90
 default_cadence_days = [0, 7, 14, 21, 28]
+
+[pipeline]
+# Auto-mark-dead end-of-run sweep — when true, RawJobs not seen in a
+# successful run on an opted-in adapter (Workday, Greenhouse, Lever,
+# Ashby, Workable, SmartRecruiters, Teamtailor) are flagged
+# is_deleted_at_source=True. Default off; flip to true in production
+# after monitoring the first sweeps. See §5.5 + auto_mark_dead_handoff.md.
+auto_mark_dead_enabled = false
+auto_mark_dead_threshold = 0.75  # records_seen >= 75% of last_run.records_seen
 
 [exports]
 default_profile = "accepted_only"
@@ -1216,6 +1277,7 @@ prospero voice set-prompt|get-prompt
 prospero db add-source <url>
 prospero db cleanup-classifications        # one-off cleanup
 prospero db reset-pipeline                 # nuke pipeline state, keep sources
+prospero db undelete-job <raw_job_id>      # operator override for auto-mark-dead (§5.5)
 ```
 
 ### 13.2 Azure Container Apps deployment plan
@@ -1350,6 +1412,7 @@ There is **no immutability safeguard** — anyone with Container App config righ
 - **JSON-LD fallback in generic_site** — sites with embedded JobPosting schema should be parsed structurally; not yet wired.
 - **Detail backfill in main pipeline** — [detail_backfill.py](src/vacancysoft/pipelines/detail_backfill.py) (380 LOC: Workday + generic-HTML + SmartRecruiters detail fetchers) is wired into the CLI as `db backfill-detail` ([cli/app.py:47](src/vacancysoft/cli/app.py) imports it; called at lines 647, 1298, 1331, 1514, 1556) but is **not auto-run by `pipeline run`**. Could fold into the standard pipeline if detail-page enrichment becomes a default step.
 - **Multi-source concurrency** — pipeline currently serial per-source.
+- **Aggregator 30-day age sweep** — auto-mark-dead (§5.5) covers API adapters where per-run coverage is complete. Aggregators (Adzuna, Reed, CoreSignal, etc.) need a different mechanism — periodic cron marking any RawJob unrefreshed for 30+ days. Designed but not built; separate PR.
 - **PLATFORM_PATTERNS / `_URL_ADAPTER_OVERRIDES` consolidation** — the URL→adapter regex list lives in two places (see §4.4) and they drift. Single source of truth refactor is parked.
 - **A/B testing harness** — no built-in experiment harness for template versions, models, prompts.
 - **Streaming responses** — all LLM calls are request-response.
@@ -1401,7 +1464,7 @@ fuck_vacancysoft_refined/
 │   ├── prompts/intelligence/            base_dossier, base_campaign, category_blocks, resolver
 │   ├── outreach/                        graph_client, dry_run, secret_client
 │   └── worker/                          ARQ tasks
-├── alembic/versions/                    12 migrations
+├── alembic/versions/                    16 migrations
 ├── configs/{app.toml, config.py, scoring.toml, exporters.toml, *.yaml, seeds/, review/}
 ├── tests/                               30+ test files
 ├── docs/{deployment_plan, architecture, launch_plan, outreach_email, ...}
@@ -1454,6 +1517,8 @@ fuck_vacancysoft_refined/
 | **Sub-specialism** | A finer-grained classification under a primary taxonomy key (e.g. "Market Risk" under "risk"). |
 | **Tone** | One of the six campaign tones: formal, informal, consultative, direct, candidate_spec, technical. |
 | **Voice layer** | The per-user personalisation injected into the campaign prompt: authored tone guidance + recent sent messages + bootstrap training samples. |
+| **Auto-mark-dead** | The end-of-run sweep (§5.5) that flags RawJobs not seen in a successful scrape as `is_deleted_at_source=True`, with safety guards (75% threshold, opted-in adapters only, success-status only). |
+| **Sweep** | Synonym for the auto-mark-dead end-of-run pass. Runs inside `finalise_source_run`. |
 
 ---
 
