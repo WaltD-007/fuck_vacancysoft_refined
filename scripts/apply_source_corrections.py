@@ -1776,6 +1776,176 @@ _CORRECTIONS: list[dict] = [
         },
         "reason": "Source audit 2026-04-24: generic_site → successfactors via html-successfactors (src#695).",
     },
+    # ── Never-scraped generic_site audit 2026-04-27 (auto-applicable batch) ──
+    {
+        "employer": 'Banked',
+        "action": "reclassify",
+        "adapter_name": 'greenhouse',
+        "ats_family": 'greenhouse',
+        "base_url": 'https://boards.greenhouse.io/banked',
+        "hostname": 'boards.greenhouse.io',
+        "config_blob": {
+            "slug": 'banked',
+            "job_board_url": 'https://boards.greenhouse.io/banked',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: → greenhouse via upstream-pattern (src#1705).",
+    },
+    {
+        "employer": 'Circle',
+        "action": "reclassify",
+        "adapter_name": 'greenhouse',
+        "ats_family": 'greenhouse',
+        "base_url": 'https://boards.greenhouse.io/circle',
+        "hostname": 'boards.greenhouse.io',
+        "config_blob": {
+            "slug": 'circle',
+            "job_board_url": 'https://boards.greenhouse.io/circle',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: → greenhouse via upstream-pattern (src#1686).",
+    },
+    {
+        "employer": 'Featurespace',
+        "action": "reclassify",
+        "adapter_name": 'greenhouse',
+        "ats_family": 'greenhouse',
+        "base_url": 'https://job-boards.greenhouse.io/featurespace',
+        "hostname": 'job-boards.greenhouse.io',
+        "config_blob": {
+            "slug": 'featurespace',
+            "job_board_url": 'https://boards.greenhouse.io/featurespace',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: → greenhouse via upstream-pattern (src#1728).",
+    },
+    {
+        "employer": 'Fidel API',
+        "action": "reclassify",
+        "adapter_name": 'greenhouse',
+        "ats_family": 'greenhouse',
+        "base_url": 'https://boards.eu.greenhouse.io/fidelapi',
+        "hostname": 'boards.eu.greenhouse.io',
+        "config_blob": {
+            "slug": 'fidelapi',
+            "job_board_url": 'https://boards.greenhouse.io/fidelapi',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: → greenhouse via upstream-pattern (src#1708).",
+    },
+    {
+        "employer": 'TrailStone Group',
+        "action": "reclassify",
+        "adapter_name": 'greenhouse',
+        "ats_family": 'greenhouse',
+        "base_url": 'https://boards.greenhouse.io/trailstonegroup',
+        "hostname": 'boards.greenhouse.io',
+        "config_blob": {
+            "slug": 'trailstonegroup',
+            "job_board_url": 'https://boards.greenhouse.io/trailstonegroup',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: → greenhouse via upstream-pattern (src#1700).",
+    },
+    {
+        "employer": 'Trust Payments',
+        "action": "reclassify",
+        "adapter_name": 'greenhouse',
+        "ats_family": 'greenhouse',
+        "base_url": 'https://boards.eu.greenhouse.io/trustpayments',
+        "hostname": 'boards.eu.greenhouse.io',
+        "config_blob": {
+            "slug": 'trustpayments',
+            "job_board_url": 'https://boards.greenhouse.io/trustpayments',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: → greenhouse via upstream-pattern (src#1709).",
+    },
+    # ── Never-scraped generic_site audit 2026-04-27 (manual-review batch) ──
+    {
+        "employer": '4Most',
+        "action": "reclassify",
+        "adapter_name": 'teamtailor',
+        "ats_family": 'teamtailor',
+        "base_url": 'https://careers.4-most.co.uk/jobs',
+        "hostname": 'careers.4-most.co.uk',
+        "config_blob": {
+            "job_board_url": 'https://careers.4-most.co.uk/jobs',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: html-teamtailor signal; custom-domain career site (careers.4-most.co.uk → teamtailor-cdn.com). Pattern matches existing custom-domain teamtailor entries (src#957).",
+    },
+    {
+        "employer": 'Peel Hunt',
+        "action": "reclassify",
+        "adapter_name": 'teamtailor',
+        "ats_family": 'teamtailor',
+        "base_url": 'https://careersat.peelhunt.com/jobs',
+        "hostname": 'careersat.peelhunt.com',
+        "config_blob": {
+            "job_board_url": 'https://careersat.peelhunt.com/jobs',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: html-teamtailor signal; custom-domain career site (careersat.peelhunt.com → teamtailor-cdn.com) (src#772).",
+    },
+    {
+        "employer": 'So Energy',
+        "action": "reclassify",
+        "adapter_name": 'teamtailor',
+        "ats_family": 'teamtailor',
+        "base_url": 'https://careers.so.energy/jobs',
+        "hostname": 'careers.so.energy',
+        "config_blob": {
+            "job_board_url": 'https://careers.so.energy/jobs',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: html-teamtailor signal; custom-domain career site (careers.so.energy → teamtailor-cdn.com) (src#601).",
+    },
+    {
+        "employer": 'Munich Re',
+        "action": "reclassify",
+        "adapter_name": 'successfactors',
+        "ats_family": 'successfactors',
+        "base_url": 'https://careerstore.munichre.com/',
+        "hostname": 'careerstore.munichre.com',
+        "config_blob": {
+            "job_board_url": 'https://careerstore.munichre.com/',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: html-successfactors signal; SuccessFactors-backed career site at custom domain. Adapter is browser-based and resolves the SF iframe at runtime (src#507).",
+    },
+    {
+        "employer": 'Rathbones',
+        "action": "reclassify",
+        "adapter_name": 'successfactors',
+        "ats_family": 'successfactors',
+        "base_url": 'https://yourcareer.rathbones.com/',
+        "hostname": 'yourcareer.rathbones.com',
+        "config_blob": {
+            "job_board_url": 'https://yourcareer.rathbones.com/',
+        },
+        "reason": "Never-scraped generic_site audit 2026-04-27: html-successfactors signal; SuccessFactors-backed career site at custom domain (src#563).",
+    },
+    {
+        "employer": 'Oliver Wyman',
+        "action": "reclassify",
+        "adapter_name": 'workday',
+        "ats_family": 'workday',
+        "base_url": 'https://mmc.wd1.myworkdayjobs.com/MMC',
+        "hostname": 'mmc.wd1.myworkdayjobs.com',
+        "config_blob": {
+            "endpoint_url": 'https://mmc.wd1.myworkdayjobs.com/wday/cxs/mmc/MMC/jobs',
+            "job_board_url": 'https://mmc.wd1.myworkdayjobs.com/MMC',
+            "tenant": 'mmc',
+            "shard": 'wd1',
+            "site_path": 'MMC',
+        },
+        "reason": (
+            "Never-scraped generic_site audit 2026-04-27: tenant root mmc.wd1.myworkdayjobs.com had no site path; "
+            "verified site_path=MMC returns 425 jobs covering all Marsh & McLennan Companies (Oliver Wyman, Marsh, Mercer, "
+            "Guy Carpenter). Enrichment will tag by employer from listing payload — Oliver Wyman jobs are clearly prefixed (src#1649)."
+        ),
+    },
+    {
+        "employer": 'Cowling',
+        "action": "deactivate",
+        "reason": (
+            "Never-scraped generic_site audit 2026-04-27: original base_url is an ADP CSS asset "
+            "(workforcenow.adp.com/.../fonts.css) — junk, not a careers page. Employer 'Cowling' is "
+            "ambiguous (multiple companies). Deactivating; reactivate manually if the correct Cowling "
+            "is identified (src#802)."
+        ),
+    },
 ]
 
 
