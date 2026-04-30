@@ -211,8 +211,12 @@ export default function AddCompanyModal({
       if (data.status === "ready") {
         const leads: AddCompanyUpdateLead[] = data.leads || [];
         setUpdateLeads(leads);
-        // Default: everything ticked, user unchecks the ones they don't want.
-        setSelectedLeadKeys(new Set(leads.map(leadKey)));
+        // Default: nothing ticked. Operator opt-in to each lead they
+        // want to persist. (Was the inverse pre-2026-04-30 — too easy
+        // to commit a batch you only meant to skim.) "Select all" /
+        // "Clear" controls below the count let users still bulk-tick
+        // when that's the intent.
+        setSelectedLeadKeys(new Set());
         setUpdateState("ready");
       } else {
         // no_jobs / not_found / error — terminal
