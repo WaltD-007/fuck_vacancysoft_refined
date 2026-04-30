@@ -34,6 +34,7 @@ export type DashboardFeedPrefs = {
   country?: string;
   sub_specialism?: string;
   employment_type?: string;
+  range?: string;
 };
 
 export type Preferences = {
