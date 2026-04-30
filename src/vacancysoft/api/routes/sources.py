@@ -593,13 +593,12 @@ def add_to_psl(payload: dict):
         if existing is None:
             s.add(PslEmployer(employer_norm=norm, employer_display=employer))
             s.commit()
-    # Drop the ledger + dashboard caches so the next /api/sources rebuild
-    # reflects the new flag immediately. The card-card payload's is_psl
-    # is computed from psl_employers in ledger.py.
-    from vacancysoft.api.ledger import clear_ledger_caches
-    from vacancysoft.api.routes.leads import clear_dashboard_cache
-    clear_ledger_caches()
-    clear_dashboard_cache()
+    # Patch the cached ledger / sources lists in place — see the
+    # docstring on patch_psl_in_caches for why we don't blanket-invalidate
+    # (it shifts every other counter on the page). Dashboard cache is
+    # not touched at all because /api/dashboard doesn't surface PSL.
+    from vacancysoft.api.ledger import patch_psl_in_caches
+    patch_psl_in_caches(norm, True)
     return {"employer": employer, "is_psl": True}
 
 
@@ -621,8 +620,6 @@ def remove_from_psl(payload: dict):
     with SessionLocal() as s:
         s.execute(sa_delete(PslEmployer).where(PslEmployer.employer_norm == norm))
         s.commit()
-    from vacancysoft.api.ledger import clear_ledger_caches
-    from vacancysoft.api.routes.leads import clear_dashboard_cache
-    clear_ledger_caches()
-    clear_dashboard_cache()
+    from vacancysoft.api.ledger import patch_psl_in_caches
+    patch_psl_in_caches(norm, False)
     return {"employer": employer, "is_psl": False}
