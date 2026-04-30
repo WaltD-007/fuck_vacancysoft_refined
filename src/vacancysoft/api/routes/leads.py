@@ -23,7 +23,7 @@ import hashlib
 import re
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import func, select
 
 from vacancysoft.api.ledger import (
@@ -97,12 +97,12 @@ def get_stats(country: str | None = None):
 
 
 @router.get("/api/dashboard")
-def get_dashboard(
-    recent_window: str = Query(
-        default="7d",
-        description="Time window for recent_leads. One of: 24h, 7d, 30d, all.",
-    ),
-):
+def get_dashboard(recent_window: str = "7d"):
+    # `recent_window` query param: one of 24h, 7d, 30d, all. Plain default
+    # rather than fastapi.Query(...) so the cache-warmup task in
+    # api/server.py — which calls this function directly without going
+    # through the FastAPI route machinery — gets the actual string '7d'
+    # instead of a Query sentinel object that lacks .lower().
     """Dashboard data: recent leads, category counts, source health, plus real
     top-of-page stats (no random / placeholder numbers).
 
