@@ -868,7 +868,7 @@ function RecentlyDeletedPanel() {
                           <>
                             {" · "}
                             <a
-                              href={safeHref(item.discovered_url) ?? "#"}
+                              href={safeHref(item.discovered_url, "#")}
                               target="_blank"
                               rel="noreferrer"
                               style={{ color: "#7a7a8a", textDecoration: "underline" }}
