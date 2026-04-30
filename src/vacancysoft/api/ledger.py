@@ -306,10 +306,6 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             card["adapter_name"] = primary.adapter_name
             card["base_url"] = primary.base_url or ""
             card["active"] = primary.active
-            # PSL flag: True if any of the direct sources backing this
-            # card is on the PSL. Operator marks the visible card; the
-            # backend stores the flag on the underlying source row.
-            card["is_psl"] = any(getattr(m, "is_psl", False) for m in matches)
             card["seed_type"] = primary.seed_type
             card["ats_family"] = primary.ats_family
             card["direct_source_ids"] = [m.id for m in matches]
@@ -450,6 +446,18 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
                     "last_run_status": worst,
                     "last_run_error": err,
                 }
+
+    # PSL flag — keyed on employer_norm (the same dedup key used above
+    # for cards), loaded as a single set per ledger build. Applies to
+    # every card type, including aggregator-only ones with no direct
+    # source row. See migration 0018.
+    from vacancysoft.db.models import PslEmployer
+    psl_norms = {
+        row[0]
+        for row in session.execute(select(PslEmployer.employer_norm)).all()
+    }
+    for card in cards.values():
+        card["is_psl"] = card["employer_norm"] in psl_norms
 
     return sorted(cards.values(), key=lambda c: len(c["lead_ids"]), reverse=True)
 
