@@ -75,6 +75,15 @@ export default function AddCompanyModal({
   // Set of selected lead keys. Commit only persists the ticked leads, so the
   // user can skip irrelevant adverts and avoid churning downstream tokens.
   const [selectedLeadKeys, setSelectedLeadKeys] = useState<Set<string>>(new Set());
+  // Aggregator failure list from the multi-source preview (PR #...). Names
+  // of aggregators that errored on this preview run; rendered as a small
+  // status note above the lead list.
+  const [aggregatorsErrored, setAggregatorsErrored] = useState<string[]>([]);
+  const [aggregatorsAttempted, setAggregatorsAttempted] = useState(0);
+  // Last commit's inserted raw_job_ids — powers the post-commit Undo
+  // banner. Cleared when the modal opens or the operator dismisses.
+  const [lastCommitRawJobIds, setLastCommitRawJobIds] = useState<string[]>([]);
+  const [rollbackPending, setRollbackPending] = useState(false);
 
   const leadKey = (lead: AddCompanyUpdateLead) =>
     lead.external_id || `${lead.title}|${lead.url ?? ""}`;
@@ -85,6 +94,10 @@ export default function AddCompanyModal({
     setUpdateMessage("");
     setUpdateError("");
     setSelectedLeadKeys(new Set());
+    setAggregatorsErrored([]);
+    setAggregatorsAttempted(0);
+    setLastCommitRawJobIds([]);
+    setRollbackPending(false);
   };
 
   const toggleLead = (key: string) => {
@@ -217,6 +230,8 @@ export default function AddCompanyModal({
         // "Clear" controls below the count let users still bulk-tick
         // when that's the intent.
         setSelectedLeadKeys(new Set());
+        setAggregatorsErrored(data.aggregators_errored || []);
+        setAggregatorsAttempted(data.aggregators_attempted || 0);
         setUpdateState("ready");
       } else {
         // no_jobs / not_found / error — terminal
@@ -252,6 +267,9 @@ export default function AddCompanyModal({
       }
       const data = await res.json();
       setUpdateMessage(data.message || "");
+      // Capture the inserted RawJob ids so the post-commit banner can
+      // offer a one-click Undo via /add-company/rollback.
+      setLastCommitRawJobIds(Array.isArray(data.raw_job_ids) ? data.raw_job_ids : []);
       setUpdateState("done");
       onCardAdded(sourceId); // pin the updated card to the top
       const params = countryFilter ? `?country=${encodeURIComponent(countryFilter)}` : "";
@@ -263,6 +281,39 @@ export default function AddCompanyModal({
     } catch (e) {
       setUpdateError((e as Error).message || "Failed to reach API");
       setUpdateState("ready");
+    }
+  };
+
+  // Rollback handler — fires the /add-company/rollback endpoint with
+  // the list of RawJob ids the last commit returned. On success we
+  // clear the ids (banner disappears) and refetch /sources so counts
+  // reflect the deletion.
+  const handleRollback = async () => {
+    if (rollbackPending || lastCommitRawJobIds.length === 0) return;
+    setRollbackPending(true);
+    try {
+      const res = await fetch(`${apiBase}/sources/add-company/rollback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ raw_job_ids: lastCommitRawJobIds }),
+      });
+      if (!res.ok) {
+        setUpdateError(`Rollback failed: ${res.status}`);
+        return;
+      }
+      const data = await res.json();
+      setUpdateMessage(`Undo: ${data.message || "rolled back"}`);
+      setLastCommitRawJobIds([]);
+      const params = countryFilter ? `?country=${encodeURIComponent(countryFilter)}` : "";
+      const [s, st] = await Promise.all([
+        fetch(`${apiBase}/sources${params}`).then((r) => r.json()),
+        fetch(`${apiBase}/stats${params}`).then((r) => r.json()),
+      ]);
+      onSourcesRefreshed(s, st);
+    } catch (e) {
+      setUpdateError(`Rollback failed: ${(e as Error).message}`);
+    } finally {
+      setRollbackPending(false);
     }
   };
 
@@ -334,7 +385,7 @@ export default function AddCompanyModal({
             {updateState === "previewing" && (
               <div className="mt-3 flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
                 <span className="inline-block w-3 h-3 rounded-full" style={{ border: "2px solid var(--border)", borderTopColor: "var(--accent)", animation: "spin 0.8s linear infinite" }} />
-                Running CoreSignal preview sweep…
+                Searching CoreSignal · Adzuna · eFC · Google Jobs in parallel…
               </div>
             )}
 
@@ -372,8 +423,18 @@ export default function AddCompanyModal({
                   </div>
                 </div>
                 <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>
-                  {updateMessage || "These are new to CoreSignal — not already captured by this card. Each ticked lead fetches its full record (URL, JD, location, etc.) on commit — costs 1 credit per ticked lead."}
+                  {updateMessage || "These are new — not already captured by this card. Each ticked lead fetches its full record (URL, JD, location, etc.) on commit — costs 1 credit per ticked lead."}
                 </div>
+                {/* Aggregator status line — visible only when at least
+                    one source errored. Shows a small inline note above
+                    the leads list so the operator knows whether
+                    "few results" means "no jobs found" or "Y of N
+                    aggregators couldn't be reached". */}
+                {aggregatorsErrored.length > 0 && (
+                  <div className="text-[11px] mb-2" style={{ color: "var(--amber)" }}>
+                    Searched {aggregatorsAttempted} aggregator(s); {aggregatorsErrored.join(", ")} unreachable. Other sources still populated the list.
+                  </div>
+                )}
                 <div className="flex flex-col gap-1.5 max-h-72 overflow-y-auto">
                   {updateLeads.map((lead) => {
                     const key = leadKey(lead);
@@ -414,8 +475,28 @@ export default function AddCompanyModal({
                               <span style={{ color: "var(--text-primary)" }}>{lead.title}</span>
                             )}
                           </div>
-                          <div className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>
-                            {[lead.company, lead.location, lead.posted_at].filter(Boolean).join(" — ")}
+                          <div className="text-[11px] truncate flex items-center gap-1.5 flex-wrap" style={{ color: "var(--text-muted)" }}>
+                            <span>{[lead.company, lead.location, lead.posted_at].filter(Boolean).join(" — ")}</span>
+                            {lead.source_adapter && (
+                              <span
+                                className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-[1px] rounded"
+                                style={{
+                                  background: lead.source_adapter === "coresignal" ? "rgba(108,92,231,0.12)"
+                                    : lead.source_adapter === "adzuna" ? "rgba(0,210,160,0.10)"
+                                    : lead.source_adapter === "google_jobs" ? "rgba(255,179,64,0.10)"
+                                    : lead.source_adapter === "efinancialcareers" ? "rgba(77,171,247,0.10)"
+                                    : "rgba(85,85,112,0.10)",
+                                  color: lead.source_adapter === "coresignal" ? "#a29bfe"
+                                    : lead.source_adapter === "adzuna" ? "#00d2a0"
+                                    : lead.source_adapter === "google_jobs" ? "#ffd93d"
+                                    : lead.source_adapter === "efinancialcareers" ? "#4dabf7"
+                                    : "var(--text-muted)",
+                                  letterSpacing: "0.5px",
+                                }}
+                              >
+                                {lead.source_adapter === "google_jobs" ? "Google" : lead.source_adapter === "efinancialcareers" ? "eFC" : lead.source_adapter}
+                              </span>
+                            )}
                           </div>
                           {lead.summary && (
                             <div className="text-[11px] mt-1 line-clamp-2" style={{ color: "var(--text-muted)" }}>
@@ -456,8 +537,24 @@ export default function AddCompanyModal({
 
             {/* Terminal update states — success or no new leads */}
             {updateState === "done" && (
-              <div className="mt-3 p-2 rounded-md text-xs" style={{ background: "var(--bg-card)", border: "1px solid var(--green-border)", color: "var(--green)" }}>
-                {updateMessage || "Update complete."}
+              <div className="mt-3 p-2 rounded-md text-xs flex items-center gap-3" style={{ background: "var(--bg-card)", border: "1px solid var(--green-border)", color: "var(--green)" }}>
+                <span className="flex-1">{updateMessage || "Update complete."}</span>
+                {/* Rollback button — visible only when this commit
+                    produced inserted RawJobs. Persists until the
+                    operator clicks Undo or dismisses the modal; no
+                    auto-dismiss timer. Hits /add-company/rollback
+                    which deletes the rows + dependents. */}
+                {lastCommitRawJobIds.length > 0 && (
+                  <button
+                    onClick={handleRollback}
+                    disabled={rollbackPending}
+                    className="text-[11px] font-semibold underline cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ color: "var(--accent-light)", background: "transparent", border: "none" }}
+                    title={`Undo: deletes the ${lastCommitRawJobIds.length} just-imported lead(s) and their dependents`}
+                  >
+                    {rollbackPending ? "Undoing…" : `Undo (${lastCommitRawJobIds.length})`}
+                  </button>
+                )}
               </div>
             )}
           </div>

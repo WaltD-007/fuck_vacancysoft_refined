@@ -102,6 +102,11 @@ class AddCompanyUpdateLead(BaseModel):
     url: str | None = None
     posted_at: str | None = None
     summary: str | None = None
+    # Which aggregator surfaced this row. One of:
+    # "coresignal" / "adzuna" / "efinancialcareers" / "google_jobs".
+    # Optional for backward compatibility with the pre-multi-aggregator
+    # preview shape; the modal renders an unlabeled chip when missing.
+    source_adapter: str | None = None
 
 
 class AddCompanyUpdatePreviewResponse(BaseModel):
@@ -109,15 +114,39 @@ class AddCompanyUpdatePreviewResponse(BaseModel):
 
     status values:
       * "ready"     — leads list populated; UI shows them and offers Add
-      * "no_jobs"   — CoreSignal returned 0 matching leads
+      * "no_jobs"   — every aggregator returned 0 matching leads
       * "not_found" — source_id did not resolve to an active direct card
-      * "error"     — the preview call itself failed
+      * "error"     — preview helper itself crashed (rare; per-aggregator
+                      failures are surfaced via `aggregators_errored` and
+                      don't trigger this status)
     """
     status: str
     source_id: int
     employer_name: str
     leads_found: int
     leads: list[AddCompanyUpdateLead] = []
+    message: str
+    # Aggregators that errored during this preview (e.g. SerpAPI quota
+    # exceeded, Adzuna 5xx). The other aggregators' leads still populate
+    # the list; the modal surfaces this so the operator knows whether
+    # 0-from-X means "no jobs" or "the source crashed".
+    aggregators_errored: list[str] = []
+    # Total aggregators attempted, for the status-line copy.
+    aggregators_attempted: int = 0
+
+
+class AddCompanyRollbackRequest(BaseModel):
+    """Operator clicks 'Undo' on the post-commit banner. Hard-deletes
+    the RawJobs (and dependents: EnrichedJob, ClassificationResult,
+    ScoreResult, IntelligenceDossier, CampaignOutput, ReviewQueueItem)
+    matching the supplied raw_job_ids. Idempotent: a second call with
+    the same IDs is a no-op."""
+    raw_job_ids: list[str]
+
+
+class AddCompanyRollbackResponse(BaseModel):
+    status: str  # "ok" | "error"
+    deleted: int
     message: str
 
 
@@ -140,6 +169,12 @@ class AddCompanyUpdateCommitResponse(BaseModel):
     coresignal_source_ids: list[int] = []
     leads_added: int = 0
     message: str
+    # raw_job_ids inserted by this commit. Surfaced so the modal can
+    # offer an Undo banner that hands them straight to the
+    # /add-company/rollback endpoint. Empty if no rows were persisted
+    # (commit failed) or if the commit pre-dates the multi-aggregator
+    # preview rollout.
+    raw_job_ids: list[str] = []
 
 
 class AddCompanyUpdateCommitSelectedRequest(BaseModel):

@@ -122,6 +122,13 @@ class AdzunaAdapter(SourceAdapter):
         if not search_terms:
             raise ValueError("Adzuna source_config requires non-empty search_terms")
 
+        # Optional company-scope filter — used by the Add Company preview
+        # so we can ask Adzuna for jobs at a specific employer instead of
+        # the standard taxonomy keyword sweep. Adzuna's `company` query
+        # param is a loose substring match; downstream callers still
+        # token-subset post-filter to weed out the false-positives.
+        company_filter = (str(source_config.get("company_filter") or "")).strip()
+
         countries = _normalise_country_config(source_config.get("countries"))
         results_per_page = int(source_config.get("results_per_page", RESULTS_PER_PAGE))
         max_pages = int(source_config.get("max_pages", DEFAULT_MAX_PAGES))
@@ -151,6 +158,8 @@ class AdzunaAdapter(SourceAdapter):
                             "what": term,
                             "results_per_page": results_per_page,
                         }
+                        if company_filter:
+                            params["company"] = company_filter
                         if since is not None:
                             params["max_days_old"] = max((datetime.utcnow().date() - since.date()).days, 1)
 
