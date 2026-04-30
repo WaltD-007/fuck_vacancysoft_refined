@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from vacancysoft.classifiers.taxonomy import classify_against_legacy_taxonomy
 from vacancysoft.classifiers.title_rules import is_relevant_title, title_relevance
 
 
@@ -117,3 +118,54 @@ class TestIsRelevantTitle:
 
     def test_empty(self) -> None:
         assert is_relevant_title("") is False
+
+
+# ---------------------------------------------------------------------------
+# Sub-specialism routing — 2026-04-30 pass
+# ---------------------------------------------------------------------------
+
+class TestRiskSubSpecialismRouting:
+    """Risk sub-specialism routing rules added 2026-04-30: pull model /
+    modelling / risk-models titles into Quant Risk; pull risk-assurance and
+    risk-and-control titles into Operational Risk; pull cross-asset
+    derivatives into Market Risk; drop fire / flood-risk titles entirely."""
+
+    @pytest.mark.parametrize("title", [
+        "Risk Models Analyst",
+        "Senior Risk Modelling Specialist",
+        "Risk Modeling Lead",  # US spelling
+    ])
+    def test_risk_models_routes_to_quant_risk(self, title: str) -> None:
+        m = classify_against_legacy_taxonomy(title)
+        assert m.primary_taxonomy_key == "risk"
+        assert m.sub_specialism == "Quant Risk"
+
+    @pytest.mark.parametrize("title", [
+        "Risk Assurance Manager",
+        "Head of Risk Assurance",
+        "Risk & Control Officer",
+        "Risk and Control Lead",
+    ])
+    def test_risk_assurance_and_control_route_to_operational_risk(self, title: str) -> None:
+        m = classify_against_legacy_taxonomy(title)
+        assert m.primary_taxonomy_key == "risk"
+        assert m.sub_specialism == "Operational Risk"
+
+    @pytest.mark.parametrize("title", [
+        "Cross Asset Derivatives Analyst",
+        "Cross-Asset Derivatives Trader Risk",
+    ])
+    def test_cross_asset_derivatives_routes_to_market_risk(self, title: str) -> None:
+        m = classify_against_legacy_taxonomy(title)
+        assert m.primary_taxonomy_key == "risk"
+        assert m.sub_specialism == "Market Risk"
+
+    @pytest.mark.parametrize("title", [
+        "Fire Risk Assessor",
+        "Flood Risk Engineer",
+        "Senior Fire Risk Consultant",
+    ])
+    def test_facilities_risk_titles_are_blocked(self, title: str) -> None:
+        m = classify_against_legacy_taxonomy(title)
+        assert m.primary_taxonomy_key is None
+        assert m.sub_specialism is None
