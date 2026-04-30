@@ -71,3 +71,46 @@ class TestIsRecruiter:
         # normalises to lowercase and the keyword check is substring-based,
         # so this correctly catches it (no false negative).
         assert is_recruiter("Robert Walters UK") is True
+
+
+class TestRuntimeTokenSubsetMatch:
+    """Token-subset matcher (2026-04-30): runtime YAML entries should catch
+    decorated variants of the same company. Without this rule, marking
+    'Korn Ferry' as agency would not catch a subsequent 'Korn Ferry
+    International' arrival, which is the foot-gun the operator hit."""
+
+    def setup_method(self) -> None:
+        from vacancysoft.enrichers import recruiter_filter as rf
+        self._original = rf._RUNTIME_EXCLUSIONS.copy()
+        # Inject test entries directly so we don't touch the YAML file.
+        rf._RUNTIME_EXCLUSIONS = {
+            "korn ferry",
+            "fincroft",
+            "mccabe & barton",
+            "people first",
+        }
+
+    def teardown_method(self) -> None:
+        from vacancysoft.enrichers import recruiter_filter as rf
+        rf._RUNTIME_EXCLUSIONS = self._original
+
+    @pytest.mark.parametrize("name", [
+        "Korn Ferry International",
+        "Korn Ferry UK Ltd",
+        "Korn Ferry (Germany) GmbH",
+        "Fincroft Bridges",
+        "McCabe Barton Recruiting",  # punctuation '&' dropped by tokeniser
+        "People First UK",
+    ])
+    def test_decorated_variants_caught(self, name: str) -> None:
+        from vacancysoft.enrichers.recruiter_filter import is_recruiter
+        assert is_recruiter(name) is True
+
+    @pytest.mark.parametrize("name", [
+        "Goldman Sachs",
+        "Look Insurance Brokers",  # 'Look Ahead' tokens are NOT a subset
+        "Ferrymead Industries",     # 'ferry' alone won't match 'korn ferry'
+    ])
+    def test_unrelated_companies_not_caught(self, name: str) -> None:
+        from vacancysoft.enrichers.recruiter_filter import is_recruiter
+        assert is_recruiter(name) is False
