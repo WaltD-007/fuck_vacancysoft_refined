@@ -100,18 +100,40 @@ def mark_agency(payload: MarkAgencyRequest):
 
     added = add_agency_exclusion(company)
 
+    # Match by token subset, not exact lowercase string. Mirrors the
+    # is_recruiter() rule shipped in PR #97 — clicking 'Korn Ferry'
+    # must clean up 'Korn Ferry International', 'Korn Ferry UK Ltd',
+    # 'Lorien Impellam' (when the YAML entry is 'impellam'), etc.
+    # Without this, the click adds the entry to the YAML (so future
+    # enrichments are blocked) but the historical decorated variants
+    # survive and keep showing on the Live Feed across reboots.
+    import re as _re
+    def _alphanum_tokens(s: str | None) -> set[str]:
+        return set(_re.findall(r"[a-z0-9]+", (s or "").lower()))
+
+    entry_tokens = _alphanum_tokens(norm)
+
     with SessionLocal() as s:
-        # Match by enriched_job.team (post-extraction employer) OR by source employer name
-        team_ej_ids = {
-            row.id for row in s.execute(
-                select(EnrichedJob).where(func.lower(EnrichedJob.team) == norm)
-            ).scalars()
-        }
-        source_ids = [
-            r.id for r in s.execute(
-                select(Source).where(func.lower(Source.employer_name) == norm)
-            ).scalars()
-        ]
+        team_ej_ids: set[str] = set()
+        source_ids: list[int] = []
+
+        if entry_tokens:
+            # EnrichedJobs whose team tokens are a superset of the entry
+            # tokens. Pull only id+team so we can scan in Python without
+            # loading row objects.
+            for ej_id, team in s.execute(
+                select(EnrichedJob.id, EnrichedJob.team).where(EnrichedJob.team.is_not(None))
+            ).all():
+                if entry_tokens <= _alphanum_tokens(team):
+                    team_ej_ids.add(ej_id)
+
+            # Sources whose employer_name token-matches.
+            for src_id, emp in s.execute(
+                select(Source.id, Source.employer_name).where(Source.employer_name.is_not(None))
+            ).all():
+                if entry_tokens <= _alphanum_tokens(emp):
+                    source_ids.append(src_id)
+
         if source_ids:
             raw_ids = [
                 r.id for r in s.execute(
