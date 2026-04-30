@@ -51,6 +51,34 @@ def clear_ledger_caches() -> None:
     _ledger_cache.clear()
 
 
+def patch_psl_in_caches(employer_norm: str, is_psl: bool) -> None:
+    """Flip is_psl on cached entries for a single employer without
+    rebuilding the ledger from the DB.
+
+    PSL is purely metadata — toggling it shouldn't shift any other count
+    on the page. Calling clear_ledger_caches() forces a fresh DB read
+    that picks up unrelated pipeline activity that landed during the
+    cache TTL (new RawJobs / EnrichedJobs from worker scrapes), which
+    visibly drifts the With Leads / No Jobs Found / etc. counters.
+    Patching in place keeps every other number frozen and only flips
+    the PSL flag on the affected cards.
+    """
+    norm = (employer_norm or "").lower().strip()
+    if not norm:
+        return
+    for _country_key, (_ts, ledger) in _ledger_cache.items():
+        for card in ledger:
+            if card.get("employer_norm") == norm:
+                card["is_psl"] = is_psl
+    for _country_key, (_ts, sources_list) in _sources_cache.items():
+        for src_out in sources_list:
+            # SourceOut.employer_name carries the cased display name;
+            # compare via the same lower+strip rule the ledger uses.
+            display = getattr(src_out, "employer_name", "") or ""
+            if display.lower().strip() == norm:
+                src_out.is_psl = is_psl
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────
 
 
