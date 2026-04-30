@@ -23,7 +23,7 @@ import hashlib
 import re
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import func, select
 
 from vacancysoft.api.ledger import (
@@ -97,7 +97,12 @@ def get_stats(country: str | None = None):
 
 
 @router.get("/api/dashboard")
-def get_dashboard():
+def get_dashboard(
+    recent_window: str = Query(
+        default="7d",
+        description="Time window for recent_leads. One of: 24h, 7d, 30d, all.",
+    ),
+):
     """Dashboard data: recent leads, category counts, source health, plus real
     top-of-page stats (no random / placeholder numbers).
 
@@ -118,11 +123,17 @@ def get_dashboard():
       * daily_categories       list of 90 dicts, parallel to daily_leads, each giving
                                the per-category breakdown for that day
       * recent_leads           list of the most recent core-market leads, each with a
-                               real `score` (0–10) and `discovered` ISO timestamp
+                               real `score` (0–10) and `discovered` ISO timestamp.
+                               Window selectable via `recent_window` query param;
+                               capped at 20,000 rows in any window.
       * source_health          last 20 scrape runs
     """
     import time as _time
-    cache_key = "__all__"
+
+    window = (recent_window or "7d").lower().strip()
+    if window not in {"24h", "7d", "30d", "all"}:
+        window = "7d"
+    cache_key = f"__all__::{window}"
     cached = _dashboard_cache.get(cache_key)
     if cached and (_time.time() - cached[0]) < _DASHBOARD_CACHE_TTL:
         return cached[1]
@@ -273,9 +284,11 @@ def get_dashboard():
             for r in daily_rows
         ]
 
-        # Recent leads — last 7 days, core markets only, active sources only, WITH real per-lead score
-        cutoff = now - timedelta(days=7)
-        recent = s.execute(
+        # Recent leads — windowed by the `recent_window` query param,
+        # core markets only, active sources only, WITH real per-lead score.
+        # 20k row cap on any window so "all" stays browser-renderable while
+        # still letting operators eyeball duplicates across the full set.
+        recent_q = (
             select(
                 EnrichedJob.title,
                 Source.employer_name,
@@ -305,9 +318,16 @@ def get_dashboard():
             .where(ClassificationResult.primary_taxonomy_key.in_(_CORE_MARKETS))
             .where(Source.active.is_(True))
             .where(RawJob.is_deleted_at_source.is_(False))
-            .where(EnrichedJob.created_at >= cutoff)
-            .order_by(EnrichedJob.created_at.desc())
-            .limit(10000)
+        )
+        if window == "24h":
+            recent_q = recent_q.where(EnrichedJob.created_at >= now - timedelta(hours=24))
+        elif window == "30d":
+            recent_q = recent_q.where(EnrichedJob.created_at >= now - timedelta(days=30))
+        elif window == "7d":
+            recent_q = recent_q.where(EnrichedJob.created_at >= now - timedelta(days=7))
+        # window == "all" → no time filter
+        recent = s.execute(
+            recent_q.order_by(EnrichedJob.created_at.desc()).limit(20000)
         ).all()
 
         leads = []

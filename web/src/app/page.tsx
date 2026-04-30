@@ -77,14 +77,6 @@ const catColors: Record<string, string> = {
 };
 
 export default function DashboardPage() {
-  // SWR caches the last response in the browser. On navigation back to `/`
-  // it paints instantly with cached data then revalidates in the background.
-  // Focus revalidation gives us fresh data when the user returns to the tab.
-  const { data } = useSWR<Dashboard>("/dashboard", fetcher, {
-    revalidateOnFocus: true,
-    dedupingInterval: 2000,
-    keepPreviousData: true,
-  });
   // Live-feed filter state. Initial values come from the current
   // user's saved preferences (if any); changes push back to the
   // backend on a 500ms debounce. When the user hook resolves async,
@@ -109,6 +101,24 @@ export default function DashboardPage() {
   const [feedEmploymentType, setFeedEmploymentTypeRaw] = useState<string>(
     savedFeed.employment_type ?? "Permanent",
   );
+  const [feedRange, setFeedRangeRaw] = useState<string>(
+    savedFeed.range ?? "7d",
+  );
+
+  // SWR caches the last response in the browser. On navigation back to `/`
+  // it paints instantly with cached data then revalidates in the background.
+  // Focus revalidation gives us fresh data when the user returns to the tab.
+  // Key includes the feed range so 24h / 7d / 30d / all each get their own
+  // cache entry — switching ranges paints from cache then revalidates.
+  const { data } = useSWR<Dashboard>(
+    `/dashboard?recent_window=${feedRange}`,
+    fetcher,
+    {
+      revalidateOnFocus: true,
+      dedupingInterval: 2000,
+      keepPreviousData: true,
+    },
+  );
 
   // When the user resolves async (SWR fetch completes), overwrite the
   // four filter states from their saved preferences. Keyed on
@@ -123,6 +133,7 @@ export default function DashboardPage() {
     if (d.country !== undefined) setFeedCountryRaw(d.country);
     if (d.sub_specialism !== undefined) setFeedSubSpecRaw(d.sub_specialism);
     if (d.employment_type !== undefined) setFeedEmploymentTypeRaw(d.employment_type);
+    if (d.range !== undefined) setFeedRangeRaw(d.range);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -136,6 +147,7 @@ export default function DashboardPage() {
     country: string;
     sub_specialism: string;
     employment_type: string;
+    range: string;
   }>) {
     updatePreferences({
       dashboard_feed: {
@@ -143,6 +155,7 @@ export default function DashboardPage() {
         country: next.country ?? feedCountry,
         sub_specialism: next.sub_specialism ?? feedSubSpec,
         employment_type: next.employment_type ?? feedEmploymentType,
+        range: next.range ?? feedRange,
       },
     });
   }
@@ -162,6 +175,10 @@ export default function DashboardPage() {
   const setFeedEmploymentType = (v: string) => {
     setFeedEmploymentTypeRaw(v);
     pushFeedPrefs({ employment_type: v });
+  };
+  const setFeedRange = (v: string) => {
+    setFeedRangeRaw(v);
+    pushFeedPrefs({ range: v });
   };
   const [queued, setQueued] = useState<Set<string>>(new Set());
   const [excludedCompanies, setExcludedCompanies] = useState<Set<string>>(new Set());
@@ -238,7 +255,7 @@ export default function DashboardPage() {
       });
     } finally {
       // Pull fresh dashboard data so the deleted row leaves the feed.
-      void swrMutate("/dashboard");
+      void swrMutate((key) => typeof key === "string" && key.startsWith("/dashboard"));
       setDeadPending((prev) => {
         const next = new Set(prev);
         next.delete(leadId);
@@ -277,7 +294,7 @@ export default function DashboardPage() {
       // Re-fetch so the new city/country shows on the next render
       // in the "applied" case, or so a re-flag isn't shown as
       // stale in the queued case.
-      void swrMutate("/dashboard");
+      void swrMutate((key) => typeof key === "string" && key.startsWith("/dashboard"));
     }
   };
 
@@ -357,6 +374,12 @@ export default function DashboardPage() {
                   Live Feed
                 </div>
                 <div className="flex gap-1.5 flex-nowrap">
+                  <select value={feedRange} onChange={(e) => setFeedRange(e.target.value)} className="text-[11px] px-1.5 py-1 rounded-md cursor-pointer outline-none" style={{ background: "#16161f", color: "#e8e8f0", border: "1px solid #2a2a3a" }}>
+                    <option value="24h">Last 24h</option>
+                    <option value="7d">Last 7 days</option>
+                    <option value="30d">Last 30 days</option>
+                    <option value="all">All time</option>
+                  </select>
                   <select value={feedCountry} onChange={(e) => setFeedCountry(e.target.value)} className="text-[11px] px-1.5 py-1 rounded-md cursor-pointer outline-none max-w-[110px]" style={{ background: "#16161f", color: feedCountry ? "#e8e8f0" : "#555570", border: "1px solid #2a2a3a" }}>
                     <option value="">Locations</option>
                     {(() => { const c = new Set<string>(); (data?.recent_leads || []).forEach(l => { if (l.country) c.add(l.country); }); return Array.from(c).sort().map(co => <option key={co} value={co}>{co}</option>); })()}
@@ -378,7 +401,7 @@ export default function DashboardPage() {
               <div style={{ maxHeight: "calc(100vh - 200px)", overflowY: "auto" }}>
                 {leads.length === 0 ? (
                   <div className="px-5 py-8 text-center text-xs" style={{ color: "#555570" }}>
-                    No leads in the last 7 days.
+                    No leads {feedRange === "24h" ? "in the last 24 hours" : feedRange === "30d" ? "in the last 30 days" : feedRange === "all" ? "yet" : "in the last 7 days"}.
                   </div>
                 ) : (
                   leads
@@ -771,7 +794,7 @@ function RecentlyDeletedPanel() {
         { revalidate: false }
       );
       // Drop dashboard cache so counts reflect the restoration.
-      globalMutate("/dashboard");
+      globalMutate((key) => typeof key === "string" && key.startsWith("/dashboard"));
       globalMutate("/sources");
     } catch (e) {
       alert(`Undelete failed: ${e instanceof Error ? e.message : String(e)}`);
