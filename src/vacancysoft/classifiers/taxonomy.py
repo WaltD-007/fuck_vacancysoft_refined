@@ -55,6 +55,10 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         # rolls up to Market Risk (removes Investment Risk's only rule).
         ("market risk", 1.0, "Market Risk"), ("market risk assurance", 1.0, "Market Risk"),
         ("value at risk", 1.0, "Market Risk"),
+        # Cross-asset derivatives roles route to Market Risk per the
+        # 2026-04-30 sub-spec routing pass.
+        ("cross asset derivatives", 1.0, "Market Risk"),
+        ("cross-asset derivatives", 1.0, "Market Risk"),
         ("investment risk", 0.9, "Market Risk"), ("trading risk", 0.9, "Market Risk"),
         ("cva", 0.8, "Market Risk"), ("xva", 0.8, "Market Risk"),
         # Quant Risk — quant-flavoured risk roles route to Risk so the Risk
@@ -64,6 +68,11 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("model review", 0.9, "Quant Risk"), ("model validation", 0.9, "Quant Risk"),
         ("model validation quant", 1.0, "Quant Risk"), ("quantitative model risk", 1.0, "Quant Risk"),
         ("quantitative validation", 1.0, "Quant Risk"),
+        # 'risk models' and 'risk modelling' added 2026-04-30 — both were
+        # falling through to the Risk Management catch-all instead of
+        # Quant Risk. 'modeling' covers the US spelling.
+        ("risk models", 1.0, "Quant Risk"), ("risk modelling", 1.0, "Quant Risk"),
+        ("risk modeling", 1.0, "Quant Risk"),
         ("risk quant", 1.0, "Quant Risk"), ("risk analytics quant", 1.0, "Quant Risk"),
         ("quantitative risk", 1.0, "Quant Risk"),
         ("reverse stress", 0.9, "Quant Risk"), ("risk analytics", 0.9, "Quant Risk"),
@@ -89,16 +98,22 @@ _TAXONOMY_RULES: dict[str, list[tuple[str, float, str]]] = {
         ("operational risk", 1.0, "Operational Risk"), ("ops risk", 1.0, "Operational Risk"),
         ("risk controls", 0.9, "Operational Risk"), ("risk framework", 0.9, "Operational Risk"),
         ("risk governance", 0.9, "Operational Risk"), ("risk reporting", 0.9, "Operational Risk"),
+        # 'risk assurance' moved from Risk Management → Operational Risk
+        # 2026-04-30. 'risk & control' / 'risk and control' added in the
+        # same pass — these were falling through to the catch-all.
+        ("risk assurance", 1.0, "Operational Risk"),
+        ("risk & control", 1.0, "Operational Risk"),
+        ("risk and control", 1.0, "Operational Risk"),
         # Third-Party Risk — operator request 2026-04-27. Was being absorbed
         # by the Risk Management catch-all; sits more naturally under
         # Operational Risk alongside vendor / outsourcing / NFR governance.
         ("third party risk", 1.0, "Operational Risk"),
         ("3rd party risk", 1.0, "Operational Risk"),
-        # Risk Management (catch-all, lowest specificity last). 'risk
-        # assurance' rolls up here per the 2026-04-20 retag.
+        # Risk Management (catch-all, lowest specificity last).
+        # 'risk assurance' moved out to Operational Risk 2026-04-30 — see above.
         ("insurance risk", 1.0, "Risk Management"), ("risk management", 1.0, "Risk Management"),
         ("risk advisory", 0.9, "Risk Management"), ("risk assessment", 0.9, "Risk Management"),
-        ("risk associate", 0.9, "Risk Management"), ("risk assurance", 0.9, "Risk Management"),
+        ("risk associate", 0.9, "Risk Management"),
         ("risk consultant", 0.9, "Risk Management"),
         # Risk-systems engineering protection — operator clarification
         # 2026-04-27: titles whose role is "build the risk function's tooling"
@@ -402,6 +417,9 @@ _TITLE_BLOCKLIST = re.compile(
     r"|(?!credit )(?:senior |junior |lead )?underwriter"
     r"|(?!credit )underwriting (?:manager|analyst|assistant|specialist|technician|intern|trainee|associate|coordinator|consultant|director|operations)"
     r"|external audit|external auditor"
+    # Facilities / non-financial risk roles — operator request 2026-04-30.
+    # Drop entirely so they never appear in any export.
+    r"|fire risk|flood risk"
     r")\b",
     re.IGNORECASE,
 )
