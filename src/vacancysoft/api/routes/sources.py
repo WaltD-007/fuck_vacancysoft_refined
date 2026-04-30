@@ -262,6 +262,32 @@ async def diagnose_source(source_id: int, request: Request):
         await validate_public_url(current_url)
     except UnsafeURLError as exc:
         raise HTTPException(status_code=400, detail=f"Stored source URL is not safe to fetch: {exc}")
+
+    # Common alternative paths to try when the stored URL 404s. Tried
+    # against the same hostname only — never a different domain. Order
+    # matters slightly: most-likely first.
+    _CAREERS_FALLBACK_PATHS = (
+        "/careers", "/career", "/jobs", "/vacancies",
+        "/about/careers", "/about-us/careers", "/company/careers",
+        "/work-with-us", "/join-us",
+    )
+
+    # Heuristic check that a fetched body looks like a careers landing
+    # page (not a generic homepage). Used by the 404 fallback so we
+    # don't write back a bogus URL. Window is intentionally generous —
+    # many landing pages bury the actual content below 10 KB of nav /
+    # hero markup. Keyword set covers the obvious recruitment-page
+    # vocabulary plus the softer signals ('apply', 'opportunit') for
+    # pages that don't say 'careers' in their above-the-fold copy.
+    def _looks_like_careers(body: str) -> bool:
+        b = body[:30000].lower()
+        return any(kw in b for kw in (
+            "career", "vacanc", "open role", "open position", "open position",
+            "join our team", "join the team", "we're hiring", "we are hiring",
+            "current opening", "job opening", "apply now", "apply here",
+            "opportunit", "work with us", "work for us",
+        ))
+
     try:
         async with _httpx.AsyncClient(
             timeout=15,
@@ -272,19 +298,84 @@ async def diagnose_source(source_id: int, request: Request):
             diagnosis["http_status"] = resp.status_code
             diagnosis["final_url"] = str(resp.url)
 
-            if resp.status_code == 403:
-                diagnosis["issues"].append("URL returns 403 Forbidden — site may be blocking bots")
-                diagnosis["status"] = "blocked"
+            # ── Enhancement #1: auto-follow domain redirects ──
+            # httpx already follows 30x; resp.url is the final URL. If
+            # the site redirected us to a different host on a 200, the
+            # stored URL is stale — write the new one back so future
+            # scrapes hit it directly. Same-host redirects (e.g. trailing
+            # slash) are ignored: nothing to fix.
+            if resp.status_code == 200 and str(resp.url) != current_url:
+                final_str = str(resp.url)
+                final_host = (resp.url.host or "").lower()
+                current_host = ""
+                try:
+                    from urllib.parse import urlparse as _urlparse
+                    current_host = (_urlparse(current_url).hostname or "").lower()
+                except Exception:
+                    pass
+                if final_host and current_host and final_host != current_host:
+                    diagnosis["issues"].append(f"URL redirects to different domain: {final_str}")
+                    try:
+                        await validate_public_url(final_str)
+                    except UnsafeURLError:
+                        diagnosis["issues"].append("Redirect target rejected by URL safety check; not applied")
+                    else:
+                        with SessionLocal() as s:
+                            src = s.execute(select(Source).where(Source.id == source_id)).scalar_one()
+                            src.base_url = final_str
+                            config = dict(src.config_blob or {})
+                            if config.get("job_board_url"):
+                                config["job_board_url"] = final_str
+                            src.config_blob = config
+                            s.commit()
+                        current_url = final_str
+                        diagnosis["current_url"] = final_str
+                        diagnosis["actions_taken"].append(f"Updated URL to follow redirect: {final_str}")
+                        diagnosis["status"] = "fixed"
+
+            # ── Enhancement #3: try common careers paths on 404 ──
             elif resp.status_code == 404:
                 diagnosis["issues"].append("URL returns 404 — page not found, URL may have changed")
                 diagnosis["status"] = "dead_url"
+                try:
+                    base = _httpx.URL(current_url).copy_with(path="", query=b"", fragment="")
+                except Exception:
+                    base = None
+                if base is not None:
+                    for path in _CAREERS_FALLBACK_PATHS:
+                        candidate = str(base.join(path))
+                        try:
+                            await validate_public_url(candidate)
+                        except UnsafeURLError:
+                            continue
+                        try:
+                            r2 = await client.get(candidate)
+                        except Exception:
+                            continue
+                        if r2.status_code == 200 and _looks_like_careers(r2.text):
+                            with SessionLocal() as s:
+                                src = s.execute(select(Source).where(Source.id == source_id)).scalar_one()
+                                src.base_url = str(r2.url)
+                                config = dict(src.config_blob or {})
+                                if config.get("job_board_url"):
+                                    config["job_board_url"] = str(r2.url)
+                                src.config_blob = config
+                                s.commit()
+                            current_url = str(r2.url)
+                            resp = r2
+                            diagnosis["current_url"] = str(r2.url)
+                            diagnosis["http_status"] = r2.status_code
+                            diagnosis["final_url"] = str(r2.url)
+                            diagnosis["actions_taken"].append(f"Replaced dead URL with working alternative: {r2.url}")
+                            diagnosis["status"] = "fixed"
+                            break
+
+            elif resp.status_code == 403:
+                diagnosis["issues"].append("URL returns 403 Forbidden — site may be blocking bots")
+                diagnosis["status"] = "blocked"
             elif resp.status_code >= 500:
                 diagnosis["issues"].append(f"URL returns {resp.status_code} — server error")
                 diagnosis["status"] = "server_error"
-
-            # Check if redirected to a different domain
-            if str(resp.url) != current_url and resp.url.host not in current_url:
-                diagnosis["issues"].append(f"URL redirects to different domain: {resp.url}")
     except Exception as exc:
         diagnosis["issues"].append(f"URL unreachable: {type(exc).__name__}: {exc}")
         diagnosis["status"] = "unreachable"
