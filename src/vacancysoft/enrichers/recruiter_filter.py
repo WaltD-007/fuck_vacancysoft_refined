@@ -627,6 +627,13 @@ RECRUITER_KEYWORDS: tuple[str, ...] = (
 # inside the ephemeral image. Default matches local-dev conventions.
 _RUNTIME_EXCLUSIONS_PATH = Path(os.getenv("AGENCY_EXCLUSIONS_PATH") or "configs/agency_exclusions.yaml")
 _RUNTIME_EXCLUSIONS: set[str] = set()
+# Mtime of the YAML at last load. Used by _maybe_reload_exclusions() to
+# pick up YAML edits made by the API process (or by a human editor)
+# without requiring a worker restart. Multi-process invalidation
+# without IPC: the YAML file is the source of truth, and any process
+# that calls is_recruiter() will see updates within one filesystem
+# stat call.
+_RUNTIME_EXCLUSIONS_MTIME: float = 0.0
 
 
 def _load_runtime_exclusions() -> set[str]:
@@ -644,9 +651,27 @@ def _load_runtime_exclusions() -> set[str]:
 
 def refresh_runtime_exclusions() -> int:
     """Re-read configs/agency_exclusions.yaml. Returns the loaded count."""
-    global _RUNTIME_EXCLUSIONS
+    global _RUNTIME_EXCLUSIONS, _RUNTIME_EXCLUSIONS_MTIME
     _RUNTIME_EXCLUSIONS = _load_runtime_exclusions()
+    try:
+        _RUNTIME_EXCLUSIONS_MTIME = _RUNTIME_EXCLUSIONS_PATH.stat().st_mtime
+    except OSError:
+        _RUNTIME_EXCLUSIONS_MTIME = 0.0
     return len(_RUNTIME_EXCLUSIONS)
+
+
+def _maybe_reload_exclusions() -> None:
+    """Reload the YAML if its mtime has advanced since the last load.
+    Cheap (single stat); called from is_recruiter() so the worker process
+    sees YAML updates from the API process within one filesystem stat
+    of the next enrichment job."""
+    global _RUNTIME_EXCLUSIONS_MTIME
+    try:
+        mtime = _RUNTIME_EXCLUSIONS_PATH.stat().st_mtime
+    except OSError:
+        return
+    if mtime > _RUNTIME_EXCLUSIONS_MTIME:
+        refresh_runtime_exclusions()
 
 
 def add_agency_exclusion(company: str) -> bool:
@@ -723,6 +748,12 @@ def is_recruiter(company: str | None) -> bool:
     """
     if not company:
         return False
+    # Stat the YAML once per call. Cheap (microseconds) and lets the
+    # worker process pick up YAML edits made by the API process without
+    # having to be restarted — fixes the foot-gun where 'Agy Job' adds
+    # an entry but the worker keeps emitting EnrichedJobs for it until
+    # next reboot.
+    _maybe_reload_exclusions()
     norm = company.strip().lower()
     if norm in EXCLUDED_RECRUITERS or norm in _RUNTIME_EXCLUSIONS:
         return True
