@@ -351,6 +351,10 @@ export default function SourcesPage() {
   const noJobsCount = sources.filter((s) => !isBroken(s) && s.jobs === 0 && s.adapter_name !== "aggregator" && getScored(s) === 0).length;
   const notRelevantCount = sources.filter((s) => getScored(s) === 0 && !isBroken(s) && (countryFilter ? globalScored(s) > 0 || s.jobs > 0 : s.jobs > 0)).length;
   const brokenCount = sources.filter((s) => isBroken(s)).length;
+  // PSL = operator-curated set of accounts targeted for BD outreach.
+  // Orthogonal to lead-state — a PSL card stays in its native bucket
+  // (With Leads / No Jobs Found / etc) AND additionally appears here.
+  const pslCount = sources.filter((s) => s.is_psl === true).length;
 
   // Compute adapter counts from current view (before adapter filter applied)
   const viewFiltered = sources.filter((s) => {
@@ -365,6 +369,9 @@ export default function SourcesPage() {
     // Not Relevant: jobs were scraped but none classified into core markets.
     if (sourceView === "not_relevant") return scored === 0 && !isBroken(s) && s.jobs > 0;
     if (sourceView === "broken") return isBroken(s);
+    // PSL: operator-flagged for BD targeting. Filter is just the flag —
+    // no other constraints (a PSL card can be With-Leads or No-Jobs).
+    if (sourceView === "psl") return s.is_psl === true;
     if (sourceView === "all") return true;
     // Default ("With Leads"): any card with at least one classified lead,
     // regardless of whether it came from a direct adapter or an aggregator.
@@ -406,7 +413,11 @@ export default function SourcesPage() {
   // list — a no-jobs card has no employment_types or aggregator_hits
   // to match against. Skip those filters in those views so the rendered
   // list matches the chip count.
-  const isSpecialView = sourceView === "no_jobs" || sourceView === "broken" || sourceView === "not_relevant";
+  const isSpecialView =
+    sourceView === "no_jobs" ||
+    sourceView === "broken" ||
+    sourceView === "not_relevant" ||
+    sourceView === "psl";
   const filtered = isSpecialView
     ? viewFiltered
     : viewFiltered
@@ -488,6 +499,7 @@ export default function SourcesPage() {
             stats={stats}
             sources={sources}
             withLeadsCount={withLeadsCount}
+            pslCount={pslCount}
             noJobsCount={noJobsCount}
             notRelevantCount={notRelevantCount}
             brokenCount={brokenCount}

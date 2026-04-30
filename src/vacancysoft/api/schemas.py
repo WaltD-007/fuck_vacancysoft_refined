@@ -29,6 +29,9 @@ class SourceOut(BaseModel):
     employment_types: dict[str, int] = {}  # {Permanent|Contract: count}
     last_run_status: str | None = None
     last_run_error: str | None = None
+    # Preferred Supplier List flag — operator-curated for BD targeting.
+    # Defaults False so older clients / cached payloads behave sensibly.
+    is_psl: bool = False
 
     class Config:
         from_attributes = True

@@ -211,6 +211,7 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             "adapter_name": "",
             "base_url": "",
             "active": True,
+            "is_psl": False,
             "seed_type": None,
             "ats_family": None,
             "direct_source_ids": [],
@@ -305,6 +306,10 @@ def _build_source_card_ledger(session, country: str | None = None) -> list[dict]
             card["adapter_name"] = primary.adapter_name
             card["base_url"] = primary.base_url or ""
             card["active"] = primary.active
+            # PSL flag: True if any of the direct sources backing this
+            # card is on the PSL. Operator marks the visible card; the
+            # backend stores the flag on the underlying source row.
+            card["is_psl"] = any(getattr(m, "is_psl", False) for m in matches)
             card["seed_type"] = primary.seed_type
             card["ats_family"] = primary.ats_family
             card["direct_source_ids"] = [m.id for m in matches]

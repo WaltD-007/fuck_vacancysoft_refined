@@ -24,6 +24,10 @@ export type Source = {
   employment_types?: Record<string, number>;
   last_run_status: string | null;
   last_run_error: string | null;
+  // Preferred Supplier List flag — operator-curated for BD targeting.
+  // Optional in the type because backends older than the PSL migration
+  // won't include it; missing/false is treated as "not on PSL".
+  is_psl?: boolean;
 };
 
 
@@ -113,7 +117,7 @@ export type AddCompanyUpdateLead = {
   summary: string | null;
 };
 
-export type SourceView = "leads" | "no_jobs" | "not_relevant" | "broken" | "all";
+export type SourceView = "leads" | "psl" | "no_jobs" | "not_relevant" | "broken" | "all";
 
 export const AGGREGATOR_LABELS: Record<string, string> = {
   adzuna: "Adzuna",
