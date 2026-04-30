@@ -371,8 +371,66 @@ async def diagnose_source(source_id: int, request: Request):
                             break
 
             elif resp.status_code == 403:
-                diagnosis["issues"].append("URL returns 403 Forbidden — site may be blocking bots")
-                diagnosis["status"] = "blocked"
+                # ── Enhancement #2: Firefox fallback for Cloudflare/Akamai
+                # bot blocks. httpx gets 403; Firefox's standard headers +
+                # JA3 fingerprint usually get past the challenge. Same
+                # downstream flow runs against the body Firefox returns,
+                # so platform detection / redirect-follow benefit too.
+                from vacancysoft.api.source_detector import firefox_fetch
+                ff = await firefox_fetch(current_url)
+                if (
+                    ff is not None
+                    and ff.get("status") == 200
+                    and not ff.get("blocked_by_challenge")
+                    and ff.get("body")
+                ):
+                    diagnosis["actions_taken"].append("Bypassed 403 via Firefox")
+                    diagnosis["status"] = "fixed"
+                    diagnosis["http_status"] = 200
+                    final_str = ff.get("url") or current_url
+                    diagnosis["final_url"] = final_str
+                    # If Firefox ended up on a different host, write the
+                    # new URL back the same way enhancement #1 does on a
+                    # plain-httpx redirect.
+                    final_host = ""
+                    current_host = ""
+                    try:
+                        from urllib.parse import urlparse as _urlparse
+                        final_host = (_urlparse(final_str).hostname or "").lower()
+                        current_host = (_urlparse(current_url).hostname or "").lower()
+                    except Exception:
+                        pass
+                    if final_host and current_host and final_host != current_host:
+                        try:
+                            await validate_public_url(final_str)
+                        except UnsafeURLError:
+                            diagnosis["issues"].append("Firefox-detected redirect target rejected by URL safety check; not applied")
+                        else:
+                            with SessionLocal() as s:
+                                src = s.execute(select(Source).where(Source.id == source_id)).scalar_one()
+                                src.base_url = final_str
+                                config = dict(src.config_blob or {})
+                                if config.get("job_board_url"):
+                                    config["job_board_url"] = final_str
+                                src.config_blob = config
+                                s.commit()
+                            current_url = final_str
+                            diagnosis["current_url"] = final_str
+                            diagnosis["actions_taken"].append(f"Updated URL to follow Firefox redirect: {final_str}")
+                    # Hand a Response-shaped shim to the platform-detection
+                    # step below so it reads from Firefox's body, not the
+                    # original 403 page.
+                    from types import SimpleNamespace
+                    resp = SimpleNamespace(
+                        status_code=200,
+                        text=ff["body"],
+                        url=_httpx.URL(final_str),
+                    )
+                else:
+                    diagnosis["issues"].append("URL returns 403 Forbidden — site may be blocking bots")
+                    if ff is not None and ff.get("blocked_by_challenge"):
+                        diagnosis["issues"].append("Firefox fallback also hit a bot-detection challenge page")
+                    diagnosis["status"] = "blocked"
             elif resp.status_code >= 500:
                 diagnosis["issues"].append(f"URL returns {resp.status_code} — server error")
                 diagnosis["status"] = "server_error"

@@ -616,3 +616,58 @@ async def _browser_reachability_check(url: str) -> bool:
                 await browser.close()
     except Exception:
         return False
+
+
+async def firefox_fetch(url: str, *, timeout_ms: int = 15000, body_limit_chars: int = 30000) -> dict | None:
+    """Fetch a URL via headless Firefox. Used by the diagnose endpoint
+    when httpx hits a 403 (Cloudflare / Akamai bot detection) — Firefox's
+    JA3 fingerprint and standard headers get past most CDN bot blocks
+    that reject httpx.
+
+    Returns:
+        {
+            "status": int,                # final HTTP status (200 if page rendered)
+            "url": str,                   # final URL after any 30x redirects
+            "body": str,                  # first body_limit_chars chars of HTML
+            "blocked_by_challenge": bool, # True if Cloudflare/Akamai challenge title detected
+        }
+        or None on launch failure / unreachable.
+
+    Cleanup is in finally — leaked browsers compound until the API OOMs.
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except Exception:
+        return None
+
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.firefox.launch(headless=True)
+            try:
+                ctx = await browser.new_context(viewport={"width": 1280, "height": 900})
+                page = await ctx.new_page()
+                try:
+                    response = await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+                    # 3s hold gives JS challenges (Cloudflare's "just a moment")
+                    # time to resolve and redirect to the real page.
+                    await page.wait_for_timeout(3000)
+                    title = (await page.title()).lower()
+                    blocked = (
+                        "attention required" in title
+                        or "just a moment" in title
+                        or "access denied" in title
+                    )
+                    body = await page.content()
+                    return {
+                        "status": response.status if response is not None else 0,
+                        "url": page.url,
+                        "body": body[:body_limit_chars],
+                        "blocked_by_challenge": blocked,
+                    }
+                finally:
+                    await page.close()
+                    await ctx.close()
+            finally:
+                await browser.close()
+    except Exception:
+        return None
