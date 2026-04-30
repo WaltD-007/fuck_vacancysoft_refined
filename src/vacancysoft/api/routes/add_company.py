@@ -24,6 +24,8 @@ from vacancysoft.api.schemas import (
     AddCompanyCandidate,
     AddCompanyRequest,
     AddCompanyResponse,
+    AddCompanyRollbackRequest,
+    AddCompanyRollbackResponse,
     AddCompanyUpdateCommitResponse,
     AddCompanyUpdateCommitSelectedRequest,
     AddCompanyUpdateLead,
@@ -416,22 +418,26 @@ def _lookup_direct_source(source_id: int) -> Source | None:
 
 @router.post("/api/sources/add-company/update-preview", response_model=AddCompanyUpdatePreviewResponse)
 async def add_company_update_preview(req: AddCompanyUpdateRequest):
-    """Preview-mode CoreSignal sweep scoped to an existing direct card.
+    """Multi-aggregator preview scoped to an existing direct card.
 
-    Does NOT persist — the user reviews the leads list and either commits (via
-    /update-commit) or dismisses. Uses the adapter's `use_preview=True` mode so
-    each run is just a handful of preview calls (no /collect credits).
+    Fans out to CoreSignal + Adzuna + eFinancialCareers + Google Jobs in
+    parallel (intelligence.aggregator_company_preview.fetch_company_leads),
+    post-filters by token-subset employer match, dedups by URL across
+    sources. Each lead row carries source_adapter so the modal can show
+    which aggregator surfaced it.
 
-    Leads are deduped against RawJobs already captured by any CoreSignal source
-    attached to this employer, so the UI only shows genuinely new rows.
+    Per-aggregator failures don't kill the response — the failed source's
+    name comes back in `aggregators_errored`. Total cost: ~2-3¢ per call
+    (SerpAPI for Google Jobs); the others are free or already-paid.
+
+    Does NOT persist — operator reviews and commits via
+    /update-commit-selected which returns the inserted raw_job_ids so the
+    modal can offer an Undo via /add-company/rollback.
+
+    Pre-existing leads (RawJobs already captured for this employer
+    across ALL aggregator sources) are filtered out by external_id /
+    URL so the operator only sees genuinely new rows.
     """
-    import os
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
-
-    api_key = (os.getenv("CORESIGNAL_API_KEY") or "").strip()
-    if not api_key:
-        raise HTTPException(status_code=500, detail="CORESIGNAL_API_KEY not configured on server")
-
     src = _lookup_direct_source(req.source_id)
     if not src:
         return AddCompanyUpdatePreviewResponse(
@@ -446,76 +452,79 @@ async def add_company_update_preview(req: AddCompanyUpdateRequest):
             leads_found=0, message="Direct card has no employer_name set.",
         )
 
-    from vacancysoft.adapters.coresignal import CoresignalAdapter
-    adapter = CoresignalAdapter()
-    days_back = max(int(req.days_back), 1)
-    since = _dt.now(_tz.utc) - _td(days=days_back)
-    config = {
-        "api_key": api_key,
-        "company_filter": employer,
-        "use_full_taxonomy": True,
-        "use_preview": True,
-        "max_age_days": days_back,
-    }
-
+    from vacancysoft.intelligence.aggregator_company_preview import fetch_company_leads
     try:
-        page = await adapter.discover(config, since=since)
-    except Exception as e:  # adapter-level failure — surface as preview error
+        result = await fetch_company_leads(employer, req.days_back)
+    except Exception as e:
         return AddCompanyUpdatePreviewResponse(
             status="error", source_id=req.source_id, employer_name=employer,
-            leads_found=0, message=f"Preview failed: {type(e).__name__}: {e}",
+            leads_found=0,
+            message=f"Preview failed: {type(e).__name__}: {e}",
         )
 
-    # Dedup against external_job_ids already stored for any Coresignal source
-    # that covers this employer. Skip dedup silently on any DB error.
+    # Dedup against existing RawJobs for this employer. Two indexes:
+    # external_job_ids (for adapters that emit stable IDs — CoreSignal,
+    # eFC) and discovered_urls (for adapters where IDs aren't reliable
+    # cross-call — Adzuna, Google Jobs). Errors here are non-fatal — we
+    # just skip the dedup and return everything.
     seen_external_ids: set[str] = set()
+    seen_urls: set[str] = set()
     try:
         from vacancysoft.db.models import RawJob
+        from vacancysoft.api.ledger import _AGGREGATOR_ADAPTERS as _AGG
         with SessionLocal() as s:
-            coresignal_source_ids = [r[0] for r in s.execute(
+            agg_source_ids = [r[0] for r in s.execute(
                 select(Source.id).where(
-                    Source.adapter_name == "coresignal",
+                    Source.adapter_name.in_(_AGG),
                     func.lower(Source.employer_name) == employer.lower(),
                 )
             ).all()]
-            if coresignal_source_ids:
-                rows = s.execute(
-                    select(RawJob.external_job_id).where(
-                        RawJob.source_id.in_(coresignal_source_ids),
-                        RawJob.external_job_id.is_not(None),
+            if agg_source_ids:
+                ext_rows = s.execute(
+                    select(RawJob.external_job_id, RawJob.discovered_url).where(
+                        RawJob.source_id.in_(agg_source_ids),
                     )
                 ).all()
-                seen_external_ids = {r[0] for r in rows if r[0]}
+                seen_external_ids = {r[0] for r in ext_rows if r[0]}
+                seen_urls = {r[1] for r in ext_rows if r[1]}
     except Exception:
         pass
 
-    leads: list[AddCompanyUpdateLead] = []
-    for j in page.jobs:
-        ext = j.external_job_id or ""
-        if ext and ext in seen_external_ids:
+    leads_out: list[AddCompanyUpdateLead] = []
+    for lead in result.leads:
+        if lead.external_id and lead.external_id in seen_external_ids:
             continue
-        summary = j.summary_raw
-        leads.append(AddCompanyUpdateLead(
-            external_id=ext,
-            title=j.title_raw or "",
-            company=(j.provenance or {}).get("company"),
-            location=j.location_raw,
-            url=_best_lead_url(j.listing_payload, j.apply_url or j.discovered_url),
-            posted_at=j.posted_at_raw,
-            summary=summary[:300] if summary else None,
+        if lead.url and lead.url in seen_urls:
+            continue
+        leads_out.append(AddCompanyUpdateLead(
+            external_id=lead.external_id,
+            title=lead.title,
+            company=lead.company,
+            location=lead.location,
+            url=lead.url,
+            posted_at=lead.posted_at,
+            summary=lead.summary,
+            source_adapter=lead.source_adapter,
         ))
 
-    if not leads:
+    if not leads_out:
         return AddCompanyUpdatePreviewResponse(
             status="no_jobs", source_id=req.source_id, employer_name=employer,
             leads_found=0,
-            message=f"No new CoreSignal leads found for {employer} in the last {days_back} days.",
+            message=(
+                f"No new leads for {employer} across "
+                f"{result.attempted - len(result.errored)} aggregator(s)."
+            ),
+            aggregators_errored=result.errored,
+            aggregators_attempted=result.attempted,
         )
 
     return AddCompanyUpdatePreviewResponse(
         status="ready", source_id=req.source_id, employer_name=employer,
-        leads_found=len(leads), leads=leads,
-        message=f"Found {len(leads)} new potential leads for {employer}.",
+        leads_found=len(leads_out), leads=leads_out,
+        message=f"Found {len(leads_out)} new potential leads for {employer}.",
+        aggregators_errored=result.errored,
+        aggregators_attempted=result.attempted,
     )
 
 
@@ -866,18 +875,29 @@ async def add_company_update_commit_selected(req: AddCompanyUpdateCommitSelected
         buckets["ny" if _is_ny_location(lead.location) else "uk"].append(_record_for(lead))
 
     persisted = 0
+    inserted_raw_job_ids: list[str] = []
     with SessionLocal() as s:
+        from vacancysoft.db.models import RawJob
         for scope, scope_records in buckets.items():
             if not scope_records:
                 continue
             src_obj = s.execute(
                 select(Source).where(Source.id == coresignal_ids[scope])
             ).scalar_one()
-            _, count = persist_discovery_batch(
+            src_run, count = persist_discovery_batch(
                 session=s, source=src_obj, records=scope_records,
                 trigger="add_company_update_selected",
             )
             persisted += count
+            # Capture the RawJobs this run created so we can hand them
+            # back in the response — the modal uses this list to power
+            # the post-commit Undo banner via /add-company/rollback.
+            run_ids = [
+                r[0] for r in s.execute(
+                    select(RawJob.id).where(RawJob.source_run_id == src_run.id)
+                ).all()
+            ]
+            inserted_raw_job_ids.extend(run_ids)
 
     # Run the standard post-discovery pipeline against the new RawJobs
     from vacancysoft.pipelines.enrichment_persistence import enrich_raw_jobs
@@ -920,9 +940,77 @@ async def add_company_update_commit_selected(req: AddCompanyUpdateCommitSelected
         status="ok", source_id=req.source_id, employer_name=employer,
         coresignal_source_ids=source_ids_list,
         leads_added=int(leads_added),
+        raw_job_ids=inserted_raw_job_ids,
         message=(
             f"Added {len(req.leads)} selected lead(s) to {employer} "
             f"({persisted} persisted, {int(leads_added)} scored into core markets). "
             + credit_note
         ),
+    )
+
+
+@router.post("/api/sources/add-company/rollback", response_model=AddCompanyRollbackResponse)
+def add_company_rollback(req: AddCompanyRollbackRequest):
+    """Undo a recent /update-commit-selected.
+
+    Hard-deletes the supplied RawJobs plus their dependents
+    (EnrichedJob, ClassificationResult, ScoreResult, IntelligenceDossier,
+    CampaignOutput, ReviewQueueItem). Same cascade order as /api/agency
+    and the existing source-delete handler.
+
+    Idempotent: repeat calls are no-ops once the rows are gone. The
+    underlying CoreSignal Source rows are NOT deleted — they're
+    employer-scoped and may have other commits behind them. Operator
+    deletes the Source via the existing 'Remove' button if they want
+    to wipe the card entirely.
+    """
+    raw_ids = [rid for rid in (req.raw_job_ids or []) if rid]
+    if not raw_ids:
+        return AddCompanyRollbackResponse(
+            status="ok", deleted=0, message="Nothing to roll back.",
+        )
+
+    from sqlalchemy import delete as sa_delete
+    from vacancysoft.db.models import (
+        CampaignOutput, ClassificationResult, EnrichedJob,
+        IntelligenceDossier, RawJob, ReviewQueueItem, ScoreResult,
+    )
+
+    deleted = 0
+    with SessionLocal() as s:
+        # Resolve the EnrichedJobs hanging off these RawJobs first so
+        # we can cascade their dependents before deleting the RawJobs.
+        ej_ids = [
+            r[0] for r in s.execute(
+                select(EnrichedJob.id).where(EnrichedJob.raw_job_id.in_(raw_ids))
+            ).all()
+        ]
+        if ej_ids:
+            dossier_ids = [
+                r[0] for r in s.execute(
+                    select(IntelligenceDossier.id).where(
+                        IntelligenceDossier.enriched_job_id.in_(ej_ids)
+                    )
+                ).all()
+            ]
+            if dossier_ids:
+                s.execute(sa_delete(CampaignOutput).where(CampaignOutput.dossier_id.in_(dossier_ids)))
+                s.execute(sa_delete(IntelligenceDossier).where(IntelligenceDossier.id.in_(dossier_ids)))
+            s.execute(sa_delete(ReviewQueueItem).where(ReviewQueueItem.enriched_job_id.in_(ej_ids)))
+            s.execute(sa_delete(ScoreResult).where(ScoreResult.enriched_job_id.in_(ej_ids)))
+            s.execute(sa_delete(ClassificationResult).where(ClassificationResult.enriched_job_id.in_(ej_ids)))
+            s.execute(sa_delete(EnrichedJob).where(EnrichedJob.id.in_(ej_ids)))
+
+        result = s.execute(sa_delete(RawJob).where(RawJob.id.in_(raw_ids)))
+        deleted = result.rowcount or 0
+        s.commit()
+
+    clear_ledger_caches()
+    from vacancysoft.api.routes.leads import clear_dashboard_cache
+    clear_dashboard_cache()
+
+    return AddCompanyRollbackResponse(
+        status="ok",
+        deleted=deleted,
+        message=f"Rolled back {deleted} RawJob(s) and their dependents.",
     )

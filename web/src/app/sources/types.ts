@@ -115,6 +115,10 @@ export type AddCompanyUpdateLead = {
   url: string | null;
   posted_at: string | null;
   summary: string | null;
+  // Which aggregator surfaced this row. One of:
+  // 'coresignal' / 'adzuna' / 'efinancialcareers' / 'google_jobs'.
+  // Optional for compatibility with pre-multi-aggregator API responses.
+  source_adapter?: string | null;
 };
 
 export type SourceView = "leads" | "psl" | "no_jobs" | "not_relevant" | "broken" | "all";
