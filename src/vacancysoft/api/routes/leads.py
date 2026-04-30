@@ -286,8 +286,11 @@ def get_dashboard(
 
         # Recent leads — windowed by the `recent_window` query param,
         # core markets only, active sources only, WITH real per-lead score.
-        # 20k row cap on any window so "all" stays browser-renderable while
-        # still letting operators eyeball duplicates across the full set.
+        # 50k row cap on any window so the operator can see the full
+        # dataset (currently ~31k visible) when scanning for duplicates.
+        # Bumped from 20k → 50k 2026-04-30: at 20k the cap was clipping
+        # ~11k of the oldest rows in 'all' mode, which dropped ~190
+        # Op Risk leads off the Live Feed.
         recent_q = (
             select(
                 EnrichedJob.title,
@@ -327,7 +330,7 @@ def get_dashboard(
             recent_q = recent_q.where(EnrichedJob.created_at >= now - timedelta(days=7))
         # window == "all" → no time filter
         recent = s.execute(
-            recent_q.order_by(EnrichedJob.created_at.desc()).limit(20000)
+            recent_q.order_by(EnrichedJob.created_at.desc()).limit(50000)
         ).all()
 
         leads = []
