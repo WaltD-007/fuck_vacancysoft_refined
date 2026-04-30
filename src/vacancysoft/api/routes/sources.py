@@ -90,6 +90,7 @@ def list_sources(country: str | None = None):
             employment_types=card.get("employment_types", {}),
             last_run_status=card["last_run_status"],
             last_run_error=card["last_run_error"],
+            is_psl=card.get("is_psl", False),
         )
         for card in ledger
     ]
@@ -566,3 +567,46 @@ def delete_source(source_id: int):
         s.delete(src)
         s.commit()
     return {"message": f"Removed {name}", "id": source_id}
+
+
+@router.post("/api/sources/{source_id}/psl")
+def add_to_psl(source_id: int):
+    """Mark a source as being on the Preferred Supplier List.
+
+    PSL is an operator-curated flag for BD-targeting purposes — separate
+    from the lead-state buckets (With Leads / No Jobs Found / etc). A
+    PSL-flagged card stays in its native bucket and additionally appears
+    when the operator selects the PSL view on the Sources page.
+    """
+    with SessionLocal() as s:
+        src = s.execute(select(Source).where(Source.id == source_id)).scalar_one_or_none()
+        if not src:
+            raise HTTPException(status_code=404, detail="Source not found")
+        if not src.is_psl:
+            src.is_psl = True
+            s.commit()
+    # Drop the ledger + dashboard caches so the next /api/sources rebuild
+    # reflects the new flag immediately (the source-card payload includes
+    # is_psl per ledger.py).
+    from vacancysoft.api.ledger import clear_ledger_caches
+    from vacancysoft.api.routes.leads import clear_dashboard_cache
+    clear_ledger_caches()
+    clear_dashboard_cache()
+    return {"id": source_id, "is_psl": True}
+
+
+@router.delete("/api/sources/{source_id}/psl")
+def remove_from_psl(source_id: int):
+    """Remove a source from the Preferred Supplier List."""
+    with SessionLocal() as s:
+        src = s.execute(select(Source).where(Source.id == source_id)).scalar_one_or_none()
+        if not src:
+            raise HTTPException(status_code=404, detail="Source not found")
+        if src.is_psl:
+            src.is_psl = False
+            s.commit()
+    from vacancysoft.api.ledger import clear_ledger_caches
+    from vacancysoft.api.routes.leads import clear_dashboard_cache
+    clear_ledger_caches()
+    clear_dashboard_cache()
+    return {"id": source_id, "is_psl": False}

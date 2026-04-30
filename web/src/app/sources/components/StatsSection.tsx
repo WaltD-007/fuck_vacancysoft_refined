@@ -11,6 +11,7 @@ type Props = {
 
   // Precomputed bucket counts
   withLeadsCount: number;
+  pslCount: number;
   noJobsCount: number;
   notRelevantCount: number;
   brokenCount: number;
@@ -71,6 +72,7 @@ export default function StatsSection({
   stats,
   sources,
   withLeadsCount,
+  pslCount,
   noJobsCount,
   notRelevantCount,
   brokenCount,
@@ -103,9 +105,14 @@ export default function StatsSection({
   if (!stats) return null;
   return (
     <div className="mb-5">
-      <div className="grid grid-cols-6 gap-2 mb-4">
+      <div className="grid grid-cols-7 gap-2 mb-4">
         {[
           { key: "leads" as const, label: "With Leads", count: withLeadsCount, color: "var(--green)" },
+          // PSL = Preferred Supplier List. Operator-curated for BD targeting;
+          // a card stays in its native bucket and additionally appears here.
+          // Purple matches the BD / accent theme and differentiates from
+          // the green / amber / red of the lead-state buckets.
+          { key: "psl" as const, label: "PSL", count: pslCount, color: "#a29bfe" },
           { key: "no_jobs" as const, label: "No Jobs Found", count: noJobsCount, color: "var(--amber)" },
           { key: "not_relevant" as const, label: "Not Relevant", count: notRelevantCount, color: "var(--text-secondary)" },
           { key: "broken" as const, label: "Broken", count: brokenCount, color: "var(--red)" },

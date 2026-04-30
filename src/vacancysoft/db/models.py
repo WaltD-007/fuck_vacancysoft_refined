@@ -38,6 +38,12 @@ class Source(Base):
     ats_family: Mapped[str | None] = mapped_column(String(64), nullable=True)
     adapter_name: Mapped[str] = mapped_column(String(100))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Preferred Supplier List flag. Operator-curated: marked via the
+    # 'Add PSL' button on the Sources page card. Orthogonal to the
+    # lead-state buckets (With Leads / No Jobs Found / etc.) — a card
+    # stays in its native bucket and additionally appears when the
+    # operator selects the PSL view. See migration 0017.
+    is_psl: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     seed_type: Mapped[str] = mapped_column(String(64), default="manual_seed")
     discovery_method: Mapped[str | None] = mapped_column(String(128), nullable=True)
     fingerprint: Mapped[str] = mapped_column(String(255), index=True)

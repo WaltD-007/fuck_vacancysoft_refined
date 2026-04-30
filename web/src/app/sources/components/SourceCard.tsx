@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
 import { safeHref } from "../../lib/safe";
@@ -101,6 +102,40 @@ export default function SourceCard({
   apiBase,
 }: Props) {
   const isExpanded = expandedSource === src.id;
+  // PSL toggle state — local optimistic flag so the button reflects
+  // the click instantly while the POST/DELETE round-trips. Reconciled
+  // back to src.is_psl on the next /sources refetch via onAdminAction.
+  const [optimisticPsl, setOptimisticPsl] = useState<boolean | null>(null);
+  const [pslPending, setPslPending] = useState(false);
+  const isPsl = optimisticPsl ?? src.is_psl ?? false;
+
+  const handleTogglePsl = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (pslPending || src.id <= 0) return;
+    const next = !isPsl;
+    setPslPending(true);
+    setOptimisticPsl(next);
+    try {
+      const res = await fetch(`${apiBase}/sources/${src.id}/psl`, {
+        method: next ? "POST" : "DELETE",
+      });
+      if (!res.ok) {
+        // Revert optimistic state on server error so the button reflects
+        // the real DB state.
+        setOptimisticPsl(!next);
+      } else {
+        // Tell the parent to refetch /sources so the PSL tile counter
+        // and view filter pick up the change. Once the refetch lands,
+        // src.is_psl will match optimisticPsl and we can stop overriding.
+        onAdminAction?.();
+      }
+    } catch {
+      setOptimisticPsl(!next);
+    } finally {
+      setPslPending(false);
+    }
+  };
+
   return (
     <div
       // `col-span-2` on expansion — the card stretches to double width
@@ -163,6 +198,25 @@ export default function SourceCard({
                     &#9881; Diagnose
                   </button>
                 )
+              )}
+              {/* PSL toggle — only meaningful for cards with a real
+                  Source row backing them. Aggregator-only cards
+                  (card_id<=0) can't be flagged because the endpoint
+                  needs a source_id. Hidden in that case. */}
+              {src.id > 0 && (
+                <button
+                  onClick={handleTogglePsl}
+                  disabled={pslPending}
+                  className="text-[10px] font-semibold px-2 py-0.5 rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                  style={
+                    isPsl
+                      ? { background: "rgba(162,155,254,0.15)", color: "#a29bfe", border: "1px solid rgba(162,155,254,0.5)" }
+                      : { background: "transparent", color: "#a29bfe", border: "1px dashed rgba(162,155,254,0.4)" }
+                  }
+                  title={isPsl ? "Remove from Preferred Supplier List" : "Add to Preferred Supplier List for BD targeting"}
+                >
+                  {isPsl ? "★ On PSL" : "+ Add PSL"}
+                </button>
               )}
               <button
                 onClick={(e) => { e.stopPropagation(); onScrape(src.id); }}
