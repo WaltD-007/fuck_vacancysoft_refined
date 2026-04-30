@@ -400,10 +400,19 @@ export default function SourcesPage() {
   });
   const sortedAggregators = Object.entries(aggregatorCardCounts).sort((a, b) => b[1] - a[1]);
 
-  const filtered = viewFiltered
-    .filter((s) => !adapterFilter || s.adapter_name === adapterFilter)
-    .filter((s) => !aggregatorFilter || (s.aggregator_hits?.[aggregatorFilter] ?? 0) > 0)
-    .filter((s) => !employmentTypeFilter || (s.employment_types?.[employmentTypeFilter] ?? 0) > 0);
+  // Special views ("No Jobs Found", "Broken", "Not Relevant") describe
+  // cards by absence-of-leads or failure state. Applying the adapter /
+  // aggregator / employment-type filters on top would always empty the
+  // list — a no-jobs card has no employment_types or aggregator_hits
+  // to match against. Skip those filters in those views so the rendered
+  // list matches the chip count.
+  const isSpecialView = sourceView === "no_jobs" || sourceView === "broken" || sourceView === "not_relevant";
+  const filtered = isSpecialView
+    ? viewFiltered
+    : viewFiltered
+        .filter((s) => !adapterFilter || s.adapter_name === adapterFilter)
+        .filter((s) => !aggregatorFilter || (s.aggregator_hits?.[aggregatorFilter] ?? 0) > 0)
+        .filter((s) => !employmentTypeFilter || (s.employment_types?.[employmentTypeFilter] ?? 0) > 0);
   // Put recently added source first — `highlightSourceId` (from Add Company) takes
   // priority over `addedSourceId` (from legacy Add Source flow).
   const pinned = highlightSourceId ? sources.find((s) => s.id === highlightSourceId) : null;
