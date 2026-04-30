@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 
 import yaml
@@ -698,11 +699,39 @@ def add_agency_exclusion(company: str) -> bool:
 refresh_runtime_exclusions()
 
 
+def _alphanum_tokens(s: str) -> set[str]:
+    """Tokenise on word boundaries, dropping punctuation. 'McCabe & Barton'
+    and 'McCabe Barton' both yield {mccabe, barton}."""
+    return set(re.findall(r"[a-z0-9]+", s.lower()))
+
+
 def is_recruiter(company: str | None) -> bool:
-    """Return True if the company looks like a recruitment agency."""
+    """Return True if the company looks like a recruitment agency.
+
+    Match order:
+      1. Exact lowercase match against the hardcoded EXCLUDED_RECRUITERS or
+         the runtime YAML exclusions. (Fastest, strictest.)
+      2. Token-subset match against the runtime YAML exclusions. So a YAML
+         entry of 'korn ferry' catches 'Korn Ferry International',
+         'Korn Ferry UK Ltd', etc. Entries are tokenised on alphanumeric
+         word boundaries so 'mccabe & barton' (with the &) still matches
+         'McCabe Barton Recruiting' (without the &). Prevents the common
+         "I marked agency, why are they back?" foot-gun where the next
+         scrape returns a slightly-decorated form of the company name.
+      3. Substring match against RECRUITER_KEYWORDS (the heuristic catch-all
+         like 'recruit', 'staffing', 'talent solutions', etc.).
+    """
     if not company:
         return False
     norm = company.strip().lower()
     if norm in EXCLUDED_RECRUITERS or norm in _RUNTIME_EXCLUSIONS:
         return True
+
+    candidate_tokens = _alphanum_tokens(norm)
+    if candidate_tokens:
+        for entry in _RUNTIME_EXCLUSIONS:
+            entry_tokens = _alphanum_tokens(entry)
+            if entry_tokens and entry_tokens.issubset(candidate_tokens):
+                return True
+
     return any(kw in norm for kw in RECRUITER_KEYWORDS)
