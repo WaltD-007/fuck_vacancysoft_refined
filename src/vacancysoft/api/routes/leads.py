@@ -167,11 +167,18 @@ def get_dashboard(
             .where(Source.active.is_(True))
             .where(RawJob.is_deleted_at_source.is_(False))
         ).scalar() or 0
-        active = s.execute(
-            select(func.count(func.distinct(Source.employer_name)))
-            .where(Source.active.is_(True))
-            .where(Source.adapter_name.notin_(_AGGREGATOR_ADAPTERS))
-        ).scalar() or 0
+        # 'Sources Active' mirrors the Sources page "With Leads" bucket
+        # exactly — one card per employer, counted only if it has at
+        # least one classified core-market lead. Computed off the same
+        # ledger the Sources page reads from. The previous query
+        # (distinct active employer_names, no leads requirement) ran
+        # higher because it also counted active sources that haven't
+        # produced any qualified jobs yet.
+        active = sum(
+            1
+            for card in ledger
+            if sum((card.get("categories") or {}).values()) > 0
+        )
         # Broken count mirrors the Sources page "Broken" bucket exactly so
         # the two screens always agree. A card is broken iff:
         #   1) latest direct run failed, AND
